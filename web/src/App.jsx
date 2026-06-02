@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import "./App.css";
 import {
   createRoom,
   joinRoom,
@@ -7,42 +8,40 @@ import {
   rollDice,
 } from "./firebase/rooms";
 
-import "./App.css";
-import { createRoom, joinRoom, subscribeRoom, startGame } from "./firebase/rooms";
-
-
-
 function getPlayerId() {
-  const key = "snake_player_id";
+  const key = "playerId";
   let id = localStorage.getItem(key);
   if (!id) {
-    id = "p_" + Math.random().toString(36).slice(2, 10);
+    id = `p_${Math.random().toString(36).slice(2, 10)}`;
     localStorage.setItem(key, id);
   }
   return id;
 }
 
 export default function App() {
-  const [roomId, setRoomId] = useState("");
-  const [joinId, setJoinId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  const [roomId, setRoomId] = useState("");
+  const [joinId, setJoinId] = useState("");
   const [joined, setJoined] = useState("");
 
   const [activeRoomId, setActiveRoomId] = useState("");
   const [roomData, setRoomData] = useState(null);
 
+  const playerId = getPlayerId();
+  const isMyTurn =
+    roomData?.status === "playing" && roomData?.currentTurn === playerId;
 
   const onCreateRoom = async () => {
     setLoading(true);
     setError("");
-    setJoined("");
     try {
-      const playerId = getPlayerId();
-      const newRoomId = await createRoom(playerId);
-      setRoomId(newRoomId);
-      setActiveRoomId(newRoomId);
-
+      const id = await createRoom(playerId);
+      setRoomId(id);
+      setJoinId(id);
+      setJoined(id);
+      setActiveRoomId(id);
     } catch (e) {
       setError(e.message || "Failed to create room");
     } finally {
@@ -54,13 +53,10 @@ export default function App() {
     if (!joinId.trim()) return;
     setLoading(true);
     setError("");
-    setJoined("");
     try {
-      const playerId = getPlayerId();
       await joinRoom(joinId.trim(), playerId);
       setJoined(joinId.trim());
       setActiveRoomId(joinId.trim());
-
     } catch (e) {
       setError(e.message || "Failed to join room");
     } finally {
@@ -69,25 +65,42 @@ export default function App() {
   };
 
   const onStartGame = async () => {
-  if (!activeRoomId) return;
-  setLoading(true);
-  setError("");
-  try {
-    const playerId = getPlayerId();
-    await startGame(activeRoomId, playerId);
-  } catch (e) {
-    setError(e.message || "Failed to start game");
-  } finally {
-    setLoading(false);
-  }
-};
+    if (!activeRoomId) return;
+    setLoading(true);
+    setError("");
+    try {
+      await startGame(activeRoomId, playerId);
+    } catch (e) {
+      setError(e.message || "Failed to start game");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  
+  const onRollDice = async () => {
+    if (!activeRoomId) return;
+    setLoading(true);
+    setError("");
+    try {
+      await rollDice(activeRoomId, playerId);
+    } catch (e) {
+      setError(e.message || "Failed to roll dice");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-  if (!activeRoomId) return;
-  const unsub = subscribeRoom(activeRoomId, setRoomData);
-  return () => unsub();
-}, [activeRoomId]);
+    if (!activeRoomId) return;
+
+    const unsub = subscribeRoom(activeRoomId, (room) => {
+      setRoomData(room);
+    });
+
+    return () => {
+      if (typeof unsub === "function") unsub();
+    };
+  }, [activeRoomId]);
 
   return (
     <div style={{ padding: 24 }}>
@@ -121,23 +134,34 @@ export default function App() {
       )}
 
       {roomData && (
-      <div style={{ marginTop: 16 }}>
-      <h3>Live Room</h3>
-      <p><b>ID:</b> {roomData.id}</p>
-      <p><b>Status:</b> {roomData.status}</p>
-      <p><b>Host:</b> {roomData.hostId}</p>
-      <p><b>Current Turn:</b> {roomData.currentTurn}</p>
-      <p><b>Players:</b> {roomData.players?.join(", ")}</p>
-    </div>
-  )}
+        <div style={{ marginTop: 16 }}>
+          <h3>Live Room</h3>
+          <p><b>ID:</b> {roomData.id}</p>
+          <p><b>Status:</b> {roomData.status}</p>
+          <p><b>Host:</b> {roomData.hostId}</p>
+          <p><b>Current Turn:</b> {roomData.currentTurn}</p>
+          <p><b>Players:</b> {roomData.players?.join(", ")}</p>
+        </div>
+      )}
 
-  {roomData?.status === "waiting" && (
-  <button onClick={onStartGame} disabled={loading} style={{ marginTop: 8 }}>
-    Start Game
-  </button>
-)}
+      {roomData?.status === "waiting" && (
+        <button onClick={onStartGame} disabled={loading} style={{ marginTop: 8 }}>
+          Start Game
+        </button>
+      )}
 
+      {isMyTurn && (
+        <button onClick={onRollDice} disabled={loading} style={{ marginTop: 8, marginLeft: 8 }}>
+          Roll Dice
+        </button>
+      )}
 
+      {roomData?.lastDice != null && (
+        <p style={{ marginTop: 8 }}>
+          <b>Last Dice:</b> {roomData.lastDice}
+          {roomData?.lastRolledBy ? ` (by ${roomData.lastRolledBy})` : ""}
+        </p>
+      )}
 
       {error && <p style={{ color: "red" }}>{error}</p>}
     </div>
