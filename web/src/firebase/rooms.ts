@@ -35,20 +35,28 @@ export type Room = {
 
 const SNAKES_LADDERS: Record<number, number> = {
   // Ladders
-  3: 22,
-  21: 41,
-  34: 48,
-  42: 59,
-  54: 75,
-  71: 91,
+  8: 26,
+  19: 38,
+  28: 53,
+  21: 82,
+  36: 57,
+  43: 77,
+  50: 91,
+  54: 88,
+  61: 99,
+  62: 95,
 
   // Snakes
-  32: 10,
-  49: 11,
-  62: 19,
-  64: 42,
-  83: 14,
-  88: 53,
+  46: 15,
+  48: 9,
+  52: 11,
+  59: 18,
+  64: 24,
+  68: 2,
+  69: 33,
+  83: 22,
+  89: 51,
+  93: 37,
   98: 13,
 };
 
@@ -110,7 +118,7 @@ export async function startGame(roomId: string, playerId: string) {
 
   await updateDoc(roomRef, {
     status: "countdown",
-    countdownEndsAt: Date.now() + 5000, // 5 seconds
+    countdownEndsAt: Date.now() + 5000,
     updatedAt: serverTimestamp(),
   });
 }
@@ -129,7 +137,8 @@ export async function finalizeGameStart(roomId: string) {
   await updateDoc(roomRef, {
     status: "playing",
     currentTurn: room.players[0],
-    positions: Object.fromEntries((room.players || []).map((p) => [p, 0])),
+    // FIXED: Initialize positions at 1 instead of 0
+    positions: Object.fromEntries((room.players || []).map((p) => [p, 1])),
     lastDice: null,
     lastRolledBy: null,
     lastFrom: null,
@@ -155,7 +164,10 @@ export async function rollDice(roomId: string, playerId: string) {
     const currentIndex = players.indexOf(playerId);
     const nextTurn = players[(currentIndex + 1) % players.length];
     
-    const currentPos = room.positions?.[playerId] ?? 0;
+    // FIXED: Fallback to 1 instead of 0
+    const currentPos = room.positions?.[playerId] ?? 1;
+    
+    // Calculate new position naturally (e.g. pos 1 + roll 3 = pos 4)
     const movedPos = Math.min(100, currentPos + dice);
     const newPos = SNAKES_LADDERS[movedPos] ?? movedPos;
     const finished = newPos >= 100;

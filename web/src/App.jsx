@@ -12,6 +12,7 @@ import {
   subscribeMessages,
 } from "./firebase/rooms";
 import Dice from "./components/Dice";
+import Board from "./components/Board";
 
 function getPlayerId() {
   const key = "playerId";
@@ -33,6 +34,13 @@ export default function App() {
 
   const [activeRoomId, setActiveRoomId] = useState("");
   const [roomData, setRoomData] = useState(null);
+
+  // State for delayed board token updates
+  const [displayPositions, setDisplayPositions] = useState({});
+
+  // Refs for precise animation timing and state buffering
+  const diceFinishedRef = useRef(false);
+  const pendingPositionsRef = useRef(null);
 
   const [jumpMessage, setJumpMessage] = useState("");
   const prevRoomRef = useRef(null);
@@ -136,12 +144,24 @@ export default function App() {
     setShowEmojiPicker(false);
   };
 
+  // Callback triggered by Dice.jsx exactly when the spin animation completes
+  const handleRollComplete = () => {
+    diceFinishedRef.current = true;
+    
+    // Instantly pass the new positions down so the Board can start its stepping animation!
+    if (pendingPositionsRef.current) {
+      setDisplayPositions(pendingPositionsRef.current);
+    }
+  };
+
   useEffect(() => {
     if (!activeRoomId) return;
 
     setJumpMessage("");
     prevRoomRef.current = null;
     lastProcessedMoveRef.current = "";
+    
+    setDisplayPositions({});
 
     const unsub = subscribeRoom(activeRoomId, (room) => {
       setRoomData(room);
@@ -160,6 +180,11 @@ export default function App() {
 
     const prev = prevRoomRef.current;
 
+    // Immediately sync positions if joining a game already in progress
+    if (!prev && roomData.positions) {
+      setDisplayPositions(roomData.positions);
+    }
+
     if (
       prev &&
       roomData.lastDice != null &&
@@ -172,26 +197,36 @@ export default function App() {
 
       if (lastProcessedMoveRef.current === moveKey) {
         prevRoomRef.current = roomData;
-        return;
-      }
-
-      const pid = roomData.lastRolledBy;
-      const from = roomData.lastFrom ?? 0;
-      const to = roomData.positions?.[pid] ?? from;
-      const movedTo = Math.min(100, from + roomData.lastDice);
-
-      if (to > movedTo) {
-        setJumpMessage(`🪜 Ladder! ${movedTo} → ${to}`);
-      } else if (to < movedTo) {
-        setJumpMessage(`🐍 Snake! ${movedTo} → ${to}`);
       } else {
-        setJumpMessage("");
-      }
+        const pid = roomData.lastRolledBy;
+        const from = roomData.lastFrom ?? 1;
+        const to = roomData.positions?.[pid] ?? from;
+        const movedTo = Math.min(100, from + roomData.lastDice);
 
-      lastProcessedMoveRef.current = moveKey;
+        if (to > movedTo) {
+          setJumpMessage(`🪜 Ladder! ${movedTo} → ${to}`);
+        } else if (to < movedTo) {
+          setJumpMessage(`🐍 Snake! ${movedTo} → ${to}`);
+        } else {
+          setJumpMessage("");
+        }
+
+        lastProcessedMoveRef.current = moveKey;
+      }
+    } else if (prev && !roomData.lastDice && roomData.positions) {
+      // Catch-all to ensure board resets immediately if a new game starts
+      setDisplayPositions(roomData.positions);
     }
 
     prevRoomRef.current = roomData;
+
+    // Store positions as pending. 
+    // The Dice component triggers the actual UI update via handleRollComplete.
+    if (roomData?.positions) {
+      pendingPositionsRef.current = roomData.positions;
+      diceFinishedRef.current = false;
+    }
+
   }, [roomData]);
 
   useEffect(() => {
@@ -210,6 +245,7 @@ export default function App() {
         finalizeCalledRef.current = true;
         try {
           await finalizeGameStart(roomData.id);
+          setDisplayPositions(roomData?.positions || {});
         } catch (_) {}
       }
     };
@@ -285,11 +321,20 @@ export default function App() {
                   .join(" | ")
               : "N/A"}
           </p>
+
+          {roomData.positions && (
+            <Board
+              key={activeRoomId}
+              positions={displayPositions}
+              playerNames={roomData?.playerNames || {}}
+              roomData={roomData}
+            />
+          )}
         </div>
       )}
 
       {roomData?.status === "finished" && roomData?.winnerId && (
-        <p style={{ color: "green", fontWeight: "bold" }}>
+        <p style={{ color: "green", fontWeight: "bold", fontSize: 24 }}>
           Winner: {getName(roomData.winnerId)} 🎉
         </p>
       )}
@@ -309,15 +354,13 @@ export default function App() {
         </div>
       )}
 
-      {/* Added rollKey to ensure identical consecutive rolls trigger animation */}
       {roomData?.status === "playing" && (
         <Dice
           onRoll={onRollDice}
           disabled={loading || !isMyTurn}
           lastDice={roomData?.lastDice}
-          lastRolledBy={roomData?.lastRolledBy}
-          playerId={playerId}
           rollKey={`${roomData?.lastRolledBy}-${roomData?.updatedAt?.seconds}`}
+          onRollComplete={handleRollComplete}
         />
       )}
 
