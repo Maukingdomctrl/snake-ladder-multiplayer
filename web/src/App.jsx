@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import EmojiPicker from "emoji-picker-react";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "./firebase/index";
 import "./App.css";
 import {
   createRoom,
@@ -13,6 +15,9 @@ import {
 } from "./firebase/rooms";
 import Dice from "./components/Dice";
 import Board from "./components/Board";
+
+// The curated palette of token colors
+const COLORS = ["#e74c3c","#3498db","#2ecc71","#f1c40f","#9b59b6","#e67e22","#1abc9c","#e91e63"];
 
 function getPlayerId() {
   const key = "playerId";
@@ -35,10 +40,9 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState("");
   const [roomData, setRoomData] = useState(null);
 
-  // State for delayed board token updates
   const [displayPositions, setDisplayPositions] = useState({});
+  const [diceComplete, setDiceComplete] = useState(false);
 
-  // Refs for precise animation timing and state buffering
   const diceFinishedRef = useRef(false);
   const pendingPositionsRef = useRef(null);
 
@@ -49,7 +53,6 @@ export default function App() {
   const [countdown, setCountdown] = useState(null);
   const finalizeCalledRef = useRef(false);
 
-  // Chat States
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -60,15 +63,40 @@ export default function App() {
     localStorage.getItem("playerName") || ""
   );
 
+  // Color Picker State
+  const [playerColor, setPlayerColor] = useState(
+    localStorage.getItem("playerColor") || COLORS[0]
+  );
+
   const isMyTurn =
     roomData?.status === "playing" && roomData?.currentTurn === playerId;
 
   const getName = (pid) => roomData?.playerNames?.[pid] || pid;
   const currentTurnName = roomData?.currentTurn ? getName(roomData.currentTurn) : "";
 
+  // Derive which colors are currently claimed in the active room
+  const takenColors = Object.values(roomData?.playerColors || {});
+
   useEffect(() => {
     localStorage.setItem("playerName", playerName);
   }, [playerName]);
+
+  useEffect(() => {
+    localStorage.setItem("playerColor", playerColor);
+  }, [playerColor]);
+
+  const onPickColor = async (color) => {
+    setPlayerColor(color);
+    if (activeRoomId) {
+      try {
+        await updateDoc(doc(db, "rooms", activeRoomId), {
+          [`playerColors.${playerId}`]: color
+        });
+      } catch (err) {
+        console.error("Failed to update color:", err);
+      }
+    }
+  };
 
   const onCreateRoom = async () => {
     if (!playerName.trim()) {
@@ -79,7 +107,7 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      const id = await createRoom(playerId, playerName.trim());
+      const id = await createRoom(playerId, playerName.trim(), playerColor);
       setRoomId(id);
       setJoinId(id);
       setJoined(id);
@@ -101,7 +129,7 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      await joinRoom(joinId.trim(), playerId, playerName.trim());
+      await joinRoom(joinId.trim(), playerId, playerName.trim(), playerColor);
       setJoined(joinId.trim());
       setActiveRoomId(joinId.trim());
     } catch (e) {
@@ -144,14 +172,9 @@ export default function App() {
     setShowEmojiPicker(false);
   };
 
-  // Callback triggered by Dice.jsx exactly when the spin animation completes
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
-    
-    // Instantly pass the new positions down so the Board can start its stepping animation!
-    if (pendingPositionsRef.current) {
-      setDisplayPositions(pendingPositionsRef.current);
-    }
+    setTimeout(() => setDiceComplete(true), 2000);
   };
 
   useEffect(() => {
@@ -180,7 +203,6 @@ export default function App() {
 
     const prev = prevRoomRef.current;
 
-    // Immediately sync positions if joining a game already in progress
     if (!prev && roomData.positions) {
       setDisplayPositions(roomData.positions);
     }
@@ -214,17 +236,16 @@ export default function App() {
         lastProcessedMoveRef.current = moveKey;
       }
     } else if (prev && !roomData.lastDice && roomData.positions) {
-      // Catch-all to ensure board resets immediately if a new game starts
       setDisplayPositions(roomData.positions);
     }
 
     prevRoomRef.current = roomData;
 
-    // Store positions as pending. 
-    // The Dice component triggers the actual UI update via handleRollComplete.
     if (roomData?.positions) {
       pendingPositionsRef.current = roomData.positions;
+      setDisplayPositions(roomData.positions); 
       diceFinishedRef.current = false;
+      setDiceComplete(false);
     }
 
   }, [roomData]);
@@ -261,14 +282,15 @@ export default function App() {
       
       <p><b>You are:</b> {playerId}</p>
       
-      <input
-        placeholder="Enter your name (e.g. Mau)"
-        value={playerName}
-        onChange={(e) => setPlayerName(e.target.value)}
-        style={{ marginBottom: 8 }}
-      />
+      <div style={{ display: "flex", flexDirection: "column", maxWidth: 200, gap: 8, marginBottom: 16 }}>
+        <input
+          placeholder="Enter your name (e.g. Mau)"
+          value={playerName}
+          onChange={(e) => setPlayerName(e.target.value)}
+        />
+        {/* Note: The old HTML color picker was removed from here */}
+      </div>
 
-      <br />
       <button onClick={onCreateRoom} disabled={loading}>
         {loading ? "Please wait..." : "Create Room"}
       </button>
@@ -322,12 +344,43 @@ export default function App() {
               : "N/A"}
           </p>
 
+          {/* New Interactive Lobby Color Picker */}
+          {roomData?.status === "waiting" && (
+            <div style={{ margin: "16px 0", padding: "16px", background: "#f3f4f6", borderRadius: "8px" }}>
+              <p style={{ marginTop: 0 }}><b>Pick your color:</b></p>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {COLORS.map(c => {
+                  const taken = takenColors.includes(c) && roomData?.playerColors?.[playerId] !== c;
+                  return (
+                    <div 
+                      key={c} 
+                      onClick={() => !taken && onPickColor(c)}
+                      style={{
+                        width: 32, height: 32, borderRadius: "50%", background: c,
+                        border: playerColor === c ? "3px solid #000" : "2px solid #aaa",
+                        opacity: taken ? 0.3 : 1,
+                        cursor: taken ? "not-allowed" : "pointer",
+                      }}
+                      title={taken ? "Taken" : "Available"}
+                    />
+                  );
+                })}
+              </div>
+              <p style={{ fontSize: 12, color: "#666", marginBottom: 0, marginTop: 12 }}>
+                {Object.entries(roomData?.playerColors || {}).map(([pid, c]) =>
+                  `${roomData?.playerNames?.[pid] || pid}: ${c}`
+                ).join(" | ")}
+              </p>
+            </div>
+          )}
+
           {roomData.positions && (
             <Board
               key={activeRoomId}
               positions={displayPositions}
               playerNames={roomData?.playerNames || {}}
               roomData={roomData}
+              diceComplete={diceComplete}
             />
           )}
         </div>

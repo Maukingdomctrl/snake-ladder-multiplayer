@@ -31,6 +31,7 @@ export type Room = {
   winnerId?: string | null;
   countdownEndsAt?: number | null;
   playerNames?: Record<string, string>;
+  playerColors?: Record<string, string>;
 };
 
 const SNAKES_LADDERS: Record<number, number> = {
@@ -60,7 +61,7 @@ const SNAKES_LADDERS: Record<number, number> = {
   98: 13,
 };
 
-export async function createRoom(hostId: string, hostName: string) {
+export async function createRoom(hostId: string, hostName: string, hostColor: string) {
   const roomRef = doc(collection(db, "rooms"));
   await setDoc(roomRef, {
     hostId,
@@ -75,11 +76,14 @@ export async function createRoom(hostId: string, hostName: string) {
     playerNames: {
       [hostId]: hostName || hostId,
     },
+    playerColors: {
+      [hostId]: hostColor,
+    },
   });
   return roomRef.id;
 }
 
-export async function joinRoom(roomId: string, playerId: string, playerName: string) {
+export async function joinRoom(roomId: string, playerId: string, playerName: string, playerColor: string) {
   const roomRef = doc(db, "rooms", roomId);
   const snap = await getDoc(roomRef);
   if (!snap.exists()) throw new Error("Room not found");
@@ -94,6 +98,7 @@ export async function joinRoom(roomId: string, playerId: string, playerName: str
   await updateDoc(roomRef, {
     players: arrayUnion(playerId),
     [`playerNames.${playerId}`]: playerName || playerId,
+    [`playerColors.${playerId}`]: playerColor,
     updatedAt: serverTimestamp(),
   });
 }
@@ -137,7 +142,6 @@ export async function finalizeGameStart(roomId: string) {
   await updateDoc(roomRef, {
     status: "playing",
     currentTurn: room.players[0],
-    // FIXED: Initialize positions at 1 instead of 0
     positions: Object.fromEntries((room.players || []).map((p) => [p, 1])),
     lastDice: null,
     lastRolledBy: null,
@@ -164,10 +168,8 @@ export async function rollDice(roomId: string, playerId: string) {
     const currentIndex = players.indexOf(playerId);
     const nextTurn = players[(currentIndex + 1) % players.length];
     
-    // FIXED: Fallback to 1 instead of 0
     const currentPos = room.positions?.[playerId] ?? 1;
     
-    // Calculate new position naturally (e.g. pos 1 + roll 3 = pos 4)
     const movedPos = Math.min(100, currentPos + dice);
     const newPos = SNAKES_LADDERS[movedPos] ?? movedPos;
     const finished = newPos >= 100;
