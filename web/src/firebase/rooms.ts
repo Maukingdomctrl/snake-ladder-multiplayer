@@ -10,6 +10,7 @@ import {
   updateDoc,
   query,
   orderBy,
+  runTransaction,
 } from "firebase/firestore";
 import { db } from "./index";
 
@@ -140,45 +141,42 @@ export async function finalizeGameStart(roomId: string) {
 
 export async function rollDice(roomId: string, playerId: string) {
   const roomRef = doc(db, "rooms", roomId);
-  const snap = await getDoc(roomRef);
-  if (!snap.exists()) throw new Error("Room not found");
-
-  const room = snap.data() as Room;
-  if (room.status !== "playing") throw new Error("Game is not playing");
-  if (room.currentTurn !== playerId) throw new Error("Not your turn");
-
-  const players = room.players || [];
-  if (players.length < 2) throw new Error("Need at least 2 players");
-
-  const dice = Math.floor(Math.random() * 6) + 1;
-  const currentIndex = players.indexOf(playerId);
-  const nextIndex = (currentIndex + 1) % players.length;
-  const nextTurn = players[nextIndex];
-
-  const currentPos = room.positions?.[playerId] ?? 0;
-  const movedPos = Math.min(100, currentPos + dice);
-  const jumpedPos = SNAKES_LADDERS[movedPos] ?? movedPos;
-  const newPos = jumpedPos;
-  const finished = newPos >= 100;
-
-  await updateDoc(roomRef, {
-    [`positions.${playerId}`]: newPos,
-    currentTurn: finished ? playerId : nextTurn,
-    status: finished ? "finished" : "playing",
-    winnerId: finished ? playerId : null,
-    lastDice: dice,
-    lastRolledBy: playerId,
-    lastFrom: currentPos,
-    updatedAt: serverTimestamp(),
+  
+  const dice = await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(roomRef);
+    if (!snap.exists()) throw new Error("Room not found");
+    
+    const room = snap.data() as Room;
+    if (room.status !== "playing") throw new Error("Game is not playing");
+    if (room.currentTurn !== playerId) throw new Error("Not your turn");
+    
+    const players = room.players || [];
+    const dice = Math.floor(Math.random() * 6) + 1;
+    const currentIndex = players.indexOf(playerId);
+    const nextTurn = players[(currentIndex + 1) % players.length];
+    
+    const currentPos = room.positions?.[playerId] ?? 0;
+    const movedPos = Math.min(100, currentPos + dice);
+    const newPos = SNAKES_LADDERS[movedPos] ?? movedPos;
+    const finished = newPos >= 100;
+    
+    transaction.update(roomRef, {
+      [`positions.${playerId}`]: newPos,
+      currentTurn: finished ? playerId : nextTurn,
+      status: finished ? "finished" : "playing",
+      winnerId: finished ? playerId : null,
+      lastDice: dice,
+      lastRolledBy: playerId,
+      lastFrom: currentPos,
+      updatedAt: serverTimestamp(),
+    });
+    
+    return dice;
   });
 
   await addDoc(collection(db, "rooms", roomId, "moves"), {
     playerId,
     dice,
-    from: currentPos,
-    movedTo: movedPos,
-    finalTo: newPos,
-    jumped: jumpedPos !== movedPos,
     at: serverTimestamp(),
   });
 

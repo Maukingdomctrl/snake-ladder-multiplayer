@@ -41,7 +41,7 @@ export default function App() {
   const [countdown, setCountdown] = useState(null);
   const finalizeCalledRef = useRef(false);
 
-  // New Chat States
+  // Chat States
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -176,7 +176,6 @@ export default function App() {
       }
 
       const pid = roomData.lastRolledBy;
-      // Fixed jump detection using lastFrom
       const from = roomData.lastFrom ?? 0;
       const to = roomData.positions?.[pid] ?? from;
       const movedTo = Math.min(100, from + roomData.lastDice);
@@ -310,12 +309,15 @@ export default function App() {
         </div>
       )}
 
-      {/* Added Dice component replacement here */}
+      {/* Added rollKey to ensure identical consecutive rolls trigger animation */}
       {roomData?.status === "playing" && (
         <Dice
           onRoll={onRollDice}
           disabled={loading || !isMyTurn}
           lastDice={roomData?.lastDice}
+          lastRolledBy={roomData?.lastRolledBy}
+          playerId={playerId}
+          rollKey={`${roomData?.lastRolledBy}-${roomData?.updatedAt?.seconds}`}
         />
       )}
 
@@ -327,7 +329,7 @@ export default function App() {
 
       {error && <p style={{ color: "red" }}>{error}</p>}
 
-      {/* New Chat UI */}
+      {/* Chat UI */}
       {activeRoomId && (
         <div style={{ marginTop: 24, borderTop: "1px solid #ccc", paddingTop: 16 }}>
           <h3>Chat</h3>
