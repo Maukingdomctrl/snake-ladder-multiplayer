@@ -22,12 +22,12 @@ const CELL_COLORS = [
 ];
 
 const SNAKE_STYLES = [
-  { body: '#8E44AD', belly: '#F1C40F' },
-  { body: '#2980B9', belly: '#85C1E9' },
-  { body: '#C0392B', belly: '#17202A' },
-  { body: '#27AE60', belly: '#F1C40F' },
-  { body: '#D35400', belly: '#F39C12' },
-  { body: '#34495E', belly: '#95A5A6' },
+  { body: "#8E44AD", belly: "#F1C40F" },
+  { body: "#2980B9", belly: "#85C1E9" },
+  { body: "#C0392B", belly: "#17202A" },
+  { body: "#27AE60", belly: "#F1C40F" },
+  { body: "#D35400", belly: "#F39C12" },
+  { body: "#34495E", belly: "#95A5A6" },
 ];
 
 const CLUSTER_OFFSETS = [
@@ -44,7 +44,7 @@ function cellToPos(num) {
   const row = 9 - rowFromBottom;
   const col = rowFromBottom % 2 === 0
     ? (num - 1) % 10
-    : 9 - (num - 1) % 10;
+    : 9 - ((num - 1) % 10);
   return { row, col };
 }
 
@@ -113,23 +113,46 @@ function getPointsAlongCurve(from, to, index, cellSize, steps = 16) {
     const t = i / steps;
     const mt = 1 - t;
     points.push({
-      x: mt*mt*mt*a.x + 3*mt*mt*t*cp1x + 3*mt*t*t*cp2x + t*t*t*b.x,
-      y: mt*mt*mt*a.y + 3*mt*mt*t*cp1y + 3*mt*t*t*cp2y + t*t*t*b.y,
+      x: mt * mt * mt * a.x + 3 * mt * mt * t * cp1x + 3 * mt * t * t * cp2x + t * t * t * b.x,
+      y: mt * mt * mt * a.y + 3 * mt * mt * t * cp1y + 3 * mt * t * t * cp2y + t * t * t * b.y,
     });
   }
   return points;
 }
 
+// ✅ tablet-aware board sizing helper
+function calculateCellSize() {
+  const availableWidth =
+    window.innerWidth >= 768
+      ? Math.min(window.innerWidth - 380, 560) // 320 chat + gaps
+      : window.innerWidth - 24;
+
+  return Math.floor(Math.min(availableWidth, 560) / 10);
+}
+
 export default function Board({ positions = {}, playerNames = {}, roomData, diceComplete }) {
-  const snakeEntries = useMemo(() => Object.entries(SNAKES).map(([from, to], i) => ({
-    from: Number(from), to: Number(to), index: i
-  })), []);
+  const snakeEntries = useMemo(
+    () =>
+      Object.entries(SNAKES).map(([from, to], i) => ({
+        from: Number(from),
+        to: Number(to),
+        index: i,
+      })),
+    []
+  );
 
-  const ladderEntries = useMemo(() => Object.entries(LADDERS).map(([from, to], i) => ({
-    from: Number(from), to: Number(to), index: i
-  })), []);
+  const ladderEntries = useMemo(
+    () =>
+      Object.entries(LADDERS).map(([from, to], i) => ({
+        from: Number(from),
+        to: Number(to),
+        index: i,
+      })),
+    []
+  );
 
-  const [cellSize, setCellSize] = useState(() => Math.floor(Math.min(window.innerWidth - 24, 560) / 10));
+  // ✅ Dynamically calculate cell size based on viewport width (tablet-aware)
+  const [cellSize, setCellSize] = useState(() => calculateCellSize());
   const boardSize = cellSize * 10;
 
   const [tokenPixels, setTokenPixels] = useState({});
@@ -144,20 +167,20 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     tokenPixelsRef.current = tokenPixels;
   }, [tokenPixels]);
 
-  // Window resize listener
+  // ✅ Window resize listener with same tablet-aware logic
   useEffect(() => {
     const handler = () => {
-      setCellSize(Math.floor(Math.min(window.innerWidth - 24, 560) / 10));
+      setCellSize(calculateCellSize());
     };
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
   }, []);
 
-  // Snap tokens to new positions if the screen is resized
+  // Snap tokens to new scaled positions if the screen is resized or rotated
   useEffect(() => {
     if (prevCellSizeRef.current !== cellSize) {
       const newEntries = {};
-      Object.keys(positions).forEach(pid => {
+      Object.keys(positions).forEach((pid) => {
         newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
       });
       setTokenPixels(newEntries);
@@ -166,44 +189,44 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     }
   }, [cellSize, positions]);
 
-  // Place initial tokens
+  // Place initial tokens when positions load
   useEffect(() => {
     const newEntries = {};
     let hasNew = false;
     Object.keys(positions).forEach((pid) => {
-      if (tokenPixelsRef.current[pid]) return; 
+      if (tokenPixelsRef.current[pid]) return;
       newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
       hasNew = true;
     });
     if (hasNew) {
-      setTokenPixels(prev => ({ ...prev, ...newEntries }));
+      setTokenPixels((prev) => ({ ...prev, ...newEntries }));
     }
   }, [positions, cellSize]);
 
-  // The extracted animation sequence (assigned to ref to avoid stale closures)
+  // The main animation sequence handler
   runAnimationRef.current = (snap) => {
     const pid = snap?.lastRolledBy;
     if (!pid) return;
-    
+
     const lastDice = snap?.lastDice ?? 0;
     if (!lastDice) return;
-    
+
     const moveKey = `${pid}|${lastDice}|${snap?.updatedAt?.seconds}|${snap?.updatedAt?.nanoseconds}`;
     if (lastMoveKeyRef.current === moveKey) return;
     lastMoveKeyRef.current = moveKey;
-    
+
     scheduledTimeoutsRef.current.forEach(clearTimeout);
     scheduledTimeoutsRef.current = [];
-    
+
     const lastFrom = snap?.lastFrom ?? 1;
     const finalPos = snap?.positions?.[pid] ?? 1;
     const movedTo = Math.min(100, lastFrom + lastDice);
     const clusterOffset = getClusterOffset(pid);
-    
+
     const schedule = [];
-    let cursor = 0; // Starts immediately since App.jsx handled the dice delay
+    let cursor = 0;
     const STEP_MS = 300;
-    
+
     for (let s = lastFrom + 1; s <= movedTo; s++) {
       const { row, col } = cellToPos(s);
       schedule.push({
@@ -213,16 +236,16 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
       });
       cursor += STEP_MS;
     }
-    
+
     if (movedTo !== finalPos) {
       const isSnake = finalPos < movedTo;
       const snakeIdx = Object.keys(SNAKES).indexOf(String(movedTo));
       const rawPoints = isSnake
         ? getPointsAlongCurve(movedTo, finalPos, snakeIdx, cellSize)
         : getPointsAlongLine(movedTo, finalPos, cellSize);
-        
-      cursor += 400; // Pause before taking the snake/ladder
-      
+
+      cursor += 400; // Pause briefly before sliding down a snake or up a ladder
+
       rawPoints.forEach((pt) => {
         schedule.push({
           time: cursor,
@@ -232,39 +255,41 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
         cursor += 120;
       });
     }
-    
+
     schedule.forEach(({ time, x, y }) => {
       const id = setTimeout(() => {
-        setTokenPixels(prev => ({ ...prev, [pid]: { x, y } }));
+        setTokenPixels((prev) => ({ ...prev, [pid]: { x, y } }));
       }, time);
       scheduledTimeoutsRef.current.push(id);
     });
-    
+
     const finalPixel = squareToPixel(finalPos, pid, cellSize);
-    scheduledTimeoutsRef.current.push(setTimeout(() => {
-      setTokenPixels(prev => ({ ...prev, [pid]: finalPixel }));
-    }, cursor + 150));
+    scheduledTimeoutsRef.current.push(
+      setTimeout(() => {
+        setTokenPixels((prev) => ({ ...prev, [pid]: finalPixel }));
+      }, cursor + 150)
+    );
   };
 
-  // Buffer the room data silently when it arrives
+  // Buffer the room data silently when it arrives from Firebase
   useEffect(() => {
     const pid = roomData?.lastRolledBy;
     if (!pid) return;
-    
+
     const lastDice = roomData?.lastDice ?? 0;
     if (!lastDice) return;
-    
+
     const moveKey = `${pid}|${lastDice}|${roomData?.updatedAt?.seconds}|${roomData?.updatedAt?.nanoseconds}`;
     if (lastMoveKeyRef.current === moveKey) return;
-    
-    // Store, don't run yet
+
+    // Store it in the ref, don't trigger the animation yet
     pendingRoomDataRef.current = roomData;
   }, [roomData]);
 
-  // Execute the buffered animation only when the dice roll is visually complete
+  // Execute the buffered animation ONLY when the 3D dice roll is visually complete
   useEffect(() => {
     if (!diceComplete || !pendingRoomDataRef.current) return;
-    
+
     const snap = pendingRoomDataRef.current;
     pendingRoomDataRef.current = null;
     runAnimationRef.current?.(snap);
@@ -273,63 +298,73 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
   const playerIds = Object.keys(positions);
 
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      fontFamily: "Arial, sans-serif",
-    }}>
-      <div style={{
-        position: "relative",
-        width: boardSize,
-        height: boardSize,
-        borderRadius: 8,
-        background: "#FFF",
-        boxShadow: "0 12px 36px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.2)",
-        outline: "6px solid #5C2A00",
-        outlineOffset: "2px",
-        overflow: "hidden",
-        userSelect: "none", 
-        WebkitUserSelect: "none" // Added for iOS text-selection suppression
-      }}>
-
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        fontFamily: "inherit",
+      }}
+    >
+      <div
+        style={{
+          position: "relative",
+          width: boardSize,
+          height: boardSize,
+          borderRadius: 8,
+          background: "#FFF",
+          boxShadow: "0 12px 36px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.2)",
+          outline: "6px solid #5C2A00",
+          outlineOffset: "2px",
+          overflow: "hidden", // Prevents iOS scroll bounce revealing background elements
+          userSelect: "none",
+          WebkitUserSelect: "none", // Prevents iOS text-magnifier on rapid taps
+        }}
+      >
         {/* Cells */}
         {Array.from({ length: 100 }, (_, i) => {
           const num = i + 1;
           const { row, col } = cellToPos(num);
           return (
-            <div key={num} style={{
-              position: "absolute",
-              left: col * cellSize,
-              top: row * cellSize,
-              width: cellSize,
-              height: cellSize,
-              background: getCellColor(num),
-              border: "1px solid rgba(0,0,0,0.6)",
-              boxSizing: "border-box",
-            }}>
-              <span style={{
+            <div
+              key={num}
+              style={{
                 position: "absolute",
-                top: 2,
-                left: 4,
-                fontSize: num === 1 ? 11 : 14,
-                fontWeight: 900,
-                color: "#111",
-                textShadow: "1px 1px 0px rgba(255,255,255,0.7)",
-                userSelect: "none", 
-                WebkitUserSelect: "none", // Added for iOS text-selection suppression
-                lineHeight: 1,
-              }}>
+                left: col * cellSize,
+                top: row * cellSize,
+                width: cellSize,
+                height: cellSize,
+                background: getCellColor(num),
+                border: "1px solid rgba(0,0,0,0.6)",
+                boxSizing: "border-box",
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  top: 2,
+                  left: 4,
+                  fontSize: num === 1 ? 11 : 14,
+                  fontWeight: 900,
+                  color: "#111",
+                  textShadow: "1px 1px 0px rgba(255,255,255,0.7)",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  lineHeight: 1,
+                }}
+              >
                 {num === 1 ? "START" : num}
               </span>
             </div>
           );
         })}
 
-        {/* SVG Overlay */}
-        <svg style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 5 }}
-          width={boardSize} height={boardSize}>
-
+        {/* SVG Overlay for Snakes and Ladders */}
+        <svg
+          style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 5 }}
+          width={boardSize}
+          height={boardSize}
+        >
           {ladderEntries.map(({ from, to }) => {
             const a = cellCenter(from, cellSize);
             const b = cellCenter(to, cellSize);
@@ -339,29 +374,96 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
             const nx = -dy / dist;
             const ny = dx / dist;
             const W = 16;
-            const r1a = { x: a.x + nx * W/2, y: a.y + ny * W/2 };
-            const r1b = { x: b.x + nx * W/2, y: b.y + ny * W/2 };
-            const r2a = { x: a.x - nx * W/2, y: a.y - ny * W/2 };
-            const r2b = { x: b.x - nx * W/2, y: b.y - ny * W/2 };
+            const r1a = { x: a.x + (nx * W) / 2, y: a.y + (ny * W) / 2 };
+            const r1b = { x: b.x + (nx * W) / 2, y: b.y + (ny * W) / 2 };
+            const r2a = { x: a.x - (nx * W) / 2, y: a.y - (ny * W) / 2 };
+            const r2b = { x: b.x - (nx * W) / 2, y: b.y - (ny * W) / 2 };
             const rungsCount = Math.floor(dist / 18);
+
             return (
               <g key={`l-${from}`}>
-                <line x1={r1a.x+3} y1={r1a.y+4} x2={r1b.x+3} y2={r1b.y+4} stroke="rgba(0,0,0,0.4)" strokeWidth="6" strokeLinecap="round" />
-                <line x1={r2a.x+3} y1={r2a.y+4} x2={r2b.x+3} y2={r2b.y+4} stroke="rgba(0,0,0,0.4)" strokeWidth="6" strokeLinecap="round" />
-                <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y} stroke="#6E3B16" strokeWidth="6" strokeLinecap="round" />
-                <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y} stroke="#6E3B16" strokeWidth="6" strokeLinecap="round" />
-                <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y} stroke="#A86C3E" strokeWidth="2" strokeDasharray="10 8" opacity="0.6" />
-                <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y} stroke="#A86C3E" strokeWidth="2" strokeDasharray="10 8" opacity="0.6" />
+                <line
+                  x1={r1a.x + 3}
+                  y1={r1a.y + 4}
+                  x2={r1b.x + 3}
+                  y2={r1b.y + 4}
+                  stroke="rgba(0,0,0,0.4)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1={r2a.x + 3}
+                  y1={r2a.y + 4}
+                  x2={r2b.x + 3}
+                  y2={r2b.y + 4}
+                  stroke="rgba(0,0,0,0.4)"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1={r1a.x}
+                  y1={r1a.y}
+                  x2={r1b.x}
+                  y2={r1b.y}
+                  stroke="#6E3B16"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1={r2a.x}
+                  y1={r2a.y}
+                  x2={r2b.x}
+                  y2={r2b.y}
+                  stroke="#6E3B16"
+                  strokeWidth="6"
+                  strokeLinecap="round"
+                />
+                <line
+                  x1={r1a.x}
+                  y1={r1a.y}
+                  x2={r1b.x}
+                  y2={r1b.y}
+                  stroke="#A86C3E"
+                  strokeWidth="2"
+                  strokeDasharray="10 8"
+                  opacity="0.6"
+                />
+                <line
+                  x1={r2a.x}
+                  y1={r2a.y}
+                  x2={r2b.x}
+                  y2={r2b.y}
+                  stroke="#A86C3E"
+                  strokeWidth="2"
+                  strokeDasharray="10 8"
+                  opacity="0.6"
+                />
                 {Array.from({ length: rungsCount }, (_, i) => {
                   const t = (i + 1) / (rungsCount + 1);
                   const rx = a.x + dx * t;
                   const ry = a.y + dy * t;
-                  const rung1 = { x: rx + nx * (W/2 + 2), y: ry + ny * (W/2 + 2) };
-                  const rung2 = { x: rx - nx * (W/2 + 2), y: ry - ny * (W/2 + 2) };
+                  const rung1 = { x: rx + nx * (W / 2 + 2), y: ry + ny * (W / 2 + 2) };
+                  const rung2 = { x: rx - nx * (W / 2 + 2), y: ry - ny * (W / 2 + 2) };
+
                   return (
                     <g key={`rung-${i}`}>
-                      <line x1={rung1.x+1} y1={rung1.y+2} x2={rung2.x+1} y2={rung2.y+2} stroke="rgba(0,0,0,0.4)" strokeWidth="4" />
-                      <line x1={rung1.x} y1={rung1.y} x2={rung2.x} y2={rung2.y} stroke="#8B5A2B" strokeWidth="4" strokeLinecap="round" />
+                      <line
+                        x1={rung1.x + 1}
+                        y1={rung1.y + 2}
+                        x2={rung2.x + 1}
+                        y2={rung2.y + 2}
+                        stroke="rgba(0,0,0,0.4)"
+                        strokeWidth="4"
+                      />
+                      <line
+                        x1={rung1.x}
+                        y1={rung1.y}
+                        x2={rung2.x}
+                        y2={rung2.y}
+                        stroke="#8B5A2B"
+                        strokeWidth="4"
+                        strokeLinecap="round"
+                      />
                     </g>
                   );
                 })}
@@ -386,14 +488,36 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
             const path = `M ${a.x} ${a.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${b.x} ${b.y}`;
             const headAngle = Math.atan2(cp1y - a.y, cp1x - a.x);
             const style = SNAKE_STYLES[index % SNAKE_STYLES.length];
+
             return (
               <g key={`s-${from}`}>
-                <path d={path} stroke="rgba(0,0,0,0.4)" strokeWidth="16" fill="none" strokeLinecap="round" transform="translate(4, 5)" />
+                <path
+                  d={path}
+                  stroke="rgba(0,0,0,0.4)"
+                  strokeWidth="16"
+                  fill="none"
+                  strokeLinecap="round"
+                  transform="translate(4, 5)"
+                />
                 <path d={path} stroke="#111" strokeWidth="18" fill="none" strokeLinecap="round" />
                 <path d={path} stroke={style.body} strokeWidth="14" fill="none" strokeLinecap="round" />
-                <path d={path} stroke={style.belly} strokeWidth="6" strokeDasharray="6 8" fill="none" strokeLinecap="round" opacity="0.8" />
-                <g transform={`translate(${a.x}, ${a.y}) rotate(${headAngle * 180 / Math.PI})`}>
-                  <path d="M -12 0 L -22 -4 M -12 0 L -22 4" stroke="#E74C3C" strokeWidth="2" fill="none" strokeLinecap="round" />
+                <path
+                  d={path}
+                  stroke={style.belly}
+                  strokeWidth="6"
+                  strokeDasharray="6 8"
+                  fill="none"
+                  strokeLinecap="round"
+                  opacity="0.8"
+                />
+                <g transform={`translate(${a.x}, ${a.y}) rotate(${(headAngle * 180) / Math.PI})`}>
+                  <path
+                    d="M -12 0 L -22 -4 M -12 0 L -22 4"
+                    stroke="#E74C3C"
+                    strokeWidth="2"
+                    fill="none"
+                    strokeLinecap="round"
+                  />
                   <ellipse cx="-4" cy="0" rx="14" ry="11" fill={style.body} stroke="#111" strokeWidth="2" />
                   <circle cx="-8" cy="-5" r="3.5" fill="#FFF" stroke="#111" strokeWidth="1" />
                   <circle cx="-8" cy="5" r="3.5" fill="#FFF" stroke="#111" strokeWidth="1" />
@@ -405,47 +529,73 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
           })}
         </svg>
 
-        {/* Tokens */}
+        {/* Player Tokens */}
         {playerIds.map((pid) => {
           const px = tokenPixels[pid];
           if (!px) return null;
+
           return (
-            <div key={pid} style={{
-              position: "absolute",
-              width: 16,
-              height: 16,
-              borderRadius: "50%",
-              background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
-              border: "2px solid #fff",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.6)",
-              left: px.x,
-              top: px.y,
-              zIndex: 20,
-              transition: "left 0.25s ease, top 0.25s ease",
-              pointerEvents: "none",
-              userSelect: "none",
-              WebkitUserSelect: "none" // Added for iOS text-selection suppression
-            }} />
+            <div
+              key={pid}
+              style={{
+                position: "absolute",
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
+                border: "2px solid #fff",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.6)",
+                left: px.x,
+                top: px.y,
+                zIndex: 20,
+                transition: "left 0.25s ease, top 0.25s ease",
+                pointerEvents: "none",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
+            />
           );
         })}
       </div>
 
-      {/* Legend */}
+      {/* Legend Area (Styled with Discord Variables) */}
       {playerIds.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 20, justifyContent: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 12,
+            marginTop: 20,
+            justifyContent: "center",
+            color: "var(--text-primary)",
+          }}
+        >
           {playerIds.map((pid) => (
-            <div key={`legend-${pid}`} style={{
-              display: "flex", alignItems: "center", gap: 8,
-              background: "#FFF", borderRadius: 24, padding: "6px 14px",
-              fontSize: 14, fontWeight: 600, border: "1px solid #ccc",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-            }}>
-              <div style={{
-                width: 14, height: 14, borderRadius: "50%",
-                background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
-              }} />
+            <div
+              key={`legend-${pid}`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: "var(--bg-tertiary)",
+                borderRadius: 24,
+                padding: "6px 14px",
+                fontSize: 14,
+                fontWeight: 600,
+                border: "1px solid var(--border)",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+              }}
+            >
+              <div
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: "50%",
+                  background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
+                }}
+              />
               {playerNames[pid] || pid}
-              <span style={{ color: "#7F8C8D", fontSize: 12, marginLeft: 4 }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 4 }}>
                 (Pos: {positions[pid] ?? 1})
               </span>
             </div>

@@ -9,7 +9,9 @@ export default function Dice({ onRoll, disabled, lastDice, rollKey, onRollComple
   const onRollCompleteRef = useRef(onRollComplete);
   const timeoutsRef = useRef([]);
 
-  useEffect(() => { onRollCompleteRef.current = onRollComplete; }, [onRollComplete]);
+  useEffect(() => {
+    onRollCompleteRef.current = onRollComplete;
+  }, [onRollComplete]);
 
   // Sync face when idle (late join / page reload)
   useEffect(() => {
@@ -36,7 +38,7 @@ export default function Dice({ onRoll, disabled, lastDice, rollKey, onRollComple
     while (t < DURATION) {
       schedule.push(t);
       // gradually increase interval from 80ms to 400ms
-      interval = Math.min(400, interval + (interval * 0.08));
+      interval = Math.min(400, interval + interval * 0.08);
       t += interval;
     }
     // Always end exactly at DURATION
@@ -50,9 +52,11 @@ export default function Dice({ onRoll, disabled, lastDice, rollKey, onRollComple
           setRolling(false);
           onRollCompleteRef.current?.();
         } else {
-          setFace(prev => {
+          setFace((prev) => {
             let next;
-            do { next = Math.floor(Math.random() * 6) + 1; } while (next === prev);
+            do {
+              next = Math.floor(Math.random() * 6) + 1;
+            } while (next === prev);
             return next;
           });
         }
@@ -67,11 +71,27 @@ export default function Dice({ onRoll, disabled, lastDice, rollKey, onRollComple
   }, [rollKey, lastDice]);
 
   return (
-    <div style={{ marginTop: 8, marginLeft: 8, display: "flex", alignItems: "center", gap: 12 }}>
-      <div style={{ fontSize: 48, lineHeight: 1, opacity: disabled && !rolling ? 0.5 : 1 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+      <div
+        style={{
+          fontSize: 56,
+          lineHeight: 1,
+          opacity: disabled && !rolling ? 0.4 : 1,
+          filter: rolling ? "drop-shadow(0 0 8px var(--accent))" : "none",
+          transition: "filter 0.2s, opacity 0.2s",
+          userSelect: "none",
+        }}
+      >
         {diceFaces[face - 1]}
       </div>
-      <button onClick={async () => { if (!disabled && !rolling) await onRoll(); }} disabled={disabled || rolling}>
+      <button
+        className="btn-primary"
+        onClick={async () => {
+          if (!disabled && !rolling) await onRoll();
+        }}
+        disabled={disabled || rolling}
+        style={{ minHeight: 44, minWidth: 100 }}
+      >
         {rolling ? "Rolling..." : "Roll Dice"}
       </button>
     </div>
