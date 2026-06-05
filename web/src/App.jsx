@@ -45,6 +45,7 @@ export default function App() {
 
   const diceFinishedRef = useRef(false);
   const pendingPositionsRef = useRef(null);
+  const observerTimeoutRef = useRef(null);
 
   const [jumpMessage, setJumpMessage] = useState("");
   const prevRoomRef = useRef(null);
@@ -120,18 +121,24 @@ export default function App() {
   };
 
   const onJoinRoom = async () => {
-    if (!joinId.trim()) return;
+    setError("");
+    const trimmedId = joinId.trim();
+
+    if (trimmedId.length !== 4) {
+      setError("Room code must be exactly 4 digits");
+      return;
+    }
+
     if (!playerName.trim()) {
       setError("Please enter your name first");
       return;
     }
 
     setLoading(true);
-    setError("");
     try {
-      await joinRoom(joinId.trim(), playerId, playerName.trim(), playerColor);
-      setJoined(joinId.trim());
-      setActiveRoomId(joinId.trim());
+      await joinRoom(trimmedId, playerId, playerName.trim(), playerColor);
+      setJoined(trimmedId);
+      setActiveRoomId(trimmedId);
     } catch (e) {
       setError(e.message || "Failed to join room");
     } finally {
@@ -246,9 +253,27 @@ export default function App() {
       setDisplayPositions(roomData.positions); 
       diceFinishedRef.current = false;
       setDiceComplete(false);
+
+      // Clear any existing timeout to avoid overlaps
+      if (observerTimeoutRef.current) {
+        clearTimeout(observerTimeoutRef.current);
+      }
+
+      // Observer: auto-trigger after dice finishes (3s) + 2s delay = 5s total
+      if (roomData?.lastRolledBy && roomData.lastRolledBy !== playerId) {
+        observerTimeoutRef.current = setTimeout(() => {
+          setDiceComplete(true);
+        }, 5000);
+      }
     }
 
-  }, [roomData]);
+    // Cleanup timeout on unmount or subsequent updates
+    return () => {
+      if (observerTimeoutRef.current) {
+        clearTimeout(observerTimeoutRef.current);
+      }
+    };
+  }, [roomData, playerId]);
 
   useEffect(() => {
     if (!roomData || roomData.status !== "countdown" || !roomData.countdownEndsAt) {
@@ -288,7 +313,6 @@ export default function App() {
           value={playerName}
           onChange={(e) => setPlayerName(e.target.value)}
         />
-        {/* Note: The old HTML color picker was removed from here */}
       </div>
 
       <button onClick={onCreateRoom} disabled={loading}>
@@ -304,9 +328,16 @@ export default function App() {
       <hr style={{ margin: "16px 0" }} />
 
       <input
-        placeholder="Enter room id"
+        type="text"
+        inputMode="numeric"
+        pattern="\d*"
+        maxLength={4}
+        placeholder="Enter 4-digit room code"
         value={joinId}
-        onChange={(e) => setJoinId(e.target.value)}
+        onChange={(e) => {
+          const val = e.target.value.replace(/\D/g, "");
+          setJoinId(val);
+        }}
       />
       <button onClick={onJoinRoom} disabled={loading} style={{ marginLeft: 8 }}>
         Join Room
@@ -344,7 +375,7 @@ export default function App() {
               : "N/A"}
           </p>
 
-          {/* New Interactive Lobby Color Picker */}
+          {/* Interactive Lobby Color Picker */}
           {roomData?.status === "waiting" && (
             <div style={{ margin: "16px 0", padding: "16px", background: "#f3f4f6", borderRadius: "8px" }}>
               <p style={{ marginTop: 0 }}><b>Pick your color:</b></p>
@@ -366,11 +397,14 @@ export default function App() {
                   );
                 })}
               </div>
-              <p style={{ fontSize: 12, color: "#666", marginBottom: 0, marginTop: 12 }}>
-                {Object.entries(roomData?.playerColors || {}).map(([pid, c]) =>
-                  `${roomData?.playerNames?.[pid] || pid}: ${c}`
-                ).join(" | ")}
-              </p>
+              <div style={{ fontSize: 12, color: "#666", marginBottom: 0, marginTop: 12 }}>
+                {Object.entries(roomData?.playerColors || {}).map(([pid, c]) => (
+                  <span key={pid} style={{ display:"inline-flex", alignItems:"center", gap:4, marginRight:8 }}>
+                    <span style={{ width:10, height:10, borderRadius:"50%", background:c, display:"inline-block" }} />
+                    {roomData?.playerNames?.[pid] || pid}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 

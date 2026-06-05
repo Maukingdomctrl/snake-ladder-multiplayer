@@ -62,7 +62,27 @@ const SNAKES_LADDERS: Record<number, number> = {
 };
 
 export async function createRoom(hostId: string, hostName: string, hostColor: string) {
-  const roomRef = doc(collection(db, "rooms"));
+  let roomId = "";
+  let roomRef = doc(db, "rooms", "placeholder"); 
+  let attempts = 0;
+  const MAX_ATTEMPTS = 10; // Cap retries to prevent an infinite loop
+
+  // Keep generating and checking until we find an available 4-digit ID
+  while (attempts < MAX_ATTEMPTS) {
+    roomId = Math.floor(1000 + Math.random() * 9000).toString();
+    roomRef = doc(db, "rooms", roomId);
+    const snap = await getDoc(roomRef);
+    
+    if (!snap.exists()) {
+      break; // Unique ID found, exit the loop
+    }
+    attempts++;
+  }
+
+  if (attempts >= MAX_ATTEMPTS) {
+    throw new Error("Servers are currently at maximum capacity. Please try again in a moment.");
+  }
+
   await setDoc(roomRef, {
     hostId,
     players: [hostId],
@@ -80,7 +100,8 @@ export async function createRoom(hostId: string, hostName: string, hostColor: st
       [hostId]: hostColor,
     },
   });
-  return roomRef.id;
+  
+  return roomId;
 }
 
 export async function joinRoom(roomId: string, playerId: string, playerName: string, playerColor: string) {

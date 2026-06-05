@@ -71,7 +71,6 @@ function getClusterOffset(pid) {
   return CLUSTER_OFFSETS[getPidHash(pid) % CLUSTER_OFFSETS.length];
 }
 
-// Convert a board square number to absolute pixel coords for a token
 function squareToPixel(squareNum, pid) {
   const { row, col } = cellToPos(squareNum);
   const offset = getClusterOffset(pid);
@@ -133,30 +132,23 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     from: Number(from), to: Number(to), index: i
   })), []);
 
-  // tokenPixels: { [pid]: { x, y } } — the ONLY source of truth for rendering tokens
   const [tokenPixels, setTokenPixels] = useState({});
-
-  // Track which move we last animated to prevent replays
   const lastMoveKeyRef = useRef("");
-
-  // Buffer for incoming roomData so we don't animate immediately
   const pendingRoomDataRef = useRef(null);
-
-  // All scheduled timeouts so we can cancel on new move
   const scheduledTimeoutsRef = useRef([]);
+  const runAnimationRef = useRef(null);
 
-  // ─── Effect 1: Place tokens for NEW players only (never overwrite mid-animation) ───
-  // Runs when positions changes, but ONLY sets pixels for pids not yet in tokenPixels
   const tokenPixelsRef = useRef({});
   useEffect(() => {
     tokenPixelsRef.current = tokenPixels;
   }, [tokenPixels]);
 
+  // Place initial tokens
   useEffect(() => {
     const newEntries = {};
     let hasNew = false;
     Object.keys(positions).forEach((pid) => {
-      if (tokenPixelsRef.current[pid]) return; // already placed, animation owns it
+      if (tokenPixelsRef.current[pid]) return; 
       newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid);
       hasNew = true;
     });
@@ -165,33 +157,30 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     }
   }, [positions]);
 
-  // ─── Extracted Animation Logic ───
-  const runAnimation = (data) => {
-    const pid = data?.lastRolledBy;
+  // The extracted animation sequence (assigned to ref to avoid stale closures)
+  runAnimationRef.current = (snap) => {
+    const pid = snap?.lastRolledBy;
     if (!pid) return;
-
-    const lastDice = data?.lastDice ?? 0;
+    
+    const lastDice = snap?.lastDice ?? 0;
     if (!lastDice) return;
-
-    const moveKey = `${pid}|${lastDice}|${data?.updatedAt?.seconds}|${data?.updatedAt?.nanoseconds}`;
+    
+    const moveKey = `${pid}|${lastDice}|${snap?.updatedAt?.seconds}|${snap?.updatedAt?.nanoseconds}`;
     if (lastMoveKeyRef.current === moveKey) return;
     lastMoveKeyRef.current = moveKey;
-
-    // Cancel any in-flight animation
+    
     scheduledTimeoutsRef.current.forEach(clearTimeout);
     scheduledTimeoutsRef.current = [];
-
-    const lastFrom = data?.lastFrom ?? 1;
-    // Read final position directly from data
-    const finalPos = data?.positions?.[pid] ?? 1;
+    
+    const lastFrom = snap?.lastFrom ?? 1;
+    const finalPos = snap?.positions?.[pid] ?? 1;
     const movedTo = Math.min(100, lastFrom + lastDice);
     const clusterOffset = getClusterOffset(pid);
-
+    
     const schedule = [];
+    let cursor = 0; // Starts immediately since App.jsx handled the dice delay
     const STEP_MS = 300;
-    let cursor = 0; // Removed INITIAL_WAIT delay
-
-    // Phase 1: step square by square
+    
     for (let s = lastFrom + 1; s <= movedTo; s++) {
       const { row, col } = cellToPos(s);
       schedule.push({
@@ -201,18 +190,16 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
       });
       cursor += STEP_MS;
     }
-
-    // Phase 2: snake or ladder path
+    
     if (movedTo !== finalPos) {
       const isSnake = finalPos < movedTo;
       const snakeIdx = Object.keys(SNAKES).indexOf(String(movedTo));
-
       const rawPoints = isSnake
         ? getPointsAlongCurve(movedTo, finalPos, snakeIdx)
         : getPointsAlongLine(movedTo, finalPos);
-
-      cursor += 400; // dramatic pause before sliding
-
+        
+      cursor += 400; // Pause before taking the snake/ladder
+      
       rawPoints.forEach((pt) => {
         schedule.push({
           time: cursor,
@@ -222,35 +209,42 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
         cursor += 120;
       });
     }
-
-    // Fire all frames
+    
     schedule.forEach(({ time, x, y }) => {
       const id = setTimeout(() => {
         setTokenPixels(prev => ({ ...prev, [pid]: { x, y } }));
       }, time);
       scheduledTimeoutsRef.current.push(id);
     });
-
-    // After animation fully ends, snap to exact final square pixel
-    // This guarantees correct position even if path sampling has minor float drift
+    
     const finalPixel = squareToPixel(finalPos, pid);
-    const snapId = setTimeout(() => {
+    scheduledTimeoutsRef.current.push(setTimeout(() => {
       setTokenPixels(prev => ({ ...prev, [pid]: finalPixel }));
-    }, cursor + 150);
-    scheduledTimeoutsRef.current.push(snapId);
+    }, cursor + 150));
   };
 
-  // ─── Effect 2: Buffer incoming roomData ───
+  // Buffer the room data silently when it arrives
   useEffect(() => {
+    const pid = roomData?.lastRolledBy;
+    if (!pid) return;
+    
+    const lastDice = roomData?.lastDice ?? 0;
+    if (!lastDice) return;
+    
+    const moveKey = `${pid}|${lastDice}|${roomData?.updatedAt?.seconds}|${roomData?.updatedAt?.nanoseconds}`;
+    if (lastMoveKeyRef.current === moveKey) return;
+    
+    // Store, don't run yet
     pendingRoomDataRef.current = roomData;
   }, [roomData]);
 
-  // ─── Effect 3: Trigger Animation exactly when dice finishes ───
+  // Execute the buffered animation only when the dice roll is visually complete
   useEffect(() => {
     if (!diceComplete || !pendingRoomDataRef.current) return;
-    runAnimation(pendingRoomDataRef.current);
-    // Clear pending so we don't accidentally re-run it
+    
+    const snap = pendingRoomDataRef.current;
     pendingRoomDataRef.current = null;
+    runAnimationRef.current?.(snap);
   }, [diceComplete]);
 
   const playerIds = Object.keys(positions);
