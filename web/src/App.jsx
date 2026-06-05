@@ -16,7 +16,6 @@ import {
 import Dice from "./components/Dice";
 import Board from "./components/Board";
 
-// The curated palette of token colors
 const COLORS = ["#e74c3c","#3498db","#2ecc71","#f1c40f","#9b59b6","#e67e22","#1abc9c","#e91e63"];
 
 function getPlayerId() {
@@ -64,10 +63,17 @@ export default function App() {
     localStorage.getItem("playerName") || ""
   );
 
-  // Color Picker State
   const [playerColor, setPlayerColor] = useState(
     localStorage.getItem("playerColor") || COLORS[0]
   );
+
+  // Hook to detect tablet/desktop screens for side-by-side layout
+  const [isTablet, setIsTablet] = useState(window.innerWidth >= 768);
+  useEffect(() => {
+    const h = () => setIsTablet(window.innerWidth >= 768);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
 
   const isMyTurn =
     roomData?.status === "playing" && roomData?.currentTurn === playerId;
@@ -75,7 +81,6 @@ export default function App() {
   const getName = (pid) => roomData?.playerNames?.[pid] || pid;
   const currentTurnName = roomData?.currentTurn ? getName(roomData.currentTurn) : "";
 
-  // Derive which colors are currently claimed in the active room
   const takenColors = Object.values(roomData?.playerColors || {});
 
   useEffect(() => {
@@ -254,12 +259,10 @@ export default function App() {
       diceFinishedRef.current = false;
       setDiceComplete(false);
 
-      // Clear any existing timeout to avoid overlaps
       if (observerTimeoutRef.current) {
         clearTimeout(observerTimeoutRef.current);
       }
 
-      // Observer: auto-trigger after dice finishes (3s) + 2s delay = 5s total
       if (roomData?.lastRolledBy && roomData.lastRolledBy !== playerId) {
         observerTimeoutRef.current = setTimeout(() => {
           setDiceComplete(true);
@@ -267,7 +270,6 @@ export default function App() {
       }
     }
 
-    // Cleanup timeout on unmount or subsequent updates
     return () => {
       if (observerTimeoutRef.current) {
         clearTimeout(observerTimeoutRef.current);
@@ -302,190 +304,231 @@ export default function App() {
   }, [roomData]);
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1>Snake & Ladder Multiplayer</h1>
+    <div style={{ 
+      maxWidth: isTablet ? "1000px" : "600px", 
+      margin: "0 auto",
+      paddingTop: "max(12px, env(safe-area-inset-top))",
+      paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+      paddingLeft: "max(12px, env(safe-area-inset-left))",
+      paddingRight: "max(12px, env(safe-area-inset-right))",
+    }}>
+      <h1 style={{ fontSize: 22, marginBottom: 8 }}>Snake & Ladder Multiplayer</h1>
+      <p style={{ fontSize: 12, color: "#999", marginBottom: 16 }}>Player ID: {playerId}</p>
       
-      <p><b>You are:</b> {playerId}</p>
-      
-      <div style={{ display: "flex", flexDirection: "column", maxWidth: 200, gap: 8, marginBottom: 16 }}>
-        <input
-          placeholder="Enter your name (e.g. Mau)"
-          value={playerName}
-          onChange={(e) => setPlayerName(e.target.value)}
-        />
-      </div>
+      {!activeRoomId && (
+        <>
+          <div style={{ display: "flex", flexDirection: "column", maxWidth: 200, gap: 8, marginBottom: 16 }}>
+            <input
+              placeholder="Enter your name (e.g. Mau)"
+              value={playerName}
+              onChange={(e) => setPlayerName(e.target.value)}
+              style={{ fontSize: 16, padding: "8px 12px" }}
+            />
+          </div>
 
-      <button onClick={onCreateRoom} disabled={loading}>
-        {loading ? "Please wait..." : "Create Room"}
-      </button>
+          <button 
+            onClick={onCreateRoom} 
+            disabled={loading}
+            style={{ minHeight: 44, minWidth: 44, padding: "8px 16px" }}
+          >
+            {loading ? "Please wait..." : "Create Room"}
+          </button>
 
-      {roomId && (
-        <p>
-          Room created: <b>{roomId}</b>
-        </p>
-      )}
-
-      <hr style={{ margin: "16px 0" }} />
-
-      <input
-        type="text"
-        inputMode="numeric"
-        pattern="\d*"
-        maxLength={4}
-        placeholder="Enter 4-digit room code"
-        value={joinId}
-        onChange={(e) => {
-          const val = e.target.value.replace(/\D/g, "");
-          setJoinId(val);
-        }}
-      />
-      <button onClick={onJoinRoom} disabled={loading} style={{ marginLeft: 8 }}>
-        Join Room
-      </button>
-
-      {joined && (
-        <p>
-          Joined room: <b>{joined}</b>
-        </p>
-      )}
-
-      {roomData && (
-        <div style={{ marginTop: 16 }}>
-          <h3>Live Room</h3>
-
-          {roomData?.status === "playing" && (
-            <p style={{ fontSize: 20, fontWeight: "bold", color: "#7c3aed" }}>
-              It’s {currentTurnName}'s turn {roomData.currentTurn === playerId ? "(You)" : ""}
+          {roomId && (
+            <p>
+              Room created: <b>{roomId}</b>
             </p>
           )}
 
-          <p><b>ID:</b> {roomData.id}</p>
-          <p><b>Status:</b> {roomData.status}</p>
-          <p><b>Host:</b> {getName(roomData.hostId)}</p>
-          <p>
-            <b>Players:</b>{" "}
-            {roomData.players?.map((pid) => `${getName(pid)} (${pid})`).join(", ")}
-          </p>
-          <p>
-            <b>Positions:</b>{" "}
-            {roomData.positions
-              ? Object.entries(roomData.positions)
-                  .map(([pid, pos]) => `${getName(pid)}: ${pos}`)
-                  .join(" | ")
-              : "N/A"}
-          </p>
+          <hr style={{ margin: "16px 0" }} />
 
-          {/* Interactive Lobby Color Picker */}
-          {roomData?.status === "waiting" && (
-            <div style={{ margin: "16px 0", padding: "16px", background: "#f3f4f6", borderRadius: "8px" }}>
-              <p style={{ marginTop: 0 }}><b>Pick your color:</b></p>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {COLORS.map(c => {
-                  const taken = takenColors.includes(c) && roomData?.playerColors?.[playerId] !== c;
-                  return (
-                    <div 
-                      key={c} 
-                      onClick={() => !taken && onPickColor(c)}
-                      style={{
-                        width: 32, height: 32, borderRadius: "50%", background: c,
-                        border: playerColor === c ? "3px solid #000" : "2px solid #aaa",
-                        opacity: taken ? 0.3 : 1,
-                        cursor: taken ? "not-allowed" : "pointer",
-                      }}
-                      title={taken ? "Taken" : "Available"}
-                    />
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: 12, color: "#666", marginBottom: 0, marginTop: 12 }}>
-                {Object.entries(roomData?.playerColors || {}).map(([pid, c]) => (
-                  <span key={pid} style={{ display:"inline-flex", alignItems:"center", gap:4, marginRight:8 }}>
-                    <span style={{ width:10, height:10, borderRadius:"50%", background:c, display:"inline-block" }} />
-                    {roomData?.playerNames?.[pid] || pid}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {roomData.positions && (
-            <Board
-              key={activeRoomId}
-              positions={displayPositions}
-              playerNames={roomData?.playerNames || {}}
-              roomData={roomData}
-              diceComplete={diceComplete}
-            />
-          )}
-        </div>
-      )}
-
-      {roomData?.status === "finished" && roomData?.winnerId && (
-        <p style={{ color: "green", fontWeight: "bold", fontSize: 24 }}>
-          Winner: {getName(roomData.winnerId)} 🎉
-        </p>
-      )}
-
-      {roomData?.status === "waiting" && roomData?.hostId === playerId && (
-        <button onClick={onStartGame} disabled={loading} style={{ marginTop: 8 }}>
-          Start Game
-        </button>
-      )}
-
-      {roomData?.status === "countdown" && (
-        <div style={{ marginTop: 12 }}>
-          <p><b>Starting in:</b> {countdown ?? 5}s</p>
-          <p style={{ fontSize: 24, fontWeight: "bold", color: "#16a34a" }}>
-            {(countdown ?? 5) >= 4 ? "Get" : (countdown ?? 5) >= 2 ? "Set" : "Go!"}
-          </p>
-        </div>
-      )}
-
-      {roomData?.status === "playing" && (
-        <Dice
-          onRoll={onRollDice}
-          disabled={loading || !isMyTurn}
-          lastDice={roomData?.lastDice}
-          rollKey={`${roomData?.lastRolledBy}-${roomData?.updatedAt?.seconds}`}
-          onRollComplete={handleRollComplete}
-        />
-      )}
-
-      {jumpMessage && (
-        <p style={{ marginTop: 8, fontWeight: "bold", color: "#1d4ed8" }}>
-          {jumpMessage}
-        </p>
-      )}
-
-      {error && <p style={{ color: "red" }}>{error}</p>}
-
-      {/* Chat UI */}
-      {activeRoomId && (
-        <div style={{ marginTop: 24, borderTop: "1px solid #ccc", paddingTop: 16 }}>
-          <h3>Chat</h3>
-          <div style={{ height: 200, overflowY: "auto", border: "1px solid #ccc", padding: 8, marginBottom: 8 }}>
-            {messages.map(m => (
-              <p key={m.id} style={{ margin: "4px 0" }}>
-                <b>{m.playerName}:</b> {m.text}
-              </p>
-            ))}
-          </div>
-          
-          {showEmojiPicker && (
-            <EmojiPicker onEmojiClick={(emojiData) => setChatInput(prev => prev + emojiData.emoji)} />
-          )}
-          
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setShowEmojiPicker(p => !p)}>😊</button>
+          <div style={{ display: "flex", alignItems: "center", maxWidth: 300 }}>
             <input
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && onSendMessage()}
-              placeholder="Type a message..."
-              style={{ flex: 1 }}
+              type="text"
+              inputMode="numeric"
+              pattern="\d*"
+              maxLength={4}
+              placeholder="Enter 4-digit code"
+              value={joinId}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, "");
+                setJoinId(val);
+              }}
+              style={{ fontSize: 16, padding: "8px 12px", flex: 1 }}
             />
-            <button onClick={onSendMessage}>Send</button>
+            <button 
+              onClick={onJoinRoom} 
+              disabled={loading} 
+              style={{ marginLeft: 8, minHeight: 44, minWidth: 44, padding: "8px 16px" }}
+            >
+              Join Room
+            </button>
           </div>
+        </>
+      )}
+
+      {error && <p style={{ color: "red", marginTop: 8 }}>{error}</p>}
+
+      {/* Main Game & Chat Side-by-Side Wrapper */}
+      {roomData && (
+        <div style={{ display: "flex", flexDirection: isTablet ? "row" : "column", gap: 16, marginTop: 24, alignItems: "flex-start" }}>
+          
+          {/* LEFT COLUMN: GAME BOARD */}
+          <div style={{ flex: 1, minWidth: 0, width: "100%" }}>
+            <h3 style={{ marginTop: 0 }}>Live Room: {roomData.id}</h3>
+
+            {roomData?.status === "playing" && (
+              <p style={{ fontSize: 20, fontWeight: "bold", color: "#7c3aed" }}>
+                It’s {currentTurnName}'s turn {roomData.currentTurn === playerId ? "(You)" : ""}
+              </p>
+            )}
+
+            <p style={{ margin: "4px 0" }}><b>Status:</b> {roomData.status}</p>
+            <p style={{ margin: "4px 0" }}><b>Host:</b> {getName(roomData.hostId)}</p>
+            <p style={{ margin: "4px 0" }}>
+              <b>Players:</b>{" "}
+              {roomData.players?.map((pid) => `${getName(pid)} (${pid})`).join(", ")}
+            </p>
+
+            {/* Interactive Lobby Color Picker */}
+            {roomData?.status === "waiting" && (
+              <div style={{ margin: "16px 0", padding: "16px", background: "#f3f4f6", borderRadius: "8px" }}>
+                <p style={{ marginTop: 0, textAlign: "center" }}><b>Pick your color:</b></p>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+                  {COLORS.map(c => {
+                    const taken = takenColors.includes(c) && roomData?.playerColors?.[playerId] !== c;
+                    return (
+                      <div 
+                        key={c} 
+                        onClick={() => !taken && onPickColor(c)}
+                        style={{
+                          width: 44, height: 44, borderRadius: "50%", background: c,
+                          border: playerColor === c ? "4px solid #000" : "2px solid #aaa",
+                          opacity: taken ? 0.3 : 1,
+                          cursor: taken ? "not-allowed" : "pointer",
+                        }}
+                        title={taken ? "Taken" : "Available"}
+                      />
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", fontSize: 12, color: "#666", marginBottom: 0, marginTop: 12 }}>
+                  {Object.entries(roomData?.playerColors || {}).map(([pid, c]) => (
+                    <span key={pid} style={{ display:"inline-flex", alignItems:"center", gap:4, marginRight:8 }}>
+                      <span style={{ width:10, height:10, borderRadius:"50%", background:c, display:"inline-block" }} />
+                      {roomData?.playerNames?.[pid] || pid}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {roomData.positions && (
+              <Board
+                key={activeRoomId}
+                positions={displayPositions}
+                playerNames={roomData?.playerNames || {}}
+                roomData={roomData}
+                diceComplete={diceComplete}
+              />
+            )}
+
+            {roomData?.status === "finished" && roomData?.winnerId && (
+              <p style={{ color: "green", fontWeight: "bold", fontSize: 24, textAlign: "center", margin: "24px 0" }}>
+                Winner: {getName(roomData.winnerId)} 🎉
+              </p>
+            )}
+
+            {roomData?.status === "waiting" && roomData?.hostId === playerId && (
+              <button 
+                onClick={onStartGame} 
+                disabled={loading} 
+                style={{ marginTop: 16, minHeight: 44, width: "100%", padding: "8px 16px" }}
+              >
+                Start Game
+              </button>
+            )}
+
+            {roomData?.status === "countdown" && (
+              <div style={{ marginTop: 12, textAlign: "center" }}>
+                <p><b>Starting in:</b> {countdown ?? 5}s</p>
+                <p style={{ fontSize: 24, fontWeight: "bold", color: "#16a34a" }}>
+                  {(countdown ?? 5) >= 4 ? "Get" : (countdown ?? 5) >= 2 ? "Set" : "Go!"}
+                </p>
+              </div>
+            )}
+
+            {roomData?.status === "playing" && (
+              <div style={{ display: "flex", justifyContent: "center", margin: "24px 0" }}>
+                <Dice
+                  onRoll={onRollDice}
+                  disabled={loading || !isMyTurn}
+                  lastDice={roomData?.lastDice}
+                  rollKey={`${roomData?.lastRolledBy}-${roomData?.updatedAt?.seconds}`}
+                  onRollComplete={handleRollComplete}
+                  style={{ minHeight: 48, minWidth: 48, padding: 12 }}
+                />
+              </div>
+            )}
+
+            {jumpMessage && (
+              <p style={{ marginTop: 8, fontWeight: "bold", color: "#1d4ed8", textAlign: "center" }}>
+                {jumpMessage}
+              </p>
+            )}
+          </div>
+
+          {/* RIGHT COLUMN: CHAT */}
+          <div style={{
+            width: isTablet ? 320 : "100%",
+            flexShrink: 0,
+            borderTop: isTablet ? "none" : "1px solid #ccc",
+            borderLeft: isTablet ? "1px solid #ccc" : "none",
+            paddingTop: isTablet ? 0 : 24,
+            paddingLeft: isTablet ? 24 : 0,
+            position: "relative"
+          }}>
+            <h3 style={{ marginTop: 0 }}>Chat</h3>
+            <div style={{ height: isTablet ? 400 : 200, overflowY: "auto", border: "1px solid #ccc", padding: 8, marginBottom: 8, borderRadius: 8 }}>
+              {messages.map(m => (
+                <p key={m.id} style={{ margin: "4px 0" }}>
+                  <b>{m.playerName}:</b> {m.text}
+                </p>
+              ))}
+            </div>
+            
+            {showEmojiPicker && (
+              <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 999, display: "flex", justifyContent: "center", background: "#fff", padding: "12px 0", paddingBottom: "max(12px, env(safe-area-inset-bottom))", boxShadow: "0 -4px 12px rgba(0,0,0,0.1)" }}>
+                <EmojiPicker 
+                  onEmojiClick={(emojiData) => setChatInput(prev => prev + emojiData.emoji)} 
+                  style={{ width: "100%", maxWidth: "600px" }}
+                />
+              </div>
+            )}
+            
+            <div style={{ display: "flex", gap: 8 }}>
+              <button 
+                onClick={() => setShowEmojiPicker(p => !p)}
+                style={{ minHeight: 44, minWidth: 44, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}
+              >
+                😊
+              </button>
+              <input
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && onSendMessage()}
+                placeholder="Type a message..."
+                style={{ flex: 1, fontSize: 16, padding: "8px 12px" }}
+              />
+              <button 
+                onClick={onSendMessage}
+                style={{ minHeight: 44, minWidth: 44, padding: "8px 16px" }}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+          
         </div>
       )}
     </div>

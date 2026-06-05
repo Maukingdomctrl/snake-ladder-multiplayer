@@ -30,9 +30,6 @@ const SNAKE_STYLES = [
   { body: '#34495E', belly: '#95A5A6' },
 ];
 
-const CELL = 56;
-const BOARD = CELL * 10;
-
 const CLUSTER_OFFSETS = [
   { x: 0, y: 0 }, { x: -4, y: -4 }, { x: 4, y: 4 }, { x: 4, y: -4 },
   { x: -4, y: 4 }, { x: 0, y: -6 }, { x: -6, y: 0 }, { x: 6, y: 0 },
@@ -51,11 +48,11 @@ function cellToPos(num) {
   return { row, col };
 }
 
-function cellCenter(num) {
+function cellCenter(num, cellSize) {
   const { row, col } = cellToPos(num);
   return {
-    x: col * CELL + CELL / 2,
-    y: row * CELL + CELL / 2,
+    x: col * cellSize + cellSize / 2,
+    y: row * cellSize + cellSize / 2,
   };
 }
 
@@ -71,18 +68,18 @@ function getClusterOffset(pid) {
   return CLUSTER_OFFSETS[getPidHash(pid) % CLUSTER_OFFSETS.length];
 }
 
-function squareToPixel(squareNum, pid) {
+function squareToPixel(squareNum, pid, cellSize) {
   const { row, col } = cellToPos(squareNum);
   const offset = getClusterOffset(pid);
   return {
-    x: col * CELL + CELL / 2 - 8 + offset.x,
-    y: row * CELL + CELL / 2 - 8 + offset.y,
+    x: col * cellSize + cellSize / 2 - 8 + offset.x,
+    y: row * cellSize + cellSize / 2 - 8 + offset.y,
   };
 }
 
-function getPointsAlongLine(from, to, steps = 10) {
-  const a = cellCenter(from);
-  const b = cellCenter(to);
+function getPointsAlongLine(from, to, cellSize, steps = 10) {
+  const a = cellCenter(from, cellSize);
+  const b = cellCenter(to, cellSize);
   const points = [];
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
@@ -94,9 +91,9 @@ function getPointsAlongLine(from, to, steps = 10) {
   return points;
 }
 
-function getPointsAlongCurve(from, to, index, steps = 16) {
-  const a = cellCenter(from);
-  const b = cellCenter(to);
+function getPointsAlongCurve(from, to, index, cellSize, steps = 16) {
+  const a = cellCenter(from, cellSize);
+  const b = cellCenter(to, cellSize);
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -132,16 +129,42 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     from: Number(from), to: Number(to), index: i
   })), []);
 
+  const [cellSize, setCellSize] = useState(() => Math.floor(Math.min(window.innerWidth - 24, 560) / 10));
+  const boardSize = cellSize * 10;
+
   const [tokenPixels, setTokenPixels] = useState({});
   const lastMoveKeyRef = useRef("");
   const pendingRoomDataRef = useRef(null);
   const scheduledTimeoutsRef = useRef([]);
   const runAnimationRef = useRef(null);
+  const prevCellSizeRef = useRef(cellSize);
 
   const tokenPixelsRef = useRef({});
   useEffect(() => {
     tokenPixelsRef.current = tokenPixels;
   }, [tokenPixels]);
+
+  // Window resize listener
+  useEffect(() => {
+    const handler = () => {
+      setCellSize(Math.floor(Math.min(window.innerWidth - 24, 560) / 10));
+    };
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+
+  // Snap tokens to new positions if the screen is resized
+  useEffect(() => {
+    if (prevCellSizeRef.current !== cellSize) {
+      const newEntries = {};
+      Object.keys(positions).forEach(pid => {
+        newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
+      });
+      setTokenPixels(newEntries);
+      scheduledTimeoutsRef.current.forEach(clearTimeout); // Stop running animations on resize
+      prevCellSizeRef.current = cellSize;
+    }
+  }, [cellSize, positions]);
 
   // Place initial tokens
   useEffect(() => {
@@ -149,13 +172,13 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     let hasNew = false;
     Object.keys(positions).forEach((pid) => {
       if (tokenPixelsRef.current[pid]) return; 
-      newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid);
+      newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
       hasNew = true;
     });
     if (hasNew) {
       setTokenPixels(prev => ({ ...prev, ...newEntries }));
     }
-  }, [positions]);
+  }, [positions, cellSize]);
 
   // The extracted animation sequence (assigned to ref to avoid stale closures)
   runAnimationRef.current = (snap) => {
@@ -185,8 +208,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
       const { row, col } = cellToPos(s);
       schedule.push({
         time: cursor,
-        x: col * CELL + CELL / 2 - 8 + clusterOffset.x,
-        y: row * CELL + CELL / 2 - 8 + clusterOffset.y,
+        x: col * cellSize + cellSize / 2 - 8 + clusterOffset.x,
+        y: row * cellSize + cellSize / 2 - 8 + clusterOffset.y,
       });
       cursor += STEP_MS;
     }
@@ -195,8 +218,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
       const isSnake = finalPos < movedTo;
       const snakeIdx = Object.keys(SNAKES).indexOf(String(movedTo));
       const rawPoints = isSnake
-        ? getPointsAlongCurve(movedTo, finalPos, snakeIdx)
-        : getPointsAlongLine(movedTo, finalPos);
+        ? getPointsAlongCurve(movedTo, finalPos, snakeIdx, cellSize)
+        : getPointsAlongLine(movedTo, finalPos, cellSize);
         
       cursor += 400; // Pause before taking the snake/ladder
       
@@ -217,7 +240,7 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
       scheduledTimeoutsRef.current.push(id);
     });
     
-    const finalPixel = squareToPixel(finalPos, pid);
+    const finalPixel = squareToPixel(finalPos, pid, cellSize);
     scheduledTimeoutsRef.current.push(setTimeout(() => {
       setTokenPixels(prev => ({ ...prev, [pid]: finalPixel }));
     }, cursor + 150));
@@ -258,13 +281,16 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     }}>
       <div style={{
         position: "relative",
-        width: BOARD,
-        height: BOARD,
+        width: boardSize,
+        height: boardSize,
         borderRadius: 8,
         background: "#FFF",
         boxShadow: "0 12px 36px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.2)",
         outline: "6px solid #5C2A00",
         outlineOffset: "2px",
+        overflow: "hidden",
+        userSelect: "none", 
+        WebkitUserSelect: "none" // Added for iOS text-selection suppression
       }}>
 
         {/* Cells */}
@@ -274,10 +300,10 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
           return (
             <div key={num} style={{
               position: "absolute",
-              left: col * CELL,
-              top: row * CELL,
-              width: CELL,
-              height: CELL,
+              left: col * cellSize,
+              top: row * cellSize,
+              width: cellSize,
+              height: cellSize,
               background: getCellColor(num),
               border: "1px solid rgba(0,0,0,0.6)",
               boxSizing: "border-box",
@@ -290,7 +316,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
                 fontWeight: 900,
                 color: "#111",
                 textShadow: "1px 1px 0px rgba(255,255,255,0.7)",
-                userSelect: "none",
+                userSelect: "none", 
+                WebkitUserSelect: "none", // Added for iOS text-selection suppression
                 lineHeight: 1,
               }}>
                 {num === 1 ? "START" : num}
@@ -301,11 +328,11 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
 
         {/* SVG Overlay */}
         <svg style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 5 }}
-          width={BOARD} height={BOARD}>
+          width={boardSize} height={boardSize}>
 
           {ladderEntries.map(({ from, to }) => {
-            const a = cellCenter(from);
-            const b = cellCenter(to);
+            const a = cellCenter(from, cellSize);
+            const b = cellCenter(to, cellSize);
             const dx = b.x - a.x;
             const dy = b.y - a.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
@@ -343,8 +370,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
           })}
 
           {snakeEntries.map(({ from, to, index }) => {
-            const a = cellCenter(from);
-            const b = cellCenter(to);
+            const a = cellCenter(from, cellSize);
+            const b = cellCenter(to, cellSize);
             const dx = b.x - a.x;
             const dy = b.y - a.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
@@ -396,6 +423,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
               zIndex: 20,
               transition: "left 0.25s ease, top 0.25s ease",
               pointerEvents: "none",
+              userSelect: "none",
+              WebkitUserSelect: "none" // Added for iOS text-selection suppression
             }} />
           );
         })}
