@@ -1,25 +1,38 @@
 :root {
-  --bg-primary: #313338;
-  --bg-secondary: #2b2d31;
-  --bg-tertiary: #1e1f22;
-  --bg-input: #383a40;
-  --bg-hover: #35373c;
-  --bg-message-hover: #2e3035;
-  --text-primary: #f2f3f5;
-  --text-secondary: #b5bac1;
-  --text-muted: #80848e;
-  --text-link: #00a8fc;
+  /* Premium Sepia Theme Backgrounds */
+  --bg-base: #14110e;      /* The absolute darkest edge of the screen */
+  --bg-secondary: #1e1915; /* The standard background */
+  --bg-primary: #2b2620;   /* Elevated containers (chat, panels) */
+  --bg-tertiary: #332d26;  /* Hover states, legend, dice box */
+  --bg-input: #171411;     /* Deep inset background for inputs */
+  --bg-message-hover: rgba(255, 255, 255, 0.03); /* Subtle glass hover */
 
-  /* Premium Amber-Gold Accent */
-  --accent: #f59e0b;
-  --accent-hover: #d97706;
+  /* Sepia Theme Text */
+  --text-primary: #ece0d1;
+  --text-secondary: #b5a695;
+  --text-muted: #8b7e70;
+  --text-link: #f59e0b;
 
+  /* Premium Accents */
+  --accent: #23a559;       /* Discord Nitro Green from your image */
+  --accent-hover: #1d8949;
+
+  /* UI Elements */
   --online: #23a55a;
-  --mention: #f0b132;
-  --danger: #f23f43;
-  --border: #3f4147;
-  --scrollbar: #202225;
-  --scrollbar-thumb: #36393f;
+  --mention: rgba(245, 158, 11, 0.15); /* Soft amber background for mentions */
+  --danger: #fa777c;
+  
+  /* Glassy Translucent Borders for Premium Depth */
+  --border: rgba(255, 255, 255, 0.06); 
+  
+  /* Premium Shadows */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3), 0 1px 3px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.2);
+
+  /* Scrollbars */
+  --scrollbar: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb: #383028;
 }
 
 *,
@@ -31,12 +44,14 @@
 body {
   margin: 0;
   font-family: "Inter", sans-serif;
-  background-color: var(--bg-secondary);
+  /* Subtle radial gradient mimicking Discord's vignette shading */
+  background: radial-gradient(circle at 50% 0%, var(--bg-secondary) 0%, var(--bg-base) 100%);
+  background-attachment: fixed;
   color: var(--text-primary);
   overscroll-behavior-y: none;
   -webkit-overflow-scrolling: touch;
-  height: 100dvh;   /* ADD */
-  overflow: hidden; /* ADD */
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* iOS optimizations */
@@ -85,7 +100,7 @@ textarea::placeholder {
   background: transparent;
 }
 .game-column::-webkit-scrollbar-thumb {
-  background: var(--border);
+  background: var(--bg-tertiary);
   border-radius: 2px;
 }
 .game-column::-webkit-scrollbar-thumb:hover {
@@ -98,23 +113,30 @@ textarea::placeholder {
   color: #fff;
   font-weight: 600;
   font-size: 15px;
-  border: none;
-  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
   padding: 8px 16px;
   font-family: "Inter", sans-serif;
-  transition: background 0.15s;
+  transition: all 0.2s ease;
   cursor: pointer;
+  box-shadow: var(--shadow-sm); 
 }
 .btn-primary:hover {
   background: var(--accent-hover);
+  box-shadow: var(--shadow-md); 
+  transform: translateY(-1px);
 }
 .btn-primary:disabled {
-  background: #404249;
+  background: #2a2520;
   color: var(--text-muted);
+  border-color: transparent;
+  box-shadow: none;
   cursor: not-allowed;
+  transform: none;
 }
 .btn-primary:active {
-  opacity: 0.85;
+  transform: translateY(1px);
+  box-shadow: none;
 }
 
 /* Chat Typography & Messages */
@@ -142,25 +164,33 @@ textarea::placeholder {
   margin-left: 8px;
 }
 .chat-grouped {
-  padding-left: 52px; /* indent grouped messages under avatar */
+  padding-left: 52px;
 }
 .chat-row {
-  padding: 2px 16px; /* give message rows breathing room */
+  padding: 4px 16px;
+  border-radius: 4px; 
+  margin: 0 8px;
+  transition: background 0.1s ease;
 }
 .chat-row:hover {
   background: var(--bg-message-hover);
 }
 
-/* Input Bar */
+/* Input Bar (Creates a subtle inset look) */
 .chat-input {
   background: var(--bg-input);
-  border: none;
+  border: 1px solid rgba(0, 0, 0, 0.2); 
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
   border-radius: 8px;
   color: var(--text-primary);
   font-size: 15px;
   font-family: "Inter", sans-serif;
   padding: 11px 16px;
   outline: none;
+  transition: border-color 0.2s;
+}
+.chat-input:focus {
+  border-color: rgba(255, 255, 255, 0.1);
 }
 .chat-input::placeholder {
   color: var(--text-muted);
@@ -171,6 +201,7 @@ textarea::placeholder {
   height: 48px;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-sm); 
   display: flex;
   align-items: center;
   padding: 0 16px;
@@ -193,18 +224,18 @@ textarea::placeholder {
   font-weight: 700;
   font-size: 16px;
   color: #fff;
-  margin-right: 12px;
+  box-shadow: var(--shadow-sm); 
 }
 
 .online-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   background: var(--online);
   border-radius: 50%;
-  border: 2px solid var(--bg-secondary);
+  border: 2px solid var(--bg-primary); 
   position: absolute;
-  bottom: 0;
-  right: 0;
+  bottom: -2px;
+  right: -2px;
 }
 
 .unread-badge {
@@ -219,9 +250,10 @@ textarea::placeholder {
   position: absolute;
   top: -4px;
   right: -4px;
+  box-shadow: 0 2px 4px rgba(250, 119, 124, 0.3); 
 }
 
-/* Mobile Drawer */
+/* Mobile Drawer (Heavy elevation shadow) */
 .chat-drawer {
   position: fixed;
   bottom: 0;
@@ -230,7 +262,8 @@ textarea::placeholder {
   height: 70vh;
   background: var(--bg-primary);
   border-radius: 16px 16px 0 0;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  border-top: 1px solid var(--border); 
+  box-shadow: var(--shadow-lg); 
   z-index: 500;
   display: flex;
   flex-direction: column;
@@ -244,7 +277,7 @@ textarea::placeholder {
 .drawer-handle {
   width: 36px;
   height: 4px;
-  background: var(--text-muted);
+  background: rgba(255, 255, 255, 0.2); 
   border-radius: 2px;
   margin: 8px auto;
   flex-shrink: 0;
@@ -253,7 +286,9 @@ textarea::placeholder {
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.7); 
+  backdrop-filter: blur(2px); 
+  -webkit-backdrop-filter: blur(2px);
   z-index: 499;
   opacity: 0;
   pointer-events: none;
@@ -262,4 +297,36 @@ textarea::placeholder {
 .drawer-backdrop.open {
   opacity: 1;
   pointer-events: all;
+}
+
+/* Utilities */
+.turn-indicator {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* Animations */
+@keyframes confetti-fall {
+  0% {
+    transform: translateY(-10px) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(60px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
 }

@@ -1,12 +1,12 @@
 import { useMemo, useEffect, useRef, useState } from "react";
 
-const LADDERS = {
+const LADDERS: Record<number, number> = {
   8: 26, 19: 38, 28: 53, 21: 82,
   36: 57, 43: 77, 50: 91, 54: 88,
   61: 99, 62: 95,
 };
 
-const SNAKES = {
+const SNAKES: Record<number, number> = {
   46: 15, 48: 9, 52: 11, 59: 18,
   64: 24, 68: 2, 69: 33, 83: 22,
   89: 51, 93: 37, 98: 13,
@@ -35,11 +35,11 @@ const CLUSTER_OFFSETS = [
   { x: -4, y: 4 }, { x: 0, y: -6 }, { x: -6, y: 0 }, { x: 6, y: 0 },
 ];
 
-function getCellColor(num) {
+function getCellColor(num: number) {
   return CELL_COLORS[(num - 1) % CELL_COLORS.length];
 }
 
-function cellToPos(num) {
+function cellToPos(num: number) {
   const rowFromBottom = Math.floor((num - 1) / 10);
   const row = 9 - rowFromBottom;
   const col = rowFromBottom % 2 === 0
@@ -48,7 +48,7 @@ function cellToPos(num) {
   return { row, col };
 }
 
-function cellCenter(num, cellSize) {
+function cellCenter(num: number, cellSize: number) {
   const { row, col } = cellToPos(num);
   return {
     x: col * cellSize + cellSize / 2,
@@ -56,28 +56,28 @@ function cellCenter(num, cellSize) {
   };
 }
 
-function getPidHash(pid) {
+function getPidHash(pid: string) {
   return pid.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
 }
 
-function getPlayerColor(pid) {
+function getPlayerColor(pid: string) {
   return PLAYER_COLORS[getPidHash(pid) % PLAYER_COLORS.length];
 }
 
-function getClusterOffset(pid) {
+function getClusterOffset(pid: string) {
   return CLUSTER_OFFSETS[getPidHash(pid) % CLUSTER_OFFSETS.length];
 }
 
-function squareToPixel(squareNum, pid, cellSize) {
+function squareToPixel(squareNum: number, pid: string, cellSize: number) {
   const { row, col } = cellToPos(squareNum);
   const offset = getClusterOffset(pid);
   return {
-    x: col * cellSize + cellSize / 2 - 8 + offset.x,
-    y: row * cellSize + cellSize / 2 - 8 + offset.y,
+    x: col * cellSize + cellSize / 2 + offset.x,
+    y: row * cellSize + cellSize / 2 + offset.y,
   };
 }
 
-function getPointsAlongLine(from, to, cellSize, steps = 10) {
+function getPointsAlongLine(from: number, to: number, cellSize: number, steps = 10) {
   const a = cellCenter(from, cellSize);
   const b = cellCenter(to, cellSize);
   const points = [];
@@ -91,7 +91,7 @@ function getPointsAlongLine(from, to, cellSize, steps = 10) {
   return points;
 }
 
-function getPointsAlongCurve(from, to, index, cellSize, steps = 16) {
+function getPointsAlongCurve(from: number, to: number, index: number, cellSize: number, steps = 16) {
   const a = cellCenter(from, cellSize);
   const b = cellCenter(to, cellSize);
   const dx = b.x - a.x;
@@ -120,17 +120,34 @@ function getPointsAlongCurve(from, to, index, cellSize, steps = 16) {
   return points;
 }
 
-// ✅ tablet-aware board sizing helper
 function calculateCellSize() {
   const availableWidth =
     window.innerWidth >= 768
-      ? Math.min(window.innerWidth - 380, 560) // 320 chat + gaps
-      : window.innerWidth - 24;
+      ? Math.min(window.innerWidth - 380, 800)
+      : window.innerWidth - 48;
 
-  return Math.floor(Math.min(availableWidth, 560) / 10);
+  const availableHeight =
+    window.innerWidth >= 768
+      ? window.innerHeight - 340  // ✅ FIX 2: was 280, now 340
+      : window.innerHeight - 200;
+
+  const maxBoardSize = Math.min(availableWidth, availableHeight);
+  const finalBoardSize = Math.max(300, Math.min(maxBoardSize, 800));
+
+  return Math.floor(finalBoardSize / 10);
 }
 
-export default function Board({ positions = {}, playerNames = {}, roomData, diceComplete }) {
+// ✅ FIX 1a: hideLegend added to interface
+interface BoardProps {
+  positions?: Record<string, number>;
+  playerNames?: Record<string, string>;
+  roomData?: any;
+  diceComplete?: boolean;
+  hideLegend?: boolean;
+}
+
+// ✅ FIX 1b: hideLegend destructured with default false
+export default function Board({ positions = {}, playerNames = {}, roomData, diceComplete, hideLegend = false }: BoardProps) {
   const snakeEntries = useMemo(
     () =>
       Object.entries(SNAKES).map(([from, to], i) => ({
@@ -151,47 +168,55 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     []
   );
 
-  // ✅ Dynamically calculate cell size based on viewport width (tablet-aware)
   const [cellSize, setCellSize] = useState(() => calculateCellSize());
   const boardSize = cellSize * 10;
 
-  const [tokenPixels, setTokenPixels] = useState({});
+  const [tokenPixels, setTokenPixels] = useState<Record<string, { x: number; y: number }>>({});
   const lastMoveKeyRef = useRef("");
-  const pendingRoomDataRef = useRef(null);
-  const scheduledTimeoutsRef = useRef([]);
-  const runAnimationRef = useRef(null);
+  const pendingRoomDataRef = useRef<any>(null);
+  const scheduledTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
+  const runAnimationRef = useRef<((snap: any) => void) | null>(null);
   const prevCellSizeRef = useRef(cellSize);
 
-  const tokenPixelsRef = useRef({});
+  const tokenPixelsRef = useRef(tokenPixels);
   useEffect(() => {
     tokenPixelsRef.current = tokenPixels;
   }, [tokenPixels]);
 
-  // ✅ Window resize listener with same tablet-aware logic
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
     const handler = () => {
-      setCellSize(calculateCellSize());
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        setCellSize((prev) => {
+          const newSize = calculateCellSize();
+          return Math.abs(prev - newSize) > 2 ? newSize : prev;
+        });
+      }, 100);
     };
+
     window.addEventListener("resize", handler);
-    return () => window.removeEventListener("resize", handler);
+    return () => {
+      window.removeEventListener("resize", handler);
+      clearTimeout(timeoutId);
+    };
   }, []);
 
-  // Snap tokens to new scaled positions if the screen is resized or rotated
   useEffect(() => {
     if (prevCellSizeRef.current !== cellSize) {
-      const newEntries = {};
+      const newEntries: Record<string, { x: number; y: number }> = {};
       Object.keys(positions).forEach((pid) => {
         newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
       });
       setTokenPixels(newEntries);
-      scheduledTimeoutsRef.current.forEach(clearTimeout); // Stop running animations on resize
+      scheduledTimeoutsRef.current.forEach(clearTimeout);
       prevCellSizeRef.current = cellSize;
     }
   }, [cellSize, positions]);
 
-  // Place initial tokens when positions load
   useEffect(() => {
-    const newEntries = {};
+    const newEntries: Record<string, { x: number; y: number }> = {};
     let hasNew = false;
     Object.keys(positions).forEach((pid) => {
       if (tokenPixelsRef.current[pid]) return;
@@ -203,7 +228,6 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     }
   }, [positions, cellSize]);
 
-  // The main animation sequence handler
   runAnimationRef.current = (snap) => {
     const pid = snap?.lastRolledBy;
     if (!pid) return;
@@ -223,7 +247,7 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     const movedTo = Math.min(100, lastFrom + lastDice);
     const clusterOffset = getClusterOffset(pid);
 
-    const schedule = [];
+    const schedule: { time: number; x: number; y: number }[] = [];
     let cursor = 0;
     const STEP_MS = 300;
 
@@ -231,8 +255,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
       const { row, col } = cellToPos(s);
       schedule.push({
         time: cursor,
-        x: col * cellSize + cellSize / 2 - 8 + clusterOffset.x,
-        y: row * cellSize + cellSize / 2 - 8 + clusterOffset.y,
+        x: col * cellSize + cellSize / 2 + clusterOffset.x,
+        y: row * cellSize + cellSize / 2 + clusterOffset.y,
       });
       cursor += STEP_MS;
     }
@@ -244,13 +268,13 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
         ? getPointsAlongCurve(movedTo, finalPos, snakeIdx, cellSize)
         : getPointsAlongLine(movedTo, finalPos, cellSize);
 
-      cursor += 400; // Pause briefly before sliding down a snake or up a ladder
+      cursor += 400;
 
       rawPoints.forEach((pt) => {
         schedule.push({
           time: cursor,
-          x: pt.x - 8 + clusterOffset.x,
-          y: pt.y - 8 + clusterOffset.y,
+          x: pt.x + clusterOffset.x,
+          y: pt.y + clusterOffset.y,
         });
         cursor += 120;
       });
@@ -271,7 +295,6 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     );
   };
 
-  // Buffer the room data silently when it arrives from Firebase
   useEffect(() => {
     const pid = roomData?.lastRolledBy;
     if (!pid) return;
@@ -282,11 +305,9 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     const moveKey = `${pid}|${lastDice}|${roomData?.updatedAt?.seconds}|${roomData?.updatedAt?.nanoseconds}`;
     if (lastMoveKeyRef.current === moveKey) return;
 
-    // Store it in the ref, don't trigger the animation yet
     pendingRoomDataRef.current = roomData;
   }, [roomData]);
 
-  // Execute the buffered animation ONLY when the 3D dice roll is visually complete
   useEffect(() => {
     if (!diceComplete || !pendingRoomDataRef.current) return;
 
@@ -316,9 +337,10 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
           boxShadow: "0 12px 36px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.2)",
           outline: "6px solid #5C2A00",
           outlineOffset: "2px",
-          overflow: "hidden", // Prevents iOS scroll bounce revealing background elements
+          overflow: "hidden",
           userSelect: "none",
-          WebkitUserSelect: "none", // Prevents iOS text-magnifier on rapid taps
+          WebkitUserSelect: "none",
+          touchAction: "none",
         }}
       >
         {/* Cells */}
@@ -382,88 +404,30 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
 
             return (
               <g key={`l-${from}`}>
-                <line
-                  x1={r1a.x + 3}
-                  y1={r1a.y + 4}
-                  x2={r1b.x + 3}
-                  y2={r1b.y + 4}
-                  stroke="rgba(0,0,0,0.4)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                />
-                <line
-                  x1={r2a.x + 3}
-                  y1={r2a.y + 4}
-                  x2={r2b.x + 3}
-                  y2={r2b.y + 4}
-                  stroke="rgba(0,0,0,0.4)"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                />
-                <line
-                  x1={r1a.x}
-                  y1={r1a.y}
-                  x2={r1b.x}
-                  y2={r1b.y}
-                  stroke="#6E3B16"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                />
-                <line
-                  x1={r2a.x}
-                  y1={r2a.y}
-                  x2={r2b.x}
-                  y2={r2b.y}
-                  stroke="#6E3B16"
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                />
-                <line
-                  x1={r1a.x}
-                  y1={r1a.y}
-                  x2={r1b.x}
-                  y2={r1b.y}
-                  stroke="#A86C3E"
-                  strokeWidth="2"
-                  strokeDasharray="10 8"
-                  opacity="0.6"
-                />
-                <line
-                  x1={r2a.x}
-                  y1={r2a.y}
-                  x2={r2b.x}
-                  y2={r2b.y}
-                  stroke="#A86C3E"
-                  strokeWidth="2"
-                  strokeDasharray="10 8"
-                  opacity="0.6"
-                />
+                <line x1={r1a.x + 3} y1={r1a.y + 4} x2={r1b.x + 3} y2={r1b.y + 4}
+                  stroke="rgba(0,0,0,0.4)" strokeWidth="6" strokeLinecap="round" />
+                <line x1={r2a.x + 3} y1={r2a.y + 4} x2={r2b.x + 3} y2={r2b.y + 4}
+                  stroke="rgba(0,0,0,0.4)" strokeWidth="6" strokeLinecap="round" />
+                <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y}
+                  stroke="#6E3B16" strokeWidth="6" strokeLinecap="round" />
+                <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y}
+                  stroke="#6E3B16" strokeWidth="6" strokeLinecap="round" />
+                <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y}
+                  stroke="#A86C3E" strokeWidth="2" strokeDasharray="10 8" opacity="0.6" />
+                <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y}
+                  stroke="#A86C3E" strokeWidth="2" strokeDasharray="10 8" opacity="0.6" />
                 {Array.from({ length: rungsCount }, (_, i) => {
                   const t = (i + 1) / (rungsCount + 1);
                   const rx = a.x + dx * t;
                   const ry = a.y + dy * t;
                   const rung1 = { x: rx + nx * (W / 2 + 2), y: ry + ny * (W / 2 + 2) };
                   const rung2 = { x: rx - nx * (W / 2 + 2), y: ry - ny * (W / 2 + 2) };
-
                   return (
                     <g key={`rung-${i}`}>
-                      <line
-                        x1={rung1.x + 1}
-                        y1={rung1.y + 2}
-                        x2={rung2.x + 1}
-                        y2={rung2.y + 2}
-                        stroke="rgba(0,0,0,0.4)"
-                        strokeWidth="4"
-                      />
-                      <line
-                        x1={rung1.x}
-                        y1={rung1.y}
-                        x2={rung2.x}
-                        y2={rung2.y}
-                        stroke="#8B5A2B"
-                        strokeWidth="4"
-                        strokeLinecap="round"
-                      />
+                      <line x1={rung1.x + 1} y1={rung1.y + 2} x2={rung2.x + 1} y2={rung2.y + 2}
+                        stroke="rgba(0,0,0,0.4)" strokeWidth="4" />
+                      <line x1={rung1.x} y1={rung1.y} x2={rung2.x} y2={rung2.y}
+                        stroke="#8B5A2B" strokeWidth="4" strokeLinecap="round" />
                     </g>
                   );
                 })}
@@ -491,33 +455,15 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
 
             return (
               <g key={`s-${from}`}>
-                <path
-                  d={path}
-                  stroke="rgba(0,0,0,0.4)"
-                  strokeWidth="16"
-                  fill="none"
-                  strokeLinecap="round"
-                  transform="translate(4, 5)"
-                />
+                <path d={path} stroke="rgba(0,0,0,0.4)" strokeWidth="16" fill="none"
+                  strokeLinecap="round" transform="translate(4, 5)" />
                 <path d={path} stroke="#111" strokeWidth="18" fill="none" strokeLinecap="round" />
                 <path d={path} stroke={style.body} strokeWidth="14" fill="none" strokeLinecap="round" />
-                <path
-                  d={path}
-                  stroke={style.belly}
-                  strokeWidth="6"
-                  strokeDasharray="6 8"
-                  fill="none"
-                  strokeLinecap="round"
-                  opacity="0.8"
-                />
+                <path d={path} stroke={style.belly} strokeWidth="6" strokeDasharray="6 8"
+                  fill="none" strokeLinecap="round" opacity="0.8" />
                 <g transform={`translate(${a.x}, ${a.y}) rotate(${(headAngle * 180) / Math.PI})`}>
-                  <path
-                    d="M -12 0 L -22 -4 M -12 0 L -22 4"
-                    stroke="#E74C3C"
-                    strokeWidth="2"
-                    fill="none"
-                    strokeLinecap="round"
-                  />
+                  <path d="M -12 0 L -22 -4 M -12 0 L -22 4"
+                    stroke="#E74C3C" strokeWidth="2" fill="none" strokeLinecap="round" />
                   <ellipse cx="-4" cy="0" rx="14" ry="11" fill={style.body} stroke="#111" strokeWidth="2" />
                   <circle cx="-8" cy="-5" r="3.5" fill="#FFF" stroke="#111" strokeWidth="1" />
                   <circle cx="-8" cy="5" r="3.5" fill="#FFF" stroke="#111" strokeWidth="1" />
@@ -534,21 +480,24 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
           const px = tokenPixels[pid];
           if (!px) return null;
 
+          const tokenSize = Math.min(16, Math.max(10, cellSize * 0.35));
+
           return (
             <div
               key={pid}
               style={{
                 position: "absolute",
-                width: 16,
-                height: 16,
+                width: tokenSize,
+                height: tokenSize,
                 borderRadius: "50%",
                 background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
                 border: "2px solid #fff",
                 boxShadow: "0 2px 6px rgba(0,0,0,0.6)",
-                left: px.x,
-                top: px.y,
+                top: 0,
+                left: 0,
+                transform: `translate(calc(${px.x}px - 50%), calc(${px.y}px - 50%))`,
+                transition: "transform 0.28s ease-in-out",
                 zIndex: 20,
-                transition: "left 0.25s ease, top 0.25s ease",
                 pointerEvents: "none",
                 userSelect: "none",
                 WebkitUserSelect: "none",
@@ -558,8 +507,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
         })}
       </div>
 
-      {/* Legend Area (Styled with Discord Variables) */}
-      {playerIds.length > 0 && (
+      {/* ✅ FIX 1c: Legend now gated on !hideLegend */}
+      {!hideLegend && playerIds.length > 0 && (
         <div
           style={{
             display: "flex",
