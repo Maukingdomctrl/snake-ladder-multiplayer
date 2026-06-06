@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import EmojiPicker from "emoji-picker-react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
+import { getDiscordUser } from './discord';
 import "./App.css";
 import {
   createRoom,
@@ -19,6 +20,11 @@ import Board from "./components/Board";
 const COLORS = ["#e74c3c", "#3498db", "#2ecc71", "#f1c40f", "#9b59b6", "#e67e22", "#1abc9c", "#e91e63"];
 
 function getPlayerId(): string {
+  // Use Discord user ID if available
+  const discordUser = getDiscordUser();
+  if (discordUser?.id) return `discord_${discordUser.id}`;
+
+  // Fall back to localStorage ID for browser play
   const key = "playerId";
   let id = localStorage.getItem(key);
   if (!id) {
@@ -69,7 +75,11 @@ export default function App() {
 
   const playerId = getPlayerId();
 
-  const [playerName, setPlayerName] = useState<string>(localStorage.getItem("playerName") || "");
+  const [playerName, setPlayerName] = useState<string>(() => {
+  const discordUser = getDiscordUser();
+  if (discordUser?.username) return discordUser.username;
+  return localStorage.getItem("playerName") || "";
+  });
   const [playerColor, setPlayerColor] = useState<string>(localStorage.getItem("playerColor") || COLORS[0]);
 
   const [isTablet, setIsTablet] = useState<boolean>(window.innerWidth >= 768);

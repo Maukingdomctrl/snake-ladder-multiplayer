@@ -128,7 +128,7 @@ function calculateCellSize() {
 
   const availableHeight =
     window.innerWidth >= 768
-      ? window.innerHeight - 340  // ✅ FIX 2: was 280, now 340
+      ? window.innerHeight - 320  // ✅ FIX 2: was 280, now 340
       : window.innerHeight - 200;
 
   const maxBoardSize = Math.min(availableWidth, availableHeight);
