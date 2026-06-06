@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/render/:path*",
+      "destination": "https://snake-ladder-multiplayer-c5ai.onrender.com/:path*"
+    }
+  ]
+}
