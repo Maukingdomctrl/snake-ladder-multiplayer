@@ -9,7 +9,11 @@ import { setupDiscord } from './discord';
 patchUrlMappings(
   [
     { prefix: "/firestore", target: "firestore.googleapis.com" },
-    { prefix: "/render", target: "snake-ladder-multiplayer-c5ai.onrender.com" } 
+    { 
+      prefix: "/render", 
+      target: "snake-ladder-multiplayer-c5ai.onrender.com",
+      replacePrefix: "/render" // 👈 Add this line to strip the prefix
+    } 
   ],
   {
     patchFetch: true,
