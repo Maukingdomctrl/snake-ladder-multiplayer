@@ -1,8 +1,7 @@
 // web/src/firebase/index.ts
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore } from "firebase/firestore";
 
-// Your actual Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyAZXQjhsh0ohB7VFhoHgumIM2gvX2s-EZo",
   authDomain: "snake-ladder-maukingdom.firebaseapp.com",
@@ -13,8 +12,9 @@ const firebaseConfig = {
   measurementId: "G-2GYGRH7H0Q"
 };
 
-// Initialize Firebase for the browser
 const app = initializeApp(firebaseConfig);
 
-// Export Firestore so your game can talk to the database
-export const db = getFirestore(app);
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false,
+});
