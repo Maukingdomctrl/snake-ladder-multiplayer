@@ -9,7 +9,7 @@ import { setupDiscord } from './discord';
 patchUrlMappings(
   [
     { prefix: "/firestore", target: "firestore.googleapis.com" },
-    { prefix: "/render", target: "YOUR_RENDER_URL.onrender.com" } // ⚠️ REPLACE with your real Render URL (no https://)
+    { prefix: "/render", target: "snake-ladder-multiplayer-c5ai.onrender.com" } 
   ],
   {
     patchFetch: true,

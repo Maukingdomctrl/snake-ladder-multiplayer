@@ -45,7 +45,8 @@ export async function createRoom(hostId: string, hostName: string, hostColor: st
   console.log("➡️ [createRoom] Pinging Render server for secure room creation...");
   
   try {
-    const SERVER_URL = "https://snake-ladder-multiplayer-c5ai.onrender.com/createRoom";
+    // 👇 CHANGED: Now uses the Discord proxy tunnel instead of the absolute URL
+    const SERVER_URL = "/render/createRoom";
 
     const response = await fetch(SERVER_URL, {
       method: "POST",
