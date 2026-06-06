@@ -39,16 +39,16 @@ const SNAKES_LADDERS: Record<number, number> = {
 };
 
 /**
- * Creates a unique 4-digit multiplayer game room via the secure Render backend
+ * Creates a unique 4-digit multiplayer game room.
+ * We use the full URL so the Discord SDK tunnel intercepts it automatically.
  */
 export async function createRoom(hostId: string, hostName: string, hostColor: string) {
-  console.log("➡️ [createRoom] Pinging Render server for secure room creation...");
+  console.log("➡️ [createRoom] Pinging Render server...");
   
   try {
-    // 👇 CHANGED: Now uses the Discord proxy tunnel instead of the absolute URL
-    const SERVER_URL = "/render/createRoom";
-
-    const response = await fetch(SERVER_URL, {
+    // By using the full URL that matches your URL Mapping target,
+    // the Discord proxy will intercept and tunnel this request.
+    const response = await fetch("https://snake-ladder-multiplayer-c5ai.onrender.com/createRoom", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hostId, hostName, hostColor }),
@@ -59,11 +59,11 @@ export async function createRoom(hostId: string, hostName: string, hostColor: st
     }
 
     const data = await response.json();
-    console.log(`✅ [createRoom] Success! Render backend created Room ${data.roomId}`);
+    console.log(`✅ [createRoom] Success! Room ${data.roomId} created.`);
     
     return data.roomId; 
   } catch (error) {
-    console.error("❌ [createRoom] Failed to connect to Render backend:", error);
+    console.error("❌ [createRoom] Connection failed:", error);
     throw error;
   }
 }
