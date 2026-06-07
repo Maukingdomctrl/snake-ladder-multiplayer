@@ -12,6 +12,7 @@ interface LobbyProps {
   setCopied: (val: boolean) => void;
   onPickColor: (color: string) => void;
   onStartGame: () => void;
+  isDiscord?: boolean;
 }
 
 export default function Lobby({
@@ -24,6 +25,7 @@ export default function Lobby({
   setCopied,
   onPickColor,
   onStartGame,
+  isDiscord,
 }: LobbyProps) {
   const getName = (pid: string) => roomData.playerNames?.[pid] || pid;
   const takenColors = Object.values(roomData.playerColors || {}) as string[];
@@ -33,7 +35,7 @@ export default function Lobby({
       <div
         style={{
           background: "var(--bg-primary)",
-          padding: "32px 24px",
+          padding: isDiscord ? "16px 12px" : "32px 24px",
           borderRadius: 16,
           boxShadow: "var(--shadow-lg)",
           border: "1px solid var(--border)",
@@ -45,9 +47,9 @@ export default function Lobby({
           textAlign: "center",
         }}
       >
-        <h2 style={{ margin: "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>Room Lobby</h2>
+        <h2 style={{ margin: isDiscord ? "0 0 8px 0" : "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>Room Lobby</h2>
 
-        <div style={{ display: "flex", gap: 12, marginBottom: 24, fontSize: 13, color: "var(--text-secondary)" }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: isDiscord ? 12 : 24, fontSize: 13, color: "var(--text-secondary)" }}>
           <span style={{ background: "var(--bg-tertiary)", padding: "6px 12px", borderRadius: 16, border: "1px solid var(--border)" }}>
             <b style={{ color: "var(--text-primary)" }}>Status:</b> Waiting
           </span>
@@ -56,25 +58,27 @@ export default function Lobby({
           </span>
         </div>
 
-        <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 24px", marginBottom: 24, display: "flex", alignItems: "center", gap: 16, width: "100%" }}>
-          <div>
-            <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", fontWeight: 600, letterSpacing: 1, textTransform: "uppercase" }}>Room Code</p>
-            <p style={{ margin: 0, fontSize: 40, fontWeight: 800, letterSpacing: 8, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{activeRoomId}</p>
+        {!isDiscord && (
+          <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 24px", marginBottom: 24, display: "flex", alignItems: "center", gap: 16, width: "100%" }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", fontWeight: 600, letterSpacing: 1, textTransform: "uppercase" }}>Room Code</p>
+              <p style={{ margin: 0, fontSize: 40, fontWeight: 800, letterSpacing: 8, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{activeRoomId}</p>
+            </div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(activeRoomId);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+              style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+            >
+              {copied ? "✓ Copied!" : "Copy"}
+            </button>
           </div>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(activeRoomId);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
-            }}
-            style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-          >
-            {copied ? "✓ Copied!" : "Copy"}
-          </button>
-        </div>
+        )}
 
-        <div style={{ width: "100%", marginBottom: 16 }}>
-          <p style={{ margin: "0 0 10px 0", fontSize: 12, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>
+        <div style={{ width: "100%", marginBottom: isDiscord ? 8 : 16 }}>
+          <p style={{ margin: isDiscord ? "0 0 6px 0" : "0 0 10px 0", fontSize: 12, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>
             Players — {roomData.players?.length ?? 0}/8
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -92,7 +96,7 @@ export default function Lobby({
           </div>
         </div>
 
-        <div style={{ width: "100%", marginBottom: 32 }}>
+        <div style={{ width: "100%", marginBottom: isDiscord ? 16 : 32 }}>
           <p style={{ margin: "0 0 16px 0", color: "var(--text-primary)", fontWeight: 600, fontSize: 15 }}>Pick your color:</p>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
             {LOBBY_COLORS.map((c) => {

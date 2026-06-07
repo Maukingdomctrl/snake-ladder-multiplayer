@@ -345,13 +345,15 @@ export default function App() {
             }}
           >
             {/* Header */}
-            <GameHeader
-              roomId={roomData.id!}
-              players={roomData.players}
-              playerColors={roomData.playerColors || {}}
-              playerNames={roomData.playerNames || {}}
-              isTablet={isTablet}
-            />
+            {!isDiscord && (
+              <GameHeader
+                roomId={roomData.id!}
+                players={roomData.players}
+                playerColors={roomData.playerColors || {}}
+                playerNames={roomData.playerNames || {}}
+                isTablet={isTablet}
+              />
+            )}
 
             <div
               style={{
@@ -395,6 +397,7 @@ export default function App() {
                     setCopied={setCopied}
                     onPickColor={onPickColor}
                     onStartGame={onStartGame}
+                    isDiscord={isDiscord}
                   />
                 )}
 
