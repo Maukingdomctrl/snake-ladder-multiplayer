@@ -1,7 +1,7 @@
 import { patchUrlMappings } from '@discord/embedded-app-sdk';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import './index.css';
+import './App.css';
 import App from './App';
 import { setupDiscord } from './discord';
 
@@ -16,7 +16,6 @@ if (isDiscord) {
       {
         prefix: "/render",
         target: "snake-ladder-multiplayer-c5ai.onrender.com",
-        replacePrefix: ""
       }
     ],
     {

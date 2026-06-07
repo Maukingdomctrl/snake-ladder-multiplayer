@@ -1,39 +1,15 @@
 import { useMemo, useEffect, useRef, useState } from "react";
+import {
+  SNAKES,
+  LADDERS,
+  PLAYER_COLORS,
+  CELL_COLORS,
+  SNAKE_STYLES,
+  CLUSTER_OFFSETS,
+} from "../constants";
+import type { Room } from "../firebase/rooms";
 
-const LADDERS: Record<number, number> = {
-  8: 26, 19: 38, 28: 53, 21: 82,
-  36: 57, 43: 77, 50: 91, 54: 88,
-  61: 99, 62: 95,
-};
-
-const SNAKES: Record<number, number> = {
-  46: 15, 48: 9, 52: 11, 59: 18,
-  64: 24, 68: 2, 69: 33, 83: 22,
-  89: 51, 93: 37, 98: 13,
-};
-
-const PLAYER_COLORS = [
-  "#ffffff", "#000000", "#ff00ff", "#00ffff",
-  "#9b59b6", "#1abc9c", "#e67e22", "#e91e63",
-];
-
-const CELL_COLORS = [
-  "#E44D26", "#2980B9", "#F1C40F", "#27AE60",
-];
-
-const SNAKE_STYLES = [
-  { body: "#8E44AD", belly: "#F1C40F" },
-  { body: "#2980B9", belly: "#85C1E9" },
-  { body: "#C0392B", belly: "#17202A" },
-  { body: "#27AE60", belly: "#F1C40F" },
-  { body: "#D35400", belly: "#F39C12" },
-  { body: "#34495E", belly: "#95A5A6" },
-];
-
-const CLUSTER_OFFSETS = [
-  { x: 0, y: 0 }, { x: -4, y: -4 }, { x: 4, y: 4 }, { x: 4, y: -4 },
-  { x: -4, y: 4 }, { x: 0, y: -6 }, { x: -6, y: 0 }, { x: 6, y: 0 },
-];
+// ── Pure helpers ──────────────────────────────────────────────────────────────
 
 function getCellColor(num: number) {
   return CELL_COLORS[(num - 1) % CELL_COLORS.length];
@@ -42,9 +18,8 @@ function getCellColor(num: number) {
 function cellToPos(num: number) {
   const rowFromBottom = Math.floor((num - 1) / 10);
   const row = 9 - rowFromBottom;
-  const col = rowFromBottom % 2 === 0
-    ? (num - 1) % 10
-    : 9 - ((num - 1) % 10);
+  const col =
+    rowFromBottom % 2 === 0 ? (num - 1) % 10 : 9 - ((num - 1) % 10);
   return { row, col };
 }
 
@@ -77,39 +52,59 @@ function squareToPixel(squareNum: number, pid: string, cellSize: number) {
   };
 }
 
-function getPointsAlongLine(from: number, to: number, cellSize: number, steps = 10) {
-  const a = cellCenter(from, cellSize);
-  const b = cellCenter(to, cellSize);
-  const points = [];
-  for (let i = 1; i <= steps; i++) {
+function calculateCellSize() {
+  const availableWidth =
+    window.innerWidth >= 768
+      ? Math.min(window.innerWidth - 380, 800)
+      : window.innerWidth - 48;
+
+  const availableHeight =
+    window.innerWidth >= 768
+      ? window.innerHeight - 320
+      : window.innerHeight - 200;
+
+  const maxBoardSize = Math.min(availableWidth, availableHeight);
+  const finalBoardSize = Math.max(300, Math.min(maxBoardSize, 800));
+  return Math.floor(finalBoardSize / 10);
+}
+
+// ── Animation path helpers ────────────────────────────────────────────────────
+
+function getPointsAlongLine(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  steps: number
+): { x: number; y: number }[] {
+  const points: { x: number; y: number }[] = [];
+  for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     points.push({
-      x: a.x + (b.x - a.x) * t,
-      y: a.y + (b.y - a.y) * t,
+      x: from.x + (to.x - from.x) * t,
+      y: from.y + (to.y - from.y) * t,
     });
   }
   return points;
 }
 
-function getPointsAlongCurve(from: number, to: number, index: number, cellSize: number, steps = 16) {
-  const a = cellCenter(from, cellSize);
-  const b = cellCenter(to, cellSize);
+function getPointsAlongCurve(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  waveDir: number,
+  steps: number
+): { x: number; y: number }[] {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
-
-  const waveDir = index % 2 === 0 ? 1 : -1;
-  const offset = dist * 0.25 * waveDir;
   const nx = -dy / dist;
   const ny = dx / dist;
-
+  const offset = dist * 0.25 * waveDir;
   const cp1x = a.x + dx * 0.33 + nx * offset;
   const cp1y = a.y + dy * 0.33 + ny * offset;
   const cp2x = a.x + dx * 0.66 - nx * offset;
   const cp2y = a.y + dy * 0.66 - ny * offset;
 
-  const points = [];
-  for (let i = 1; i <= steps; i++) {
+  const points: { x: number; y: number }[] = [];
+  for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const mt = 1 - t;
     points.push({
@@ -120,34 +115,25 @@ function getPointsAlongCurve(from: number, to: number, index: number, cellSize: 
   return points;
 }
 
-function calculateCellSize() {
-  const availableWidth =
-    window.innerWidth >= 768
-      ? Math.min(window.innerWidth - 380, 800)
-      : window.innerWidth - 48;
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-  const availableHeight =
-    window.innerWidth >= 768
-      ? window.innerHeight - 320  // ✅ FIX 2: was 280, now 340
-      : window.innerHeight - 200;
-
-  const maxBoardSize = Math.min(availableWidth, availableHeight);
-  const finalBoardSize = Math.max(300, Math.min(maxBoardSize, 800));
-
-  return Math.floor(finalBoardSize / 10);
-}
-
-// ✅ FIX 1a: hideLegend added to interface
 interface BoardProps {
   positions?: Record<string, number>;
   playerNames?: Record<string, string>;
-  roomData?: any;
-  diceComplete?: boolean;
+  roomData?: Room | null;
   hideLegend?: boolean;
+  diceComplete?: boolean;
 }
 
-// ✅ FIX 1b: hideLegend destructured with default false
-export default function Board({ positions = {}, playerNames = {}, roomData, diceComplete, hideLegend = false }: BoardProps) {
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export default function Board({
+  positions = {},
+  playerNames = {},
+  roomData,
+  hideLegend = false,
+  diceComplete = false,
+}: BoardProps) {
   const snakeEntries = useMemo(
     () =>
       Object.entries(SNAKES).map(([from, to], i) => ({
@@ -170,32 +156,28 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
 
   const [cellSize, setCellSize] = useState(() => calculateCellSize());
   const boardSize = cellSize * 10;
-
-  const [tokenPixels, setTokenPixels] = useState<Record<string, { x: number; y: number }>>({});
-  const lastMoveKeyRef = useRef("");
-  const pendingRoomDataRef = useRef<any>(null);
-  const scheduledTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
-  const runAnimationRef = useRef<((snap: any) => void) | null>(null);
   const prevCellSizeRef = useRef(cellSize);
 
-  const tokenPixelsRef = useRef(tokenPixels);
-  useEffect(() => {
-    tokenPixelsRef.current = tokenPixels;
-  }, [tokenPixels]);
+  // ── Animation refs ────────────────────────────────────────────────────────
+  const lastMoveKeyRef = useRef<string>("");
+  const pendingRoomDataRef = useRef<Room | null>(null);
+  const scheduledTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
+  const runAnimationRef = useRef<((snap: Room) => void) | null>(null);
+  const tokenPixelsRef = useRef<Record<string, { x: number; y: number }>>({});
+  const observerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // ── Resize handler ────────────────────────────────────────────────────────
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-
     const handler = () => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
         setCellSize((prev) => {
-          const newSize = calculateCellSize();
-          return Math.abs(prev - newSize) > 2 ? newSize : prev;
+          const next = calculateCellSize();
+          return Math.abs(prev - next) > 2 ? next : prev;
         });
       }, 100);
     };
-
     window.addEventListener("resize", handler);
     return () => {
       window.removeEventListener("resize", handler);
@@ -203,121 +185,170 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
     };
   }, []);
 
+  // ── Token state (drives rendered positions) ───────────────────────────────
+  const [tokenPixels, setTokenPixels] = useState<
+    Record<string, { x: number; y: number }>
+  >({});
+
+  // Recalculate all tokens when cellSize changes
   useEffect(() => {
-    if (prevCellSizeRef.current !== cellSize) {
-      const newEntries: Record<string, { x: number; y: number }> = {};
-      Object.keys(positions).forEach((pid) => {
-        newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
-      });
-      setTokenPixels(newEntries);
-      scheduledTimeoutsRef.current.forEach(clearTimeout);
-      prevCellSizeRef.current = cellSize;
-    }
+    if (prevCellSizeRef.current === cellSize) return;
+    prevCellSizeRef.current = cellSize;
+    const next: Record<string, { x: number; y: number }> = {};
+    Object.keys(positions).forEach((pid) => {
+      next[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
+    });
+    tokenPixelsRef.current = next;
+    setTokenPixels({ ...next });
   }, [cellSize, positions]);
 
-  useEffect(() => {
-    const newEntries: Record<string, { x: number; y: number }> = {};
-    let hasNew = false;
-    Object.keys(positions).forEach((pid) => {
-      if (tokenPixelsRef.current[pid]) return;
-      newEntries[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
-      hasNew = true;
-    });
-    if (hasNew) {
-      setTokenPixels((prev) => ({ ...prev, ...newEntries }));
-    }
-  }, [positions, cellSize]);
-
-  runAnimationRef.current = (snap) => {
-    const pid = snap?.lastRolledBy;
+  // ── Animation engine ──────────────────────────────────────────────────────
+  runAnimationRef.current = (snap: Room) => {
+    const pid = snap.lastRolledBy;
     if (!pid) return;
 
-    const lastDice = snap?.lastDice ?? 0;
-    if (!lastDice) return;
+    const from = snap.lastFrom ?? 1;
+    const finalPos = snap.positions?.[pid] ?? from;
+    const diceVal = snap.lastDice ?? 0;
+    const naturalEnd = Math.min(100, from + diceVal);
 
-    const moveKey = `${pid}|${lastDice}|${snap?.updatedAt?.seconds}|${snap?.updatedAt?.nanoseconds}`;
-    if (lastMoveKeyRef.current === moveKey) return;
-    lastMoveKeyRef.current = moveKey;
-
+    // Clear any previously scheduled timeouts
     scheduledTimeoutsRef.current.forEach(clearTimeout);
     scheduledTimeoutsRef.current = [];
 
-    const lastFrom = snap?.lastFrom ?? 1;
-    const finalPos = snap?.positions?.[pid] ?? 1;
-    const movedTo = Math.min(100, lastFrom + lastDice);
-    const clusterOffset = getClusterOffset(pid);
+    // Build the step-by-step path: from → naturalEnd cell by cell
+    const stepDelay = 300; // ms per cell step, matching the original
+    const steps = naturalEnd - from; // one step per dice value
 
-    const schedule: { time: number; x: number; y: number }[] = [];
-    let cursor = 0;
-    const STEP_MS = 300;
-
-    for (let s = lastFrom + 1; s <= movedTo; s++) {
-      const { row, col } = cellToPos(s);
-      schedule.push({
-        time: cursor,
-        x: col * cellSize + cellSize / 2 + clusterOffset.x,
-        y: row * cellSize + cellSize / 2 + clusterOffset.y,
-      });
-      cursor += STEP_MS;
+    // Animate cell-by-cell: loop runs for (let s = 1; s <= steps; s++)
+    // so targetCell = from + s covers from+1 … from+steps = naturalEnd ✓
+    for (let s = 1; s <= steps; s++) {
+      const targetCell = from + s;
+      const t = setTimeout(() => {
+        const px = squareToPixel(targetCell, pid, cellSize);
+        tokenPixelsRef.current = { ...tokenPixelsRef.current, [pid]: px };
+        setTokenPixels({ ...tokenPixelsRef.current });
+      }, s * stepDelay);
+      scheduledTimeoutsRef.current.push(t);
     }
 
-    if (movedTo !== finalPos) {
-      const isSnake = finalPos < movedTo;
-      const snakeIdx = Object.keys(SNAKES).indexOf(String(movedTo));
-      const rawPoints = isSnake
-        ? getPointsAlongCurve(movedTo, finalPos, snakeIdx, cellSize)
-        : getPointsAlongLine(movedTo, finalPos, cellSize);
+    const stepsDuration = steps * stepDelay;
 
-      cursor += 400;
+    // If snake or ladder, animate the jump after stepping is done
+    if (finalPos !== naturalEnd) {
+      const isSnake = finalPos < naturalEnd;
 
-      rawPoints.forEach((pt) => {
-        schedule.push({
-          time: cursor,
-          x: pt.x + clusterOffset.x,
-          y: pt.y + clusterOffset.y,
+      // Pause 400ms after the last cell step before starting the snake/ladder path
+      const jumpDelay = stepsDuration + 400;
+      const jumpT = setTimeout(() => {
+        const aCenter = cellCenter(naturalEnd, cellSize);
+        const bCenter = cellCenter(finalPos, cellSize);
+        const aPixel = {
+          x: aCenter.x + getClusterOffset(pid).x,
+          y: aCenter.y + getClusterOffset(pid).y,
+        };
+        const bPixel = {
+          x: bCenter.x + getClusterOffset(pid).x,
+          y: bCenter.y + getClusterOffset(pid).y,
+        };
+
+        const curveSteps = 30;
+        const frameDuration = isSnake ? 2000 : 1200; // snake: 2000ms, ladder: 1200ms
+        const frameDelay = frameDuration / curveSteps;
+
+        let waveDir = 1;
+        if (isSnake) {
+          const snakeIndex = Object.keys(SNAKES).indexOf(String(naturalEnd));
+          waveDir = snakeIndex % 2 === 0 ? 1 : -1;
+        }
+
+        const curvePoints = isSnake
+          ? getPointsAlongCurve(aPixel, bPixel, waveDir, curveSteps)
+          : getPointsAlongLine(aPixel, bPixel, curveSteps);
+
+        curvePoints.forEach((pt, i) => {
+          const frameT = setTimeout(() => {
+            tokenPixelsRef.current = { ...tokenPixelsRef.current, [pid]: pt };
+            setTokenPixels({ ...tokenPixelsRef.current });
+          }, i * frameDelay);
+          scheduledTimeoutsRef.current.push(frameT);
         });
-        cursor += 120;
-      });
+      }, jumpDelay);
+      scheduledTimeoutsRef.current.push(jumpT);
     }
-
-    schedule.forEach(({ time, x, y }) => {
-      const id = setTimeout(() => {
-        setTokenPixels((prev) => ({ ...prev, [pid]: { x, y } }));
-      }, time);
-      scheduledTimeoutsRef.current.push(id);
-    });
-
-    const finalPixel = squareToPixel(finalPos, pid, cellSize);
-    scheduledTimeoutsRef.current.push(
-      setTimeout(() => {
-        setTokenPixels((prev) => ({ ...prev, [pid]: finalPixel }));
-      }, cursor + 150)
-    );
   };
 
+  // ── Effect 1: store pending room data, set observer fallback ─────────────
   useEffect(() => {
-    const pid = roomData?.lastRolledBy;
-    if (!pid) return;
+    if (!roomData) return;
 
-    const lastDice = roomData?.lastDice ?? 0;
-    if (!lastDice) return;
+    const ts: any = roomData.updatedAt;
+    const moveKey = `${roomData.lastRolledBy}|${roomData.lastDice}|${ts?.seconds ?? ""}|${ts?.nanoseconds ?? ""}`;
 
-    const moveKey = `${pid}|${lastDice}|${roomData?.updatedAt?.seconds}|${roomData?.updatedAt?.nanoseconds}`;
-    if (lastMoveKeyRef.current === moveKey) return;
+    if (moveKey === lastMoveKeyRef.current) return;
 
+    // New move arrived — store it, wait for diceComplete
     pendingRoomDataRef.current = roomData;
-  }, [roomData]);
 
+    // Snap all tokens to current positions for new players / game start
+    if (roomData.positions) {
+      const next: Record<string, { x: number; y: number }> = {};
+      Object.keys(roomData.positions).forEach((pid) => {
+        if (!tokenPixelsRef.current[pid]) {
+          next[pid] = squareToPixel(roomData.positions![pid] ?? 1, pid, cellSize);
+        }
+      });
+      if (Object.keys(next).length > 0) {
+        tokenPixelsRef.current = { ...tokenPixelsRef.current, ...next };
+        setTokenPixels({ ...tokenPixelsRef.current });
+      }
+    }
+
+    // Safety fallback: if diceComplete never fires, run animation after 5s
+    if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+    observerTimeoutRef.current = setTimeout(() => {
+      if (pendingRoomDataRef.current && runAnimationRef.current) {
+        const snap = pendingRoomDataRef.current;
+        lastMoveKeyRef.current = moveKey;
+        pendingRoomDataRef.current = null;
+        runAnimationRef.current(snap);
+      }
+    }, 5000);
+  }, [roomData, cellSize]);
+
+  // ── Effect 2: fire animation when diceComplete becomes true ──────────────
   useEffect(() => {
-    if (!diceComplete || !pendingRoomDataRef.current) return;
+    if (!diceComplete) return;
+    if (!pendingRoomDataRef.current) return;
 
     const snap = pendingRoomDataRef.current;
+    const ts: any = snap.updatedAt;
+    const moveKey = `${snap.lastRolledBy}|${snap.lastDice}|${ts?.seconds ?? ""}|${ts?.nanoseconds ?? ""}`;
+
+    if (moveKey === lastMoveKeyRef.current) return;
+
+    // Clear the fallback timeout since we're firing properly
+    if (observerTimeoutRef.current) {
+      clearTimeout(observerTimeoutRef.current);
+      observerTimeoutRef.current = null;
+    }
+
+    lastMoveKeyRef.current = moveKey;
     pendingRoomDataRef.current = null;
     runAnimationRef.current?.(snap);
   }, [diceComplete]);
 
+  // ── Cleanup on unmount ────────────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      scheduledTimeoutsRef.current.forEach(clearTimeout);
+      if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+    };
+  }, []);
+
   const playerIds = Object.keys(positions);
 
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div
       style={{
@@ -334,7 +365,8 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
           height: boardSize,
           borderRadius: 8,
           background: "#FFF",
-          boxShadow: "0 12px 36px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.2)",
+          boxShadow:
+            "0 12px 36px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.2)",
           outline: "6px solid #5C2A00",
           outlineOffset: "2px",
           overflow: "hidden",
@@ -381,12 +413,19 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
           );
         })}
 
-        {/* SVG Overlay for Snakes and Ladders */}
+        {/* SVG overlay */}
         <svg
-          style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 5 }}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            pointerEvents: "none",
+            zIndex: 5,
+          }}
           width={boardSize}
           height={boardSize}
         >
+          {/* Ladders */}
           {ladderEntries.map(({ from, to }) => {
             const a = cellCenter(from, cellSize);
             const b = cellCenter(to, cellSize);
@@ -420,8 +459,14 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
                   const t = (i + 1) / (rungsCount + 1);
                   const rx = a.x + dx * t;
                   const ry = a.y + dy * t;
-                  const rung1 = { x: rx + nx * (W / 2 + 2), y: ry + ny * (W / 2 + 2) };
-                  const rung2 = { x: rx - nx * (W / 2 + 2), y: ry - ny * (W / 2 + 2) };
+                  const rung1 = {
+                    x: rx + nx * (W / 2 + 2),
+                    y: ry + ny * (W / 2 + 2),
+                  };
+                  const rung2 = {
+                    x: rx - nx * (W / 2 + 2),
+                    y: ry - ny * (W / 2 + 2),
+                  };
                   return (
                     <g key={`rung-${i}`}>
                       <line x1={rung1.x + 1} y1={rung1.y + 2} x2={rung2.x + 1} y2={rung2.y + 2}
@@ -435,6 +480,7 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
             );
           })}
 
+          {/* Snakes */}
           {snakeEntries.map(({ from, to, index }) => {
             const a = cellCenter(from, cellSize);
             const b = cellCenter(to, cellSize);
@@ -455,33 +501,34 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
 
             return (
               <g key={`s-${from}`}>
-                <path d={path} stroke="rgba(0,0,0,0.4)" strokeWidth="16" fill="none"
-                  strokeLinecap="round" transform="translate(4, 5)" />
-                <path d={path} stroke="#111" strokeWidth="18" fill="none" strokeLinecap="round" />
-                <path d={path} stroke={style.body} strokeWidth="14" fill="none" strokeLinecap="round" />
-                <path d={path} stroke={style.belly} strokeWidth="6" strokeDasharray="6 8"
-                  fill="none" strokeLinecap="round" opacity="0.8" />
+                <path d={path} stroke="rgba(0,0,0,0.4)" strokeWidth="16"
+                  fill="none" strokeLinecap="round" transform="translate(4, 5)" />
+                <path d={path} stroke="#111" strokeWidth="18"
+                  fill="none" strokeLinecap="round" />
+                <path d={path} stroke={style.body} strokeWidth="14"
+                  fill="none" strokeLinecap="round" />
+                <path d={path} stroke={style.belly} strokeWidth="6"
+                  strokeDasharray="6 8" fill="none" strokeLinecap="round" opacity="0.8" />
                 <g transform={`translate(${a.x}, ${a.y}) rotate(${(headAngle * 180) / Math.PI})`}>
                   <path d="M -12 0 L -22 -4 M -12 0 L -22 4"
                     stroke="#E74C3C" strokeWidth="2" fill="none" strokeLinecap="round" />
-                  <ellipse cx="-4" cy="0" rx="14" ry="11" fill={style.body} stroke="#111" strokeWidth="2" />
+                  <ellipse cx="-4" cy="0" rx="14" ry="11"
+                    fill={style.body} stroke="#111" strokeWidth="2" />
                   <circle cx="-8" cy="-5" r="3.5" fill="#FFF" stroke="#111" strokeWidth="1" />
-                  <circle cx="-8" cy="5" r="3.5" fill="#FFF" stroke="#111" strokeWidth="1" />
+                  <circle cx="-8" cy="5"  r="3.5" fill="#FFF" stroke="#111" strokeWidth="1" />
                   <circle cx="-9" cy="-5" r="1.5" fill="#111" />
-                  <circle cx="-9" cy="5" r="1.5" fill="#111" />
+                  <circle cx="-9" cy="5"  r="1.5" fill="#111" />
                 </g>
               </g>
             );
           })}
         </svg>
 
-        {/* Player Tokens */}
+        {/* Tokens */}
         {playerIds.map((pid) => {
           const px = tokenPixels[pid];
           if (!px) return null;
-
           const tokenSize = Math.min(16, Math.max(10, cellSize * 0.35));
-
           return (
             <div
               key={pid}
@@ -496,7 +543,7 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
                 top: 0,
                 left: 0,
                 transform: `translate(calc(${px.x}px - 50%), calc(${px.y}px - 50%))`,
-                transition: "transform 0.28s ease-in-out",
+                transition: "transform 0.15s ease-out",
                 zIndex: 20,
                 pointerEvents: "none",
                 userSelect: "none",
@@ -507,7 +554,7 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
         })}
       </div>
 
-      {/* ✅ FIX 1c: Legend now gated on !hideLegend */}
+      {/* Legend */}
       {!hideLegend && playerIds.length > 0 && (
         <div
           style={{
@@ -516,7 +563,6 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
             gap: 12,
             marginTop: 20,
             justifyContent: "center",
-            color: "var(--text-primary)",
           }}
         >
           {playerIds.map((pid) => (
@@ -532,7 +578,6 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
                 fontSize: 14,
                 fontWeight: 600,
                 border: "1px solid var(--border)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
               }}
             >
               <div
@@ -544,7 +589,13 @@ export default function Board({ positions = {}, playerNames = {}, roomData, dice
                 }}
               />
               {playerNames[pid] || pid}
-              <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 4 }}>
+              <span
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                  marginLeft: 4,
+                }}
+              >
                 (Pos: {positions[pid] ?? 1})
               </span>
             </div>

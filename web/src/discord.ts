@@ -21,12 +21,12 @@ export { isDiscord };
 
 export const discordSdk = isDiscord
   ? new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID)
-  : new DiscordSDKMock(import.meta.env.VITE_DISCORD_CLIENT_ID, null, null);
+:new DiscordSDKMock(import.meta.env.VITE_DISCORD_CLIENT_ID, null, null, null);
 
 export type DiscordUser = {
   id: string;
   username: string;
-  avatar: string | null;
+  avatar?: string | null;
   discriminator: string;
 };
 
