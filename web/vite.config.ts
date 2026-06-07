@@ -10,6 +10,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/.proxy/, ''),
       },
+      '/render': {
+        target: 'https://snake-ladder-multiplayer-c5ai.onrender.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/render/, ''),
+      },
     },
   },
   build: {

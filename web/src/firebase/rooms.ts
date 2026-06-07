@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   getDoc,
+  setDoc,
   onSnapshot,
   serverTimestamp,
   updateDoc,
@@ -189,4 +190,34 @@ export async function sendMessage(roomId: string, playerId: string, playerName: 
 export function subscribeMessages(roomId: string, cb: (msgs: any[]) => void) {
   const q = query(collection(db, "rooms", roomId, "messages"), orderBy("at", "asc"));
   return onSnapshot(q, (snap) => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+}
+
+/**
+ * Retrieves the roomId associated with a given Discord instanceId
+ */
+export async function getInstanceRoom(instanceId: string): Promise<string | null> {
+  try {
+    const instanceRef = doc(db, "instances", instanceId);
+    const snap = await getDoc(instanceRef);
+    if (snap.exists()) {
+      return snap.data().roomId || null;
+    }
+    return null;
+  } catch (error) {
+    console.error("❌ [getInstanceRoom] Error fetching instance:", error);
+    return null;
+  }
+}
+
+/**
+ * Links a generated roomId to a specific Discord instanceId
+ */
+export async function setInstanceRoom(instanceId: string, roomId: string): Promise<void> {
+  try {
+    const instanceRef = doc(db, "instances", instanceId);
+    await setDoc(instanceRef, { roomId, updatedAt: serverTimestamp() }, { merge: true });
+  } catch (error) {
+    console.error("❌ [setInstanceRoom] Error setting instance room:", error);
+    throw error;
+  }
 }

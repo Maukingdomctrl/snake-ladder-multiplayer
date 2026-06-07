@@ -3,6 +3,9 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
 import "./App.css";
 
+// ── Discord Integration ──
+import { isDiscord } from "./discord";
+
 // ── Firebase & Data ──
 import {
   createRoom,
@@ -11,6 +14,8 @@ import {
   startGame,
   rollDice,
   subscribeMessages,
+  getInstanceRoom,
+  setInstanceRoom,
   Room,
 } from "./firebase/rooms";
 
@@ -39,6 +44,7 @@ export default function App() {
   const [joinId, setJoinId] = useState<string>("");
   const [activeRoomId, setActiveRoomId] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
+  const [discordReady, setDiscordReady] = useState<boolean>(false);
 
   // ── Game State ──
   const [roomData, setRoomData] = useState<Room | null>(null);
@@ -71,6 +77,33 @@ export default function App() {
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
+
+  // ── Discord Auto-Join Logic ──
+  useEffect(() => {
+    if (!isDiscord) return;
+    
+    const instanceId = new URLSearchParams(window.location.search).get('instance_id');
+    if (!instanceId) return;
+
+    async function autoJoin() {
+      try {
+        const existingRoomId = await getInstanceRoom(instanceId!);
+        if (existingRoomId) {
+          await joinRoom(existingRoomId, playerId, playerName || playerId, playerColor);
+          setActiveRoomId(existingRoomId);
+        } else {
+          const newRoomId = await createRoom(playerId, playerName || playerId, playerColor);
+          await setInstanceRoom(instanceId!, newRoomId);
+          setActiveRoomId(newRoomId);
+        }
+      } catch (e: any) {
+        setError(e.message || "Failed to connect");
+      } finally {
+        setDiscordReady(true);
+      }
+    }
+    autoJoin();
+  }, []); // Empty dependency array prevents infinite re-render loops
 
   useEffect(() => {
     if (isFirstMessageLoadRef.current) {
@@ -219,11 +252,9 @@ export default function App() {
       const moveKey = `${roomData.lastRolledBy}|${roomData.lastDice}|${ts?.seconds ?? ""}|${ts?.nanoseconds ?? ""}`;
 
       if (lastProcessedMoveRef.current !== moveKey) {
-        // Reset dice state for the new move
         diceFinishedRef.current = false;
         setDiceComplete(false);
 
-        // Clear any pending observer timeout and start a fresh one
         if (observerTimeoutRef.current) {
           clearTimeout(observerTimeoutRef.current);
         }
@@ -280,8 +311,15 @@ export default function App() {
           paddingRight: "max(12px, env(safe-area-inset-right))",
         }}
       >
+        {/* ── DISCORD CONNECTING SCREEN ── */}
+        {!activeRoomId && isDiscord && !discordReady && (
+          <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 16 }}>
+            Connecting to Discord...
+          </div>
+        )}
+
         {/* ── LOGIN SCREEN ── */}
-        {!activeRoomId && (
+        {!activeRoomId && !isDiscord && (
           <LoginScreen
             playerId={playerId}
             playerName={playerName}
@@ -450,9 +488,7 @@ export default function App() {
                           positions={displayPositions}
                           playerNames={roomData?.playerNames || {}}
                           roomData={roomData}
-                          hideLegend={
-                           true
-                          }
+                          hideLegend={true}
                           diceComplete={diceComplete}
                         />
                       </div>

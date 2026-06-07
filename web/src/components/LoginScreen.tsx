@@ -1,5 +1,3 @@
-import React from "react";
-
 interface LoginScreenProps {
   playerId: string;
   playerName: string;
@@ -53,6 +51,9 @@ export default function LoginScreen({
             placeholder="Enter your name (e.g. Mau)"
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onCreateRoom();
+            }}
             style={{
               fontSize: 15,
               padding: "12px 16px",
@@ -87,6 +88,9 @@ export default function LoginScreen({
             onChange={(e) => {
               const val = e.target.value.replace(/\D/g, "");
               setJoinId(val);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onJoinRoom();
             }}
             style={{
               fontSize: 15,
