@@ -4,11 +4,9 @@ const admin = require('firebase-admin');
 
 const app = express();
 
-// 1. Enable CORS so your frontend can communicate with this server
 app.use(cors({ origin: true }));
 app.use(express.json());
 
-// 2. Initialize Firebase Admin using your JSON key
 const serviceAccount = require('./serviceAccountKey.json');
 
 admin.initializeApp({
@@ -17,7 +15,6 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
-// 3. The Secure Room Creation Endpoint
 app.post('/createRoom', async (req, res) => {
   try {
     const { hostId, hostName, hostColor } = req.body;
@@ -31,12 +28,10 @@ app.post('/createRoom', async (req, res) => {
     let attempts = 0;
     const MAX_ATTEMPTS = 10;
 
-    // Generate a unique 4-digit room code
     while (attempts < MAX_ATTEMPTS) {
       roomId = Math.floor(1000 + Math.random() * 9000).toString();
       roomRef = db.collection("rooms").doc(roomId);
       const snap = await roomRef.get();
-      
       if (!snap.exists) break;
       attempts++;
     }
@@ -45,7 +40,6 @@ app.post('/createRoom', async (req, res) => {
       return res.status(503).send({ error: "Servers at maximum capacity." });
     }
 
-    // Write the room data securely
     await roomRef.set({
       hostId,
       players: [hostId],
@@ -56,12 +50,8 @@ app.post('/createRoom', async (req, res) => {
       lastFrom: null,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      playerNames: {
-        [hostId]: hostName || hostId,
-      },
-      playerColors: {
-        [hostId]: hostColor,
-      },
+      playerNames: { [hostId]: hostName || hostId },
+      playerColors: { [hostId]: hostColor },
     });
 
     res.status(200).send({ roomId });
@@ -72,8 +62,41 @@ app.post('/createRoom', async (req, res) => {
   }
 });
 
-// 4. Start the server
+app.post('/token', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).send({ error: "Missing code" });
+    }
+
+    const response = await fetch("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.DISCORD_CLIENT_ID,
+        client_secret: process.env.DISCORD_CLIENT_SECRET,
+        grant_type: "authorization_code",
+        code,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      console.error("Discord token exchange failed:", data);
+      return res.status(400).send({ error: "Token exchange failed", details: data });
+    }
+
+    res.status(200).send({ access_token: data.access_token });
+
+  } catch (error) {
+    console.error("Error exchanging token:", error);
+    res.status(500).send({ error: "Failed to exchange token" });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server is running smoothly on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
