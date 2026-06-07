@@ -53,6 +53,7 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
       <div
         style={{
           flex: 1,
+          minHeight: 0,
           overflowY: "auto",
           padding: "12px 0 0 0",
           marginBottom: 8,
