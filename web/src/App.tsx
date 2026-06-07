@@ -289,8 +289,8 @@ export default function App() {
     <div
       style={{
         background: "var(--bg-secondary)",
-        minHeight: "100dvh",
-        height: "100dvh",
+        minHeight: isDiscord ? "100%" : "100dvh",
+        height: isDiscord ? "100%" : "100dvh",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
