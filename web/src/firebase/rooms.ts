@@ -48,7 +48,7 @@ export async function createRoom(hostId: string, hostName: string, hostColor: st
   try {
     // By using the full URL that matches your URL Mapping target,
     // the Discord proxy will intercept and tunnel this request.
-    const response = await fetch("https://snake-ladder-multiplayer-c5ai.onrender.com/createRoom", {
+    const response = await fetch("/render/createRoom", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hostId, hostName, hostColor }),

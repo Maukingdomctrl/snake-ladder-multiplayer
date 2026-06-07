@@ -3,11 +3,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './App.css';
 import App from './App';
-import { setupDiscord } from './discord';
-
-// Only patch URL mappings when running inside Discord iframe
-const isDiscord = window.location.ancestorOrigins?.contains('https://discord.com') 
-  || window.parent !== window;
+import { setupDiscord, isDiscord } from './discord';
 
 if (isDiscord) {
   patchUrlMappings(
