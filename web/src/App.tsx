@@ -22,6 +22,7 @@ import {
 // ── Hooks ──
 import { usePlayerStorage } from "./hooks/usePlayerStorage";
 import { useGameSync } from "./hooks/useGameSync";
+import { useWindowDimensions } from "./hooks/useWindowDimensions";
 
 // ── Components ──
 import Board from "./components/Board";
@@ -37,6 +38,8 @@ import DiceRow from "./components/DiceRow";
 export default function App() {
   // ── Hook State ──
   const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
+  const { height } = useWindowDimensions();
+  const isCompact = isDiscord || height < 700;
 
   // ── Local UI State ──
   const [loading, setLoading] = useState<boolean>(false);
@@ -345,7 +348,7 @@ export default function App() {
             }}
           >
             {/* Header */}
-            {!isDiscord && (
+            {!isCompact && (
               <GameHeader
                 roomId={roomData.id!}
                 players={roomData.players}
@@ -397,7 +400,7 @@ export default function App() {
                     setCopied={setCopied}
                     onPickColor={onPickColor}
                     onStartGame={onStartGame}
-                    isDiscord={isDiscord}
+                    isCompact={isCompact}
                   />
                 )}
 

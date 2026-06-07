@@ -1,4 +1,3 @@
-import React from "react";
 import { Room } from "../firebase/rooms";
 import { LOBBY_COLORS } from "../constants";
 
@@ -12,7 +11,7 @@ interface LobbyProps {
   setCopied: (val: boolean) => void;
   onPickColor: (color: string) => void;
   onStartGame: () => void;
-  isDiscord?: boolean;
+  isCompact?: boolean;
 }
 
 export default function Lobby({
@@ -25,7 +24,7 @@ export default function Lobby({
   setCopied,
   onPickColor,
   onStartGame,
-  isDiscord,
+  isCompact,
 }: LobbyProps) {
   const getName = (pid: string) => roomData.playerNames?.[pid] || pid;
   const takenColors = Object.values(roomData.playerColors || {}) as string[];
@@ -35,7 +34,7 @@ export default function Lobby({
       <div
         style={{
           background: "var(--bg-primary)",
-          padding: isDiscord ? "16px 12px" : "32px 24px",
+          padding: isCompact ? "16px 12px" : "32px 24px",
           borderRadius: 16,
           boxShadow: "var(--shadow-lg)",
           border: "1px solid var(--border)",
@@ -47,9 +46,9 @@ export default function Lobby({
           textAlign: "center",
         }}
       >
-        <h2 style={{ margin: isDiscord ? "0 0 8px 0" : "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>Room Lobby</h2>
+        <h2 style={{ margin: isCompact ? "0 0 8px 0" : "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>Room Lobby</h2>
 
-        <div style={{ display: "flex", gap: 12, marginBottom: isDiscord ? 12 : 24, fontSize: 13, color: "var(--text-secondary)" }}>
+        <div style={{ display: "flex", gap: 12, marginBottom: isCompact ? 12 : 24, fontSize: 13, color: "var(--text-secondary)" }}>
           <span style={{ background: "var(--bg-tertiary)", padding: "6px 12px", borderRadius: 16, border: "1px solid var(--border)" }}>
             <b style={{ color: "var(--text-primary)" }}>Status:</b> Waiting
           </span>
@@ -58,7 +57,7 @@ export default function Lobby({
           </span>
         </div>
 
-        {!isDiscord && (
+        {!isCompact && (
           <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 24px", marginBottom: 24, display: "flex", alignItems: "center", gap: 16, width: "100%" }}>
             <div>
               <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", fontWeight: 600, letterSpacing: 1, textTransform: "uppercase" }}>Room Code</p>
@@ -77,8 +76,8 @@ export default function Lobby({
           </div>
         )}
 
-        <div style={{ width: "100%", marginBottom: isDiscord ? 8 : 16 }}>
-          <p style={{ margin: isDiscord ? "0 0 6px 0" : "0 0 10px 0", fontSize: 12, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>
+        <div style={{ width: "100%", marginBottom: isCompact ? 8 : 16 }}>
+          <p style={{ margin: isCompact ? "0 0 6px 0" : "0 0 10px 0", fontSize: 12, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>
             Players — {roomData.players?.length ?? 0}/8
           </p>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -96,9 +95,9 @@ export default function Lobby({
           </div>
         </div>
 
-        <div style={{ width: "100%", marginBottom: isDiscord ? 16 : 32 }}>
+        <div style={{ width: "100%", marginBottom: isCompact ? 8 : 16 }}>
           <p style={{ margin: "0 0 16px 0", color: "var(--text-primary)", fontWeight: 600, fontSize: 15 }}>Pick your color:</p>
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", justifyContent: "center" }}>
+          <div style={{ display: "flex", gap: isCompact ? 8 : 12, flexWrap: "wrap", justifyContent: "center" }}>
             {LOBBY_COLORS.map((c) => {
               const taken = takenColors.includes(c) && roomData?.playerColors?.[playerId] !== c;
               return (
@@ -106,8 +105,8 @@ export default function Lobby({
                   key={c}
                   onClick={() => !taken && onPickColor(c)}
                   style={{
-                    width: 44,
-                    height: 44,
+                    width: isCompact ? 34 : 44,
+                    height: isCompact ? 34 : 44,
                     borderRadius: "50%",
                     background: c,
                     border: playerColor === c ? "4px solid #fff" : "2px solid rgba(255,255,255,0.2)",
