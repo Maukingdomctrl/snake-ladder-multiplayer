@@ -543,6 +543,8 @@ export default function App() {
                     display: "flex",
                     flexDirection: "column",
                     height: "100%",
+                    maxHeight: "100%",
+                    overflow: "hidden",
                     boxShadow: "var(--shadow-md)",
                     border: "1px solid var(--border)",
                   }}
