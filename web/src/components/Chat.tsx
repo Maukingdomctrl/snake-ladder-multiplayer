@@ -28,9 +28,15 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
 
   useEffect(() => {
     if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef.current.scrollIntoView({ behavior: "instant" });
     }
   }, [messages]);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "instant" });
+    }
+  }, []);
 
   const onSendMessage = async () => {
     const text = chatInput.trim();
@@ -190,7 +196,7 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
             }}
             onFocus={() => {
               setTimeout(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
               }, 300);
             }}
             rows={1}
