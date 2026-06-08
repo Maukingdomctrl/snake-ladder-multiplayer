@@ -150,7 +150,7 @@ export default function DiscordLobby({
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <button
             onClick={onStartGame}
-            disabled={loading || (roomData.players?.length ?? 0) < 2}
+            disabled={loading}
             style={{
               background: (roomData.players?.length ?? 0) < 2 ? "#1a1814" : "linear-gradient(135deg, #c9a84c, #a07830)",
               border: "none",
