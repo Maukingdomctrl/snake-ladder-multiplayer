@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './App.css';
 import App from './App';
+import DiscordApp from './discord-activity/DiscordApp';
 import { setupDiscord, isDiscord } from './discord';
 
 if (isDiscord) {
@@ -26,10 +27,12 @@ async function init() {
   await setupDiscord().catch((e) => {
     console.warn("Discord setup skipped (likely running in browser):", e);
   });
+  
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App />
+      {isDiscord ? <DiscordApp /> : <App />}
     </StrictMode>,
   );
 }
+
 init();
