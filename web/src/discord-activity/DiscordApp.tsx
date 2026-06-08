@@ -1,251 +1,274 @@
-// src/discord-activity/DiscordGameView.tsx
+// src/discord-activity/DiscordApp.tsx
 
-import type { Room } from "../firebase/rooms";
-import Board from "../components/Board";
-import DiceRow from "../components/DiceRow";
+import { useEffect, useRef, useState } from "react";
+import { doc, updateDoc } from "firebase/firestore";
+import { db } from "../firebase/index";
+import {
+  createRoom,
+  joinRoom,
+  subscribeRoom,
+  startGame,
+  rollDice,
+  subscribeMessages,
+  getInstanceRoom,
+  setInstanceRoom,
+  Room,
+} from "../firebase/rooms";
+import { usePlayerStorage } from "../hooks/usePlayerStorage";
+import { useGameSync } from "../hooks/useGameSync";
+import DiscordLayout from "./DiscordLayout";
+import DiscordLobby from "./DiscordLobby";
+import DiscordGameView from "./DiscordGameView"; // <-- Changed to default import
+import Chat from "../components/Chat";
+import CountdownCard from "../components/CountdownCard";
 
-interface DiscordGameViewProps {
-  roomData: Room;
-  playerId: string;
-  displayPositions: Record<string, number>;
-  activeRoomId: string;
-  diceComplete: boolean;
-  jumpMessage: string;
-  loading: boolean;
-  onRollDice: () => void;
-  onRollComplete: () => void;
-  onLeaveRoom: () => void;
-  onStartGame: () => void;
-}
+export default function DiscordApp() {
+  const { playerId, playerName, playerColor, setPlayerColor } = usePlayerStorage();
 
-export default function DiscordGameView({
-  roomData,
-  playerId,
-  displayPositions,
-  activeRoomId,
-  diceComplete,
-  jumpMessage,
-  loading,
-  onRollDice,
-  onRollComplete,
-  onLeaveRoom,
-  onStartGame,
-}: DiscordGameViewProps) {
-  const getName = (pid: string) => roomData.playerNames?.[pid] || pid;
-  const isMyTurn = roomData.status === "playing" && roomData.currentTurn === playerId;
-  const currentTurnName = roomData.currentTurn ? getName(roomData.currentTurn) : "";
+  // ── Local UI State ──
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>("");
+  const [activeRoomId, setActiveRoomId] = useState<string>("");
+  const [discordReady, setDiscordReady] = useState<boolean>(false);
 
+  // ── Game State ──
+  const [roomData, setRoomData] = useState<Room | null>(null);
+  const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({});
+  const [jumpMessage, setJumpMessage] = useState<string>("");
+  const [diceComplete, setDiceComplete] = useState<boolean>(false);
+  const { countdown } = useGameSync(roomData);
+
+  // ── Chat State ──
+  const [messages, setMessages] = useState<any[]>([]);
+
+  // ── Refs ──
+  const prevRoomRef = useRef<Room | null>(null);
+  const lastProcessedMoveRef = useRef<string>("");
+  const diceFinishedRef = useRef<boolean>(false);
+  const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Discord Auto-Join ──
+  useEffect(() => {
+    const instanceId = new URLSearchParams(window.location.search).get("instance_id");
+    if (!instanceId) {
+      setDiscordReady(true);
+      return;
+    }
+
+    async function autoJoin() {
+      try {
+        const existingRoomId = await getInstanceRoom(instanceId!);
+        if (existingRoomId) {
+          await joinRoom(existingRoomId, playerId, playerName || playerId, playerColor);
+          setActiveRoomId(existingRoomId);
+        } else {
+          const newRoomId = await createRoom(playerId, playerName || playerId, playerColor);
+          await setInstanceRoom(instanceId!, newRoomId);
+          setActiveRoomId(newRoomId);
+        }
+      } catch (e: any) {
+        setError(e.message || "Failed to connect");
+      } finally {
+        setDiscordReady(true);
+      }
+    }
+
+    autoJoin();
+  }, []);
+
+  // ── Firestore Subscriptions ──
+  useEffect(() => {
+    if (!activeRoomId) return;
+
+    setJumpMessage("");
+    prevRoomRef.current = null;
+    lastProcessedMoveRef.current = "";
+    setDisplayPositions({});
+
+    const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
+      setRoomData(room);
+    });
+    const unsubMessages = subscribeMessages(activeRoomId, setMessages);
+
+    return () => {
+      if (typeof unsub === "function") unsub();
+      if (typeof unsubMessages === "function") unsubMessages();
+    };
+  }, [activeRoomId]);
+
+  // ── Room Data Sync ──
+  useEffect(() => {
+    if (!roomData) return;
+    const prev = prevRoomRef.current;
+
+    if (roomData.positions) {
+      setDisplayPositions(roomData.positions);
+    }
+
+    if (prev && roomData.lastDice != null && roomData.lastRolledBy && roomData.positions && prev.positions) {
+      const ts: any = roomData.updatedAt;
+      const moveKey = `${roomData.lastRolledBy}|${roomData.lastDice}|${ts?.seconds ?? ""}|${ts?.nanoseconds ?? ""}`;
+
+      if (lastProcessedMoveRef.current !== moveKey) {
+        diceFinishedRef.current = false;
+        setDiceComplete(false);
+
+        if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+        observerTimeoutRef.current = setTimeout(() => {
+          if (!diceFinishedRef.current) {
+            diceFinishedRef.current = true;
+            setDiceComplete(true);
+          }
+        }, 4000);
+
+        const pid = roomData.lastRolledBy;
+        const from = roomData.lastFrom ?? 1;
+        const to = roomData.positions?.[pid] ?? from;
+        const movedTo = Math.min(100, from + roomData.lastDice);
+
+        if (to > movedTo) setJumpMessage(`🪜 Ladder! ${movedTo} → ${to}`);
+        else if (to < movedTo) setJumpMessage(`🐍 Snake! ${movedTo} → ${to}`);
+        else setJumpMessage("");
+
+        lastProcessedMoveRef.current = moveKey;
+      }
+    }
+
+    prevRoomRef.current = roomData;
+  }, [roomData]);
+
+  // ── Callbacks ──
+  const handleRollComplete = () => {
+    diceFinishedRef.current = true;
+    setTimeout(() => setDiceComplete(true), 2000);
+  };
+
+  const onPickColor = async (color: string) => {
+    setPlayerColor(color);
+    if (activeRoomId) {
+      try {
+        await updateDoc(doc(db, "rooms", activeRoomId), {
+          [`playerColors.${playerId}`]: color,
+        });
+      } catch (err) {
+        console.error("Failed to update color:", err);
+      }
+    }
+  };
+
+  const onStartGame = async () => {
+    if (!activeRoomId) return;
+    setLoading(true);
+    try {
+      await startGame(activeRoomId, playerId);
+    } catch (e: any) {
+      setError(e.message || "Failed to start game");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRollDice = async () => {
+    if (!activeRoomId) return;
+    setLoading(true);
+    try {
+      await rollDice(activeRoomId, playerId);
+    } catch (e: any) {
+      setError(e.message || "Failed to roll dice");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onLeaveRoom = () => {
+    setActiveRoomId("");
+    setRoomData(null);
+  };
+
+  // ── Render ──
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        minHeight: 0,
-        minWidth: 0,
-        overflow: "hidden",
-        padding: "8px 8px 4px 8px",
-        gap: 6,
-      }}
-    >
-      {/* Scoreboard strip */}
-      <div
-        style={{
-          display: "flex",
-          gap: 6,
-          overflowX: "auto",
-          flexShrink: 0,
-          paddingBottom: 2,
-        }}
-      >
-        {[...(roomData.players || [])]
-          .sort((a, b) => (roomData.positions?.[b] ?? 1) - (roomData.positions?.[a] ?? 1))
-          .map((pid, rank) => {
-            const isActive = roomData.currentTurn === pid && roomData.status === "playing";
-            return (
-              <div
-                key={pid}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  flexShrink: 0,
-                  background: isActive ? "rgba(201,168,76,0.1)" : "#141210",
-                  border: isActive ? "1px solid #c9a84c" : "1px solid #1e1c1a",
-                  borderRadius: 8,
-                  padding: "4px 10px",
-                  transition: "all 0.3s ease",
-                }}
-              >
-                <span style={{ fontSize: 10, fontWeight: 700, color: "#5a5040", minWidth: 12 }}>
-                  #{rank + 1}
-                </span>
-                <div
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: "50%",
-                    background: roomData.playerColors?.[pid] || "#ccc",
-                    flexShrink: 0,
-                    boxShadow: isActive ? "0 0 0 2px #c9a84c" : "none",
-                  }}
-                />
-                <div>
-                  <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: "#d4c4a8", lineHeight: 1.2 }}>
-                    {getName(pid)}{pid === playerId ? " (You)" : ""}{pid === roomData.winnerId ? " 🏆" : ""}
-                  </p>
-                  <p style={{ margin: 0, fontSize: 10, color: "#5a5040", lineHeight: 1.2 }}>
-                    Sq. {roomData.positions?.[pid] ?? 1}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-      </div>
-
-      {/* Turn indicator */}
-      {roomData.status === "playing" && (
-        <div
-          style={{
-            fontSize: 12,
-            fontWeight: 700,
-            color: "#c9a84c",
-            borderLeft: "2px solid #c9a84c",
-            paddingLeft: 8,
-            flexShrink: 0,
-            letterSpacing: 0.5,
-          }}
-        >
-          {currentTurnName}'s turn {roomData.currentTurn === playerId ? "(You)" : ""}
+    <DiscordLayout>
+      {/* Connecting screen */}
+      {!discordReady && (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#5a5040", fontSize: 14 }}>
+          Connecting...
         </div>
       )}
 
-      {/* Board */}
-      <div
-        style={{
-          flex: 1,
-          minHeight: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          overflow: "hidden",
-        }}
-      >
-        {roomData.positions && (
-          <Board
-            key={activeRoomId}
-            positions={displayPositions}
-            playerNames={roomData.playerNames || {}}
-            roomData={roomData}
-            hideLegend={true}
-            diceComplete={diceComplete}
-          />
-        )}
-      </div>
-
-      {/* Dice row */}
-      {roomData.status === "playing" && (
-        <div style={{ flexShrink: 0 }}>
-          <DiceRow
-            onRoll={onRollDice}
-            disabled={loading || !isMyTurn}
-            lastDice={roomData.lastDice ?? null}
-            rollKey={`${roomData.lastRolledBy}-${(roomData.updatedAt as any)?.seconds}`}
-            jumpMessage={jumpMessage}
-            onRollComplete={onRollComplete}
-          />
+      {/* Error screen */}
+      {discordReady && error && !activeRoomId && (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#fa777c", fontSize: 14 }}>
+          {error}
         </div>
       )}
 
-      {/* Winner overlay */}
-      {roomData.status === "finished" && roomData.winnerId && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: "rgba(0,0,0,0.85)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 100,
-            padding: 24,
-          }}
-        >
+      {/* Game */}
+      {discordReady && roomData && (
+        <>
+          {/* Left: game area */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative" }}>
+            {roomData.status === "waiting" && (
+              <DiscordLobby
+                roomData={roomData}
+                playerId={playerId}
+                playerColor={playerColor}
+                loading={loading}
+                onPickColor={onPickColor}
+                onStartGame={onStartGame}
+              />
+            )}
+
+            {roomData.status === "countdown" && (
+              <CountdownCard
+                countdown={countdown}
+                hostName={roomData.playerNames?.[roomData.hostId] || roomData.hostId}
+              />
+            )}
+
+            {(roomData.status === "playing" || roomData.status === "finished") && (
+              <DiscordGameView
+                roomData={roomData}
+                playerId={playerId}
+                displayPositions={displayPositions}
+                activeRoomId={activeRoomId}
+                diceComplete={diceComplete}
+                jumpMessage={jumpMessage}
+                loading={loading}
+                onRollDice={onRollDice}
+                onRollComplete={handleRollComplete}
+                onLeaveRoom={onLeaveRoom}
+                onStartGame={onStartGame}
+              />
+            )}
+          </div>
+
+          {/* Right: chat */}
           <div
             style={{
-              background: "#141210",
-              border: "1px solid #2e2920",
-              borderRadius: 12,
-              padding: "32px 24px",
-              textAlign: "center",
-              maxWidth: 320,
-              width: "100%",
+              width: 260,
+              flexShrink: 0,
+              background: "#111114",
+              borderLeft: "1px solid #1e1c1a",
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              overflow: "hidden",
             }}
           >
-            <div style={{ fontSize: 48, marginBottom: 8 }}>🏆</div>
-            <p style={{ margin: "0 0 4px 0", fontSize: 11, color: "#5a5040", textTransform: "uppercase", letterSpacing: 1 }}>Winner</p>
-            <h2 style={{ margin: "0 0 24px 0", fontSize: 28, fontWeight: 800, color: "#c9a84c" }}>
-              {getName(roomData.winnerId)}
-            </h2>
-            <div style={{ display: "flex", gap: 10 }}>
-              {roomData.hostId === playerId ? (
-                <button
-                  onClick={async () => { try { await onStartGame(); } catch (_) {} }}
-                  style={{
-                    flex: 1,
-                    padding: "10px",
-                    background: "linear-gradient(135deg, #c9a84c, #a07830)",
-                    border: "none",
-                    borderRadius: 6,
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "#1a1200",
-                    cursor: "pointer",
-                  }}
-                >
-                  Play Again
-                </button>
-              ) : (
-                <div
-                  style={{
-                    flex: 1,
-                    padding: "10px",
-                    background: "#1a1814",
-                    border: "1px solid #2e2920",
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: "#5a5040",
-                    textAlign: "center",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 6,
-                  }}
-                >
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#c9a84c", display: "inline-block", animation: "pulse 1.5s infinite" }} />
-                  Waiting for host...
-                </div>
-              )}
-              <button
-                onClick={onLeaveRoom}
-                style={{
-                  flex: 1,
-                  padding: "10px",
-                  background: "#1a1814",
-                  border: "1px solid #2e2920",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#8b7d65",
-                  cursor: "pointer",
-                }}
-              >
-                Leave
-              </button>
+            <div style={{ height: 40, borderBottom: "1px solid #1e1c1a", display: "flex", alignItems: "center", padding: "0 14px", gap: 8, flexShrink: 0 }}>
+              <span style={{ color: "#3a3530", fontSize: 18, fontWeight: 300 }}>#</span>
+              <span style={{ fontSize: 13, fontWeight: 500, color: "#8b7d65" }}>tavern-chat</span>
             </div>
+            <Chat
+              messages={messages}
+              playerId={playerId}
+              playerName={playerName}
+              activeRoomId={activeRoomId}
+              roomData={roomData}
+            />
           </div>
-        </div>
+        </>
       )}
-    </div>
+    </DiscordLayout>
   );
 }

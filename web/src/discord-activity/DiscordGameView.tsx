@@ -1,6 +1,5 @@
 // src/discord-activity/DiscordGameView.tsx
 
-import { useRef, useState, useEffect } from "react";
 import type { Room } from "../firebase/rooms";
 import Board from "../components/Board";
 import DiceRow from "../components/DiceRow";
