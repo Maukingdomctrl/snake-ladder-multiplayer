@@ -55,7 +55,7 @@ function squareToPixel(squareNum: number, pid: string, cellSize: number) {
 function calculateCellSize() {
   const availableWidth =
     window.innerWidth >= 768
-      ? Math.min(window.innerWidth - 380, 800)
+      ? Math.min(window.innerWidth - 340, 800)
       : window.innerWidth - 48;
 
   const availableHeight =
@@ -161,14 +161,14 @@ export default function Board({
   // ── Animation refs ────────────────────────────────────────────────────────
   const lastMoveKeyRef = useRef<string>("");
   const pendingRoomDataRef = useRef<Room | null>(null);
-  const scheduledTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
+  const scheduledTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const runAnimationRef = useRef<((snap: Room) => void) | null>(null);
   const tokenPixelsRef = useRef<Record<string, { x: number; y: number }>>({});
-  const observerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Resize handler ────────────────────────────────────────────────────────
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
     const handler = () => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
