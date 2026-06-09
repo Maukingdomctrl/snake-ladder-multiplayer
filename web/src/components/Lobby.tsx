@@ -14,7 +14,7 @@ interface LobbyProps {
   isCompact?: boolean;
 }
 
-export default function Lobby({
+export default function DiscordLobby({
   roomData,
   playerId,
   activeRoomId,
@@ -46,7 +46,7 @@ export default function Lobby({
           textAlign: "center",
         }}
       >
-        <h2 style={{ margin: isCompact ? "0 0 8px 0" : "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>Room Lobby</h2>
+        <h2 style={{ margin: isCompact ? "0 0 8px 0" : "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>The Tavern</h2>
 
         <div style={{ display: "flex", gap: 12, marginBottom: isCompact ? 12 : 24, fontSize: 13, color: "var(--text-secondary)" }}>
           <span style={{ background: "var(--bg-tertiary)", padding: "6px 12px", borderRadius: 16, border: "1px solid var(--border)" }}>
@@ -127,17 +127,13 @@ export default function Lobby({
           <>
             <button
               onClick={onStartGame}
-              disabled={loading}
+              disabled={loading} // ONLY disabled if loading, bypasses player count check
               className="btn-primary"
               style={{ width: "100%", padding: "14px", fontSize: 16 }}
             >
               Start Game
             </button>
-            {(roomData.players?.length ?? 0) < 2 && (
-              <p style={{ margin: "8px 0 0 0", fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>
-                Need at least 2 players to start
-              </p>
-            )}
+            {/* The 2-player text requirement block has been completely removed from here! */}
           </>
         ) : (
           <div style={{ width: "100%", padding: "14px", background: "var(--bg-tertiary)", borderRadius: 8, color: "var(--text-muted)", fontSize: 15, border: "1px solid var(--border)", textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
