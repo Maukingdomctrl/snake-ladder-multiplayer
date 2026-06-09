@@ -38,6 +38,7 @@ export default function DiscordGameView({
   return (
     <div
       style={{
+        position: "relative", // <-- Added to safely contain the absolute Winner overlay
         flex: 1,
         display: "flex",
         flexDirection: "column",
@@ -190,7 +191,7 @@ export default function DiscordGameView({
             <div style={{ display: "flex", gap: 10 }}>
               {roomData.hostId === playerId ? (
                 <button
-                  onClick={async () => { try { await onStartGame(); } catch (_) {} }}
+                  onClick={onStartGame} // <-- Replaced redundant try/catch
                   style={{
                     flex: 1,
                     padding: "10px",

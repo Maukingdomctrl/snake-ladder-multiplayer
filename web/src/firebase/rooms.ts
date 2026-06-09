@@ -1,3 +1,5 @@
+// src/firebase/rooms.ts
+
 import {
   addDoc,
   arrayUnion,
@@ -11,6 +13,7 @@ import {
   query,
   orderBy,
   runTransaction,
+  deleteField,
 } from "firebase/firestore";
 import { db } from "./index";
 
@@ -42,17 +45,22 @@ const SNAKES_LADDERS: Record<number, number> = {
 /**
  * Creates a unique 4-digit multiplayer game room.
  * We use the full URL so the Discord SDK tunnel intercepts it automatically.
+ * * Change #3: Added optional instanceId param sent in POST body to Render
+ * for atomic room claims.
  */
-export async function createRoom(hostId: string, hostName: string, hostColor: string) {
+export async function createRoom(hostId: string, hostName: string, hostColor: string, instanceId?: string) {
   console.log("➡️ [createRoom] Pinging Render server...");
   
   try {
-    // By using the full URL that matches your URL Mapping target,
-    // the Discord proxy will intercept and tunnel this request.
+    const payload: any = { hostId, hostName, hostColor };
+    if (instanceId) {
+      payload.instanceId = instanceId;
+    }
+
     const response = await fetch("/render/createRoom", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hostId, hostName, hostColor }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -71,37 +79,62 @@ export async function createRoom(hostId: string, hostName: string, hostColor: st
 
 /**
  * Allows a second or consecutive player to join an existing room
+ * * Change #6: Converted to runTransaction to enforce players.length < 8 
+ * and status === "waiting" atomically. Removed no-op try/catch.
  */
 export async function joinRoom(roomId: string, playerId: string, playerName: string, playerColor: string) {
-  try {
-    const roomRef = doc(db, "rooms", roomId);
-    const snap = await getDoc(roomRef);
-    
+  const roomRef = doc(db, "rooms", roomId);
+  
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(roomRef);
     if (!snap.exists()) throw new Error("Room not found");
 
     const room = snap.data() as Room;
     if (room.status !== "waiting") throw new Error("Game already started");
-    if (room.players?.includes(playerId)) return;
-    if (room.players?.length >= 8) throw new Error("Room is full");
+    if (room.players?.includes(playerId)) return; // Idempotent check
+    if ((room.players?.length || 0) >= 8) throw new Error("Room is full");
 
-    await updateDoc(roomRef, {
+    transaction.update(roomRef, {
       players: arrayUnion(playerId),
       [`playerNames.${playerId}`]: playerName || playerId,
       [`playerColors.${playerId}`]: playerColor,
       updatedAt: serverTimestamp(),
     });
-  } catch (error) {
-    throw error;
-  }
+  });
+}
+
+/**
+ * Change #7: Cleanly removes a player from the room and clears their maps.
+ */
+export async function leaveRoom(roomId: string, playerId: string) {
+  const roomRef = doc(db, "rooms", roomId);
+  
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(roomRef);
+    if (!snap.exists()) return;
+
+    const room = snap.data() as Room;
+    const updatedPlayers = (room.players || []).filter(p => p !== playerId);
+
+    transaction.update(roomRef, {
+      players: updatedPlayers,
+      [`playerNames.${playerId}`]: deleteField(),
+      [`playerColors.${playerId}`]: deleteField(),
+      [`positions.${playerId}`]: deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+  });
 }
 
 /**
  * Listens to active metadata changes for a game room in real time
+ * * Change #5: Use snap.data({ serverTimestamps: "estimate" }) to prevent 
+ * optimistic write bugs where updatedAt evaluates to null momentarily.
  */
 export function subscribeRoom(roomId: string, cb: (room: Room | null) => void) {
   return onSnapshot(doc(db, "rooms", roomId), (snap) => {
     if (!snap.exists()) return cb(null);
-    cb({ id: snap.id, ...(snap.data() as Room) });
+    cb({ id: snap.id, ...(snap.data({ serverTimestamps: "estimate" }) as Room) });
   });
 }
 
@@ -115,8 +148,6 @@ export async function startGame(roomId: string, playerId: string) {
 
   const room = snap.data() as Room;
   if (room.hostId !== playerId) throw new Error("Only host can start");
-  
-  // if (!room.players || room.players.length < 2) throw new Error("Need at least 2 players");
 
   await updateDoc(roomRef, {
     status: "countdown",
@@ -127,6 +158,8 @@ export async function startGame(roomId: string, playerId: string) {
 
 /**
  * Transitions game from countdown mode into full active play context
+ * * Change #4: Added winnerId, lastDice, lastFrom, lastRolledBy to null
+ * to clear out state from previous games if replaying.
  */
 export async function finalizeGameStart(roomId: string) {
   const roomRef = doc(db, "rooms", roomId);
@@ -142,11 +175,16 @@ export async function finalizeGameStart(roomId: string) {
     positions: Object.fromEntries((room.players || []).map((p) => [p, 1])),
     countdownEndsAt: null,
     updatedAt: serverTimestamp(),
+    winnerId: null,
+    lastDice: null,
+    lastFrom: null,
+    lastRolledBy: null,
   });
 }
 
 /**
  * Performs thread-safe transactional dice mechanics
+ * * Change #8: Removed the redundant 'moves' subcollection dead writes.
  */
 export async function rollDice(roomId: string, playerId: string) {
   const roomRef = doc(db, "rooms", roomId);
@@ -180,7 +218,6 @@ export async function rollDice(roomId: string, playerId: string) {
     return rolledDice;
   });
 
-  await addDoc(collection(db, "rooms", roomId, "moves"), { playerId, dice, at: serverTimestamp() });
   return dice;
 }
 

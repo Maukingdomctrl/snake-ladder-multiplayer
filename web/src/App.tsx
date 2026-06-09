@@ -1,10 +1,9 @@
+// src/App.tsx
+
 import { useEffect, useRef, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
 import "./App.css";
-
-// ── Discord Integration ──
-import { isDiscord } from "./discord";
 
 // ── Firebase & Data ──
 import {
@@ -14,8 +13,6 @@ import {
   startGame,
   rollDice,
   subscribeMessages,
-  getInstanceRoom,
-  setInstanceRoom,
   Room,
 } from "./firebase/rooms";
 
@@ -38,8 +35,11 @@ import DiceRow from "./components/DiceRow";
 export default function App() {
   // ── Hook State ──
   const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
-  const { height } = useWindowDimensions();
-  const isCompact = isDiscord || height < 700;
+  const { width, height } = useWindowDimensions();
+  
+  // Single source of truth for layout derived from hook
+  const isTablet = width >= 768;
+  const isCompact = height < 700;
 
   // ── Local UI State ──
   const [loading, setLoading] = useState<boolean>(false);
@@ -47,7 +47,6 @@ export default function App() {
   const [joinId, setJoinId] = useState<string>("");
   const [activeRoomId, setActiveRoomId] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
-  const [discordReady, setDiscordReady] = useState<boolean>(false);
 
   // ── Game State ──
   const [roomData, setRoomData] = useState<Room | null>(null);
@@ -58,8 +57,7 @@ export default function App() {
 
   // ── Chat State ──
   const [messages, setMessages] = useState<any[]>([]);
-  const [isTablet, setIsTablet] = useState<boolean>(window.innerWidth >= 768);
-  const [chatOpen, setChatOpen] = useState<boolean>(window.innerWidth >= 768);
+  const [chatOpen, setChatOpen] = useState<boolean>(isTablet);
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
   // ── Refs ──
@@ -69,44 +67,16 @@ export default function App() {
   const isFirstMessageLoadRef = useRef<boolean>(true);
   const diceFinishedRef = useRef<boolean>(false);
   const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rollCompleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Layout & Chat Listeners ──
+  // ── Layout Listeners ──
   useEffect(() => {
-    const h = () => {
-      const tablet = window.innerWidth >= 768;
-      setIsTablet(tablet);
-      if (tablet) setChatOpen(true);
-    };
-    window.addEventListener("resize", h);
-    return () => window.removeEventListener("resize", h);
-  }, []);
-
-  // ── Discord Auto-Join Logic ──
-  useEffect(() => {
-    if (!isDiscord) return;
-    
-    const instanceId = new URLSearchParams(window.location.search).get('instance_id');
-    if (!instanceId) return;
-
-    async function autoJoin() {
-      try {
-        const existingRoomId = await getInstanceRoom(instanceId!);
-        if (existingRoomId) {
-          await joinRoom(existingRoomId, playerId, playerName || playerId, playerColor);
-          setActiveRoomId(existingRoomId);
-        } else {
-          const newRoomId = await createRoom(playerId, playerName || playerId, playerColor);
-          await setInstanceRoom(instanceId!, newRoomId);
-          setActiveRoomId(newRoomId);
-        }
-      } catch (e: any) {
-        setError(e.message || "Failed to connect");
-      } finally {
-        setDiscordReady(true);
-      }
+    if (isTablet) {
+      setChatOpen(true);
+    } else {
+      setChatOpen(false); // Fixes the stuck-open glitch when resizing tablet -> mobile
     }
-    autoJoin();
-  }, []); 
+  }, [isTablet]);
 
   useEffect(() => {
     if (isFirstMessageLoadRef.current) {
@@ -133,7 +103,8 @@ export default function App() {
   // ── Callbacks ──
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
-    setTimeout(() => setDiceComplete(true), 2000);
+    if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
+    rollCompleteTimeoutRef.current = setTimeout(() => setDiceComplete(true), 2000);
   };
 
   // ── Actions ──
@@ -224,6 +195,7 @@ export default function App() {
     setDisplayPositions({});
     isFirstMessageLoadRef.current = true;
     prevMsgCountRef.current = 0;
+    setUnreadCount(0); // Resets unread state on room switch
 
     const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
       setRoomData(room);
@@ -233,6 +205,8 @@ export default function App() {
     return () => {
       if (typeof unsub === "function") unsub();
       if (typeof unsubMessages === "function") unsubMessages();
+      if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+      if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
     };
   }, [activeRoomId]);
 
@@ -292,8 +266,8 @@ export default function App() {
     <div
       style={{
         background: "var(--bg-secondary)",
-        minHeight: isDiscord ? "100%" : "100dvh",
-        height: isDiscord ? "100%" : "100dvh",
+        minHeight: "100dvh",
+        height: "100dvh",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
@@ -314,15 +288,8 @@ export default function App() {
           paddingRight: "max(12px, env(safe-area-inset-right))",
         }}
       >
-        {/* ── DISCORD CONNECTING SCREEN ── */}
-        {!activeRoomId && isDiscord && !discordReady && (
-          <div style={{ display: "flex", flex: 1, alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 16 }}>
-            Connecting to Discord...
-          </div>
-        )}
-
         {/* ── LOGIN SCREEN ── */}
-        {!activeRoomId && !isDiscord && (
+        {!activeRoomId && (
           <LoginScreen
             playerId={playerId}
             playerName={playerName}
@@ -511,9 +478,12 @@ export default function App() {
                         winnerName={getName(roomData.winnerId)}
                         isHost={roomData.hostId === playerId}
                         onPlayAgain={async () => {
+                          setError("");
                           try {
                             await startGame(activeRoomId, playerId);
-                          } catch (_) {}
+                          } catch (e: any) {
+                            setError(e.message || "Failed to restart game");
+                          }
                         }}
                         onLeave={onLeaveRoom}
                       />

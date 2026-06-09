@@ -1,7 +1,9 @@
 // src/discord-activity/DiscordLayout.tsx
 
+import type { ReactNode } from "react";
+
 interface DiscordLayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 export default function DiscordLayout({ children }: DiscordLayoutProps) {

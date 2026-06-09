@@ -124,12 +124,15 @@ export default function DiscordLobby({
           {LOBBY_COLORS.map((c) => {
             const taken = takenColors.includes(c) && roomData.playerColors?.[playerId] !== c;
             return (
-              <div
+              <button
                 key={c}
+                type="button"
                 onClick={() => !taken && onPickColor(c)}
+                disabled={taken}
                 style={{
                   width: 30,
                   height: 30,
+                  padding: 0,
                   borderRadius: "50%",
                   background: c,
                   border: playerColor === c ? "3px solid #c9a84c" : "2px solid rgba(255,255,255,0.15)",
@@ -149,6 +152,7 @@ export default function DiscordLobby({
       {isHost ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           <button
+            type="button"
             onClick={onStartGame}
             disabled={loading}
             style={{
