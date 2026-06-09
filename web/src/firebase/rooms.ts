@@ -115,7 +115,8 @@ export async function startGame(roomId: string, playerId: string) {
 
   const room = snap.data() as Room;
   if (room.hostId !== playerId) throw new Error("Only host can start");
-  if (!room.players || room.players.length < 2) throw new Error("Need at least 2 players");
+  
+  // if (!room.players || room.players.length < 2) throw new Error("Need at least 2 players");
 
   await updateDoc(roomRef, {
     status: "countdown",
