@@ -127,7 +127,7 @@ export default function Lobby({
           <>
             <button
               onClick={onStartGame}
-              disabled={loading || (roomData.players?.length ?? 0) < 2}
+              disabled={loading}
               className="btn-primary"
               style={{ width: "100%", padding: "14px", fontSize: 16 }}
             >
