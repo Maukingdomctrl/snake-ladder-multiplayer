@@ -46,7 +46,7 @@ export default function DiscordLobby({
           textAlign: "center",
         }}
       >
-        <h2 style={{ margin: isCompact ? "0 0 8px 0" : "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>The Tavern</h2>
+        <h2 style={{ margin: isCompact ? "0 0 8px 0" : "0 0 16px 0", color: "var(--text-primary)", fontSize: 22 }}>The Kingdom</h2>
 
         <div style={{ display: "flex", gap: 12, marginBottom: isCompact ? 12 : 24, fontSize: 13, color: "var(--text-secondary)" }}>
           <span style={{ background: "var(--bg-tertiary)", padding: "6px 12px", borderRadius: 16, border: "1px solid var(--border)" }}>
