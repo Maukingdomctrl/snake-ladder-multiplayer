@@ -68,7 +68,7 @@ export default function App() {
   const prevMsgCountRef = useRef<number>(0);
   const isFirstMessageLoadRef = useRef<boolean>(true);
   const diceFinishedRef = useRef<boolean>(false);
-  const observerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Layout & Chat Listeners ──
   useEffect(() => {
@@ -106,7 +106,7 @@ export default function App() {
       }
     }
     autoJoin();
-  }, []); // Empty dependency array prevents infinite re-render loops
+  }, []); 
 
   useEffect(() => {
     if (isFirstMessageLoadRef.current) {
@@ -420,7 +420,6 @@ export default function App() {
                       flexDirection: "column",
                       alignItems: "center",
                       width: "100%",
-                      maxWidth: "800px",
                       padding: "0 8px",
                     }}
                   >
@@ -441,28 +440,32 @@ export default function App() {
                       ) : (
                         <div />
                       )}
-                      <div
-                        style={{
-                          background: "var(--bg-tertiary)",
-                          borderRadius: 8,
-                          padding: "8px 12px",
-                          fontSize: 13,
-                          color: "var(--text-secondary)",
-                          display: "flex",
-                          gap: 16,
-                          boxShadow: "var(--shadow-sm)",
-                          border: "1px solid var(--border)",
-                        }}
-                      >
-                        <span>
-                          <b style={{ color: "var(--text-primary)" }}>Status:</b>{" "}
-                          {roomData.status}
-                        </span>
-                        <span>
-                          <b style={{ color: "var(--text-primary)" }}>Host:</b>{" "}
-                          {getName(roomData.hostId)}
-                        </span>
-                      </div>
+
+                      {/* Now wrapped so it only shows when finished */}
+                      {roomData.status === "finished" && (
+                        <div
+                          style={{
+                            background: "var(--bg-tertiary)",
+                            borderRadius: 8,
+                            padding: "8px 12px",
+                            fontSize: 13,
+                            color: "var(--text-secondary)",
+                            display: "flex",
+                            gap: 16,
+                            boxShadow: "var(--shadow-sm)",
+                            border: "1px solid var(--border)",
+                          }}
+                        >
+                          <span>
+                            <b style={{ color: "var(--text-primary)" }}>Status:</b>{" "}
+                            {roomData.status}
+                          </span>
+                          <span>
+                            <b style={{ color: "var(--text-primary)" }}>Host:</b>{" "}
+                            {getName(roomData.hostId)}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Scoreboard */}
@@ -476,6 +479,8 @@ export default function App() {
                         status={roomData.status}
                         winnerId={roomData.winnerId ?? null}
                         playerId={playerId}
+                        lastDice={roomData.lastDice ?? null}
+                        lastRolledBy={roomData.lastRolledBy ?? null}
                       />
                     )}
 
