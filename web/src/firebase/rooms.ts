@@ -1,5 +1,3 @@
-// src/firebase/rooms.ts
-
 import {
   addDoc,
   arrayUnion,
@@ -35,11 +33,6 @@ export type Room = {
   countdownEndsAt?: number | null;
   playerNames?: Record<string, string>;
   playerColors?: Record<string, string>;
-};
-
-const SNAKES_LADDERS: Record<number, number> = {
-  8: 26, 19: 38, 28: 53, 21: 82, 36: 57, 43: 77, 50: 91, 54: 88, 61: 99, 62: 95,
-  46: 15, 48: 9, 52: 11, 59: 18, 64: 24, 68: 2, 69: 33, 83: 22, 89: 51, 93: 37, 98: 13,
 };
 
 /**
@@ -163,62 +156,52 @@ export async function startGame(roomId: string, playerId: string) {
  */
 export async function finalizeGameStart(roomId: string) {
   const roomRef = doc(db, "rooms", roomId);
-  const snap = await getDoc(roomRef);
-  if (!snap.exists()) return;
 
-  const room = snap.data() as Room;
-  if (room.status !== "countdown" || (room.countdownEndsAt ?? 0) > Date.now()) return;
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(roomRef);
+    if (!snap.exists()) return;
 
-  await updateDoc(roomRef, {
-    status: "playing",
-    currentTurn: room.players[0],
-    positions: Object.fromEntries((room.players || []).map((p) => [p, 1])),
-    countdownEndsAt: null,
-    updatedAt: serverTimestamp(),
-    winnerId: null,
-    lastDice: null,
-    lastFrom: null,
-    lastRolledBy: null,
+    const room = snap.data() as Room;
+    
+    // CAS check inside the transaction to ensure thread safety
+    if (room.status !== "countdown" || (room.countdownEndsAt ?? 0) > Date.now()) {
+      return;
+    }
+
+    transaction.update(roomRef, {
+      status: "playing",
+      currentTurn: room.players[0],
+      positions: Object.fromEntries((room.players || []).map((p) => [p, 1])),
+      countdownEndsAt: null,
+      updatedAt: serverTimestamp(),
+      winnerId: null,
+      lastDice: null,
+      lastFrom: null,
+      lastRolledBy: null,
+    });
   });
 }
 
 /**
- * Performs thread-safe transactional dice mechanics
- * * Change #8: Removed the redundant 'moves' subcollection dead writes.
+ * Delegates roll logic to the secure Render server endpoint.
  */
 export async function rollDice(roomId: string, playerId: string) {
-  const roomRef = doc(db, "rooms", roomId);
-  
-  const dice = await runTransaction(db, async (transaction) => {
-    const snap = await transaction.get(roomRef);
-    if (!snap.exists()) throw new Error("Room not found");
-    
-    const room = snap.data() as Room;
-    if (room.status !== "playing" || room.currentTurn !== playerId) throw new Error("Invalid turn");
-    
-    const players = room.players || [];
-    const rolledDice = Math.floor(Math.random() * 6) + 1;
-    const nextTurn = players[(players.indexOf(playerId) + 1) % players.length];
-    
-    const currentPos = room.positions?.[playerId] ?? 1;
-    const movedPos = Math.min(100, currentPos + rolledDice);
-    const newPos = SNAKES_LADDERS[movedPos] ?? movedPos;
-    const finished = newPos >= 100;
-    
-    transaction.update(roomRef, {
-      [`positions.${playerId}`]: newPos,
-      currentTurn: finished ? playerId : nextTurn,
-      status: finished ? "finished" : "playing",
-      winnerId: finished ? playerId : null,
-      lastDice: rolledDice,
-      lastRolledBy: playerId,
-      lastFrom: currentPos,
-      updatedAt: serverTimestamp(),
+  try {
+    const response = await fetch("/render/roll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roomId, playerId }),
     });
-    return rolledDice;
-  });
 
-  return dice;
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("❌ [rollDice] Error hitting server:", error);
+    throw error;
+  }
 }
 
 export async function sendMessage(roomId: string, playerId: string, playerName: string, text: string) {

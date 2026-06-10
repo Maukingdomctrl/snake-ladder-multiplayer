@@ -1,5 +1,3 @@
-// src/App.tsx
-
 import { useEffect, useRef, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
@@ -9,6 +7,7 @@ import "./App.css";
 import {
   createRoom,
   joinRoom,
+  leaveRoom,
   subscribeRoom,
   startGame,
   rollDice,
@@ -179,7 +178,14 @@ export default function App() {
     }
   };
 
-  const onLeaveRoom = () => {
+  const onLeaveRoom = async () => {
+    if (activeRoomId) {
+      try {
+        await leaveRoom(activeRoomId, playerId);
+      } catch (err) {
+        console.error("Failed to cleanly leave room:", err);
+      }
+    }
     setActiveRoomId("");
     setRoomData(null);
     setJoinId("");

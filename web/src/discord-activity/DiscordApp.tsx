@@ -1,5 +1,3 @@
-// src/discord-activity/DiscordApp.tsx
-
 import { useEffect, useRef, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase/index";
@@ -98,7 +96,8 @@ export default function DiscordApp() {
     }
 
     autoJoin();
-  }, [playerId, playerName, playerColor]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerId, playerName]); // Removed playerColor to prevent re-join firing on color pick
 
   // ── Firestore Subscriptions ──
   useEffect(() => {

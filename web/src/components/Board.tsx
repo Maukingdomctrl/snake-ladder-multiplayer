@@ -157,6 +157,22 @@ export default function Board({
   const [cellSize, setCellSize] = useState(() => calculateCellSize());
   const boardSize = cellSize * 10;
   const prevCellSizeRef = useRef(cellSize);
+  const cellSizeRef = useRef(cellSize);
+  
+  const isMounted = useRef(true);
+
+  // Keep the cellSizeRef synchronized with the state
+  useEffect(() => {
+    cellSizeRef.current = cellSize;
+  }, [cellSize]);
+
+  // Handle component unmount flag
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   // ── Animation refs ────────────────────────────────────────────────────────
   const lastMoveKeyRef = useRef<string>("");
@@ -225,9 +241,12 @@ export default function Board({
     for (let s = 1; s <= steps; s++) {
       const targetCell = from + s;
       const t = setTimeout(() => {
-        const px = squareToPixel(targetCell, pid, cellSize);
+        // Use the dynamically synced ref for accurate positioning if window resized mid-animation
+        const px = squareToPixel(targetCell, pid, cellSizeRef.current);
         tokenPixelsRef.current = { ...tokenPixelsRef.current, [pid]: px };
-        setTokenPixels({ ...tokenPixelsRef.current });
+        if (isMounted.current) {
+          setTokenPixels({ ...tokenPixelsRef.current });
+        }
       }, s * stepDelay);
       scheduledTimeoutsRef.current.push(t);
     }
@@ -241,8 +260,9 @@ export default function Board({
       // Pause 400ms after the last cell step before starting the snake/ladder path
       const jumpDelay = stepsDuration + 400;
       const jumpT = setTimeout(() => {
-        const aCenter = cellCenter(naturalEnd, cellSize);
-        const bCenter = cellCenter(finalPos, cellSize);
+        // Evaluate dynamic cell size values inside the timeout
+        const aCenter = cellCenter(naturalEnd, cellSizeRef.current);
+        const bCenter = cellCenter(finalPos, cellSizeRef.current);
         const aPixel = {
           x: aCenter.x + getClusterOffset(pid).x,
           y: aCenter.y + getClusterOffset(pid).y,
@@ -269,7 +289,9 @@ export default function Board({
         curvePoints.forEach((pt, i) => {
           const frameT = setTimeout(() => {
             tokenPixelsRef.current = { ...tokenPixelsRef.current, [pid]: pt };
-            setTokenPixels({ ...tokenPixelsRef.current });
+            if (isMounted.current) {
+              setTokenPixels({ ...tokenPixelsRef.current });
+            }
           }, i * frameDelay);
           scheduledTimeoutsRef.current.push(frameT);
         });

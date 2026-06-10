@@ -1,5 +1,3 @@
-// src/discord-activity/DiscordLayout.tsx
-
 import type { ReactNode } from "react";
 
 interface DiscordLayoutProps {
@@ -11,7 +9,7 @@ export default function DiscordLayout({ children }: DiscordLayoutProps) {
     <div
       style={{
         width: "100%",
-        height: "100%",
+        height: "100dvh",
         maxWidth: "100%",
         maxHeight: "100%",
         overflow: "hidden",
@@ -20,11 +18,7 @@ export default function DiscordLayout({ children }: DiscordLayoutProps) {
         background: "#0d0d0f",
         color: "#e8dcc8",
         fontFamily: "'Inter', sans-serif",
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        position: "relative",
       }}
     >
       {children}

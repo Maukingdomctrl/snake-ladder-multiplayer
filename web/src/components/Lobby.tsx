@@ -127,7 +127,7 @@ export default function DiscordLobby({
           <>
             <button
               onClick={onStartGame}
-              disabled={loading} // ONLY disabled if loading, bypasses player count check
+              disabled={loading || (roomData.players?.length ?? 0) < 2}
               className="btn-primary"
               style={{ width: "100%", padding: "14px", fontSize: 16 }}
             >

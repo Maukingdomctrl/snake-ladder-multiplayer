@@ -24,7 +24,10 @@ interface ChatProps {
 export default function Chat({ messages, playerId, playerName, activeRoomId, roomData }: ChatProps) {
   const [chatInput, setChatInput] = useState<string>("");
   const [showEmojiPicker, setShowEmojiPicker] = useState<boolean>(false);
+  
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -37,6 +40,28 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
       messagesEndRef.current.scrollIntoView({ behavior: "instant" });
     }
   }, []);
+
+  // Close emoji picker when clicking outside of it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        pickerRef.current &&
+        !pickerRef.current.contains(event.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target as Node)
+      ) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    if (showEmojiPicker) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showEmojiPicker]);
 
   const onSendMessage = async () => {
     const text = chatInput.trim();
@@ -132,6 +157,7 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
       <div style={{ position: "relative" }}>
         {showEmojiPicker && (
           <div
+            ref={pickerRef}
             style={{
               position: "absolute",
               bottom: "calc(100% + 12px)",
@@ -217,6 +243,7 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
           />
 
           <button
+            ref={buttonRef}
             onClick={() => setShowEmojiPicker((p) => !p)}
             style={{
               minHeight: 28,
