@@ -204,6 +204,7 @@ export default function App() {
     setUnreadCount(0); // Resets unread state on room switch
 
     const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
+      console.log("subscribeRoom fired:", room);
       setRoomData(room);
     });
     const unsubMessages = subscribeMessages(activeRoomId, setMessages);
