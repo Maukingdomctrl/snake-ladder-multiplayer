@@ -1,102 +1,78 @@
-const express = require('express');
-const cors = require('cors');
-const admin = require('firebase-admin');
+// Unified Snakes & Ladders map matching client-side constants.ts
+const BOARD_JUMPS = {
+  // Ladders
+  8: 26, 19: 38, 28: 53, 21: 82, 36: 57, 43: 77, 50: 91, 54: 88, 61: 99, 62: 95,
+  // Snakes
+  46: 15, 48: 9, 52: 11, 59: 18, 64: 24, 68: 2, 69: 33, 83: 22, 89: 51, 93: 37, 98: 13,
+};
 
-const app = express();
-
-app.use(cors({ origin: true }));
-app.use(express.json());
-
-const serviceAccount = require('./serviceAccountKey.json');
-
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
-
-const db = admin.firestore();
-
-app.post('/createRoom', async (req, res) => {
+app.post('/roll', async (req, res) => {
   try {
-    const { hostId, hostName, hostColor } = req.body;
+    const { roomId, playerId } = req.body;
 
-    if (!hostId) {
-      return res.status(400).send({ error: "Missing hostId" });
+    if (!roomId || !playerId) {
+      return res.status(400).send({ error: "Missing roomId or playerId" });
     }
 
-    let roomId = "";
-    let roomRef;
-    let attempts = 0;
-    const MAX_ATTEMPTS = 10;
+    const roomRef = db.collection("rooms").doc(roomId);
 
-    while (attempts < MAX_ATTEMPTS) {
-      roomId = Math.floor(1000 + Math.random() * 9000).toString();
-      roomRef = db.collection("rooms").doc(roomId);
-      const snap = await roomRef.get();
-      if (!snap.exists) break;
-      attempts++;
-    }
+    const rollResult = await db.runTransaction(async (t) => {
+      const roomDoc = await t.get(roomRef);
 
-    if (attempts >= MAX_ATTEMPTS) {
-      return res.status(503).send({ error: "Servers at maximum capacity." });
-    }
+      if (!roomDoc.exists) {
+        throw new Error("Room not found.");
+      }
 
-    await roomRef.set({
-      hostId,
-      players: [hostId],
-      status: "waiting",
-      currentTurn: hostId,
-      lastDice: null,
-      lastRolledBy: null,
-      lastFrom: null,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      playerNames: { [hostId]: hostName || hostId },
-      playerColors: { [hostId]: hostColor },
+      const roomData = roomDoc.data();
+
+      // 1. Validate Game State
+      if (roomData.status !== "playing") {
+        throw new Error("Game is not in progress.");
+      }
+
+      // 2. Strict Turn Validation
+      if (roomData.currentTurn !== playerId) {
+        throw new Error("It is not your turn.");
+      }
+
+      // 3. Generate Authoritative Roll
+      const dice = Math.floor(Math.random() * 6) + 1;
+
+      // 4. Calculate Base Position
+      const currentPositions = roomData.positions || {};
+      const lastFrom = currentPositions[playerId] || 1;
+      let newPosition = Math.min(100, lastFrom + dice);
+
+      // 5. Calculate Snakes & Ladders Jumps
+      if (BOARD_JUMPS[newPosition]) {
+        newPosition = BOARD_JUMPS[newPosition];
+      }
+
+      // 6. Game Progression Logic (Win State & Turn Advancement)
+      const isFinished = newPosition >= 100;
+      const players = roomData.players || [];
+      const currentIndex = players.indexOf(playerId);
+      const nextTurn = players[(currentIndex + 1) % players.length];
+
+      // 7. Write State
+      t.update(roomRef, {
+        lastDice: dice,
+        lastRolledBy: playerId,
+        lastFrom: lastFrom,
+        [`positions.${playerId}`]: newPosition,
+        currentTurn: isFinished ? playerId : nextTurn,
+        status: isFinished ? "finished" : "playing",
+        winnerId: isFinished ? playerId : null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      return { dice, newPosition, isFinished };
     });
 
-    res.status(200).send({ roomId });
+    res.status(200).send(rollResult);
 
   } catch (error) {
-    console.error("Error creating room:", error);
-    res.status(500).send({ error: "Failed to create room." });
+    console.error("Error rolling dice:", error);
+    res.status(400).send({ error: error.message || "Failed to roll dice" });
   }
-});
-
-app.post('/token', async (req, res) => {
-  try {
-    const { code } = req.body;
-
-    if (!code) {
-      return res.status(400).send({ error: "Missing code" });
-    }
-
-    const response = await fetch("https://discord.com/api/oauth2/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: process.env.DISCORD_CLIENT_ID,
-        client_secret: process.env.DISCORD_CLIENT_SECRET,
-        grant_type: "authorization_code",
-        code,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("Discord token exchange failed:", data);
-      return res.status(400).send({ error: "Token exchange failed", details: data });
-    }
-
-    res.status(200).send({ access_token: data.access_token });
-
-  } catch (error) {
-    console.error("Error exchanging token:", error);
-    res.status(500).send({ error: "Failed to exchange token" });
-  }
-});
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
 });
