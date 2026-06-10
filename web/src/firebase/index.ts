@@ -10,6 +10,9 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
+if (!firebaseConfig.projectId) {
+  throw new Error("Missing Firebase env vars — check Vercel environment settings");
+}
 
 const app = initializeApp(firebaseConfig);
 
