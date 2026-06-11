@@ -54,7 +54,7 @@ export default function App() {
   const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({});
   const [jumpMessage, setJumpMessage] = useState<string>("");
   const [diceComplete, setDiceComplete] = useState<boolean>(false);
-  const { countdown } = useGameSync(roomData);
+  const { countdown } = useGameSync(roomData, playerId);
 
   // ── Chat State ──
   const [messages, setMessages] = useState<any[]>([]);
@@ -105,7 +105,8 @@ export default function App() {
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
     if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
-    rollCompleteTimeoutRef.current = setTimeout(() => setDiceComplete(true), 2000);
+    setDiceComplete(true);
+    setLoading(false); // Clears loading state *after* the dice animation finishes
   };
 
   // ── Actions ──
@@ -168,23 +169,23 @@ export default function App() {
   };
 
   const onRollDice = async () => {
-  if (!activeRoomId) return;
-  setLoading(true);
-  setError("");
-  try {
-    await rollDice(activeRoomId, playerId);
-    console.log("rollDice success:", {
-      lastDice: roomData?.lastDice,
-      lastRolledBy: roomData?.lastRolledBy,
-      updatedAt: roomData?.updatedAt,
-      rollKey: `${roomData?.lastRolledBy}-${(roomData?.updatedAt as any)?.seconds}-${(roomData?.updatedAt as any)?.nanoseconds ?? ""}`,
-    });
-  } catch (e: any) {
-    setError(e.message || "Failed to roll dice");
-  } finally {
-    setLoading(false);
-  }
-};
+    if (!activeRoomId) return;
+    setLoading(true);
+    setError("");
+    try {
+      await rollDice(activeRoomId, playerId);
+      console.log("rollDice success:", {
+        lastDice: roomData?.lastDice,
+        lastRolledBy: roomData?.lastRolledBy,
+        updatedAt: roomData?.updatedAt,
+        rollKey: `${roomData?.lastRolledBy}-${(roomData?.updatedAt as any)?.seconds}-${(roomData?.updatedAt as any)?.nanoseconds ?? ""}`,
+      });
+    } catch (e: any) {
+      setError(e.message || "Failed to roll dice");
+      setLoading(false); // Only clear immediately on error
+    }
+    // Removed finally block here to keep loading = true during the animation
+  };
 
   const onLeaveRoom = async () => {
     if (activeRoomId) {
@@ -508,7 +509,7 @@ export default function App() {
                     {roomData.status === "playing" && (
                       <DiceRow
                         onRoll={onRollDice}
-                        disabled={loading || !isMyTurn}
+                        disabled={!isMyTurn}
                         lastDice={(roomData.lastDice as Face) ?? null}
                         rollKey={`${roomData.lastRolledBy}-${(roomData.updatedAt as any)?.seconds}-${(roomData.updatedAt as any)?.nanoseconds ?? ""}`}
                         jumpMessage={jumpMessage}

@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { finalizeGameStart } from "../firebase/rooms";
 import type { Room } from "../firebase/rooms";
 
-export function useGameSync(roomData: Room | null) {
+export function useGameSync(roomData: Room | null, playerId?: string) {
   const [countdown, setCountdown] = useState<number | null>(null);
   const finalizeCalledRef = useRef<boolean>(false);
+  const isHost = roomData?.hostId === playerId;
 
   useEffect(() => {
     if (!roomData || roomData.status !== "countdown" || !roomData.countdownEndsAt) {
@@ -18,7 +19,7 @@ export function useGameSync(roomData: Room | null) {
       const sec = Math.ceil(leftMs / 1000);
       setCountdown(sec);
 
-      if (leftMs <= 0 && !finalizeCalledRef.current && roomData?.id) {
+      if (leftMs <= 0 && !finalizeCalledRef.current && roomData?.id && isHost) {
         finalizeCalledRef.current = true;
         try {
           await finalizeGameStart(roomData.id);
@@ -29,7 +30,7 @@ export function useGameSync(roomData: Room | null) {
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [roomData]);
+  }, [roomData, isHost]);
 
   return { countdown };
 }
