@@ -509,7 +509,7 @@ export default function App() {
                     {roomData.status === "playing" && (
                       <DiceRow
                         onRoll={onRollDice}
-                        disabled={!isMyTurn}
+                        disabled={!isMyTurn || loading}
                         lastDice={(roomData.lastDice as Face) ?? null}
                         rollKey={`${roomData.lastRolledBy}-${(roomData.updatedAt as any)?.seconds}-${(roomData.updatedAt as any)?.nanoseconds ?? ""}`}
                         jumpMessage={jumpMessage}
