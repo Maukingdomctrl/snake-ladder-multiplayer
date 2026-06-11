@@ -256,7 +256,7 @@ export default function App() {
             diceFinishedRef.current = true;
             setDiceComplete(true);
           }
-        }, 4000);
+        }, 5000); // ROLL_MS (4500) + 500 buffer
 
         const pid = roomData.lastRolledBy;
         const from = roomData.lastFrom ?? 1;
