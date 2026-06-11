@@ -31,6 +31,8 @@ import Scoreboard from "./components/Scoreboard";
 import WinnerOverlay from "./components/WinnerOverlay";
 import DiceRow from "./components/DiceRow";
 
+type Face = 1 | 2 | 3 | 4 | 5 | 6;
+
 export default function App() {
   // ── Hook State ──
   const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
@@ -501,10 +503,8 @@ export default function App() {
                       <DiceRow
                         onRoll={onRollDice}
                         disabled={loading || !isMyTurn}
-                        lastDice={roomData.lastDice ?? null}
-                        rollKey={`${roomData.lastRolledBy}-${
-                          (roomData.updatedAt as any)?.seconds
-                        }`}
+                        lastDice={(roomData.lastDice as Face) ?? null}
+                        rollKey={`${roomData.lastRolledBy}-${(roomData.updatedAt as any)?.seconds}-${(roomData.updatedAt as any)?.nanoseconds ?? ""}`}
                         jumpMessage={jumpMessage}
                         onRollComplete={handleRollComplete}
                       />
