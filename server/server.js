@@ -2,6 +2,13 @@ const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
 
+// ── Environment Variable Check ──
+console.log("ENV CHECK:", {
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+  privateKeySet: !!process.env.FIREBASE_PRIVATE_KEY, // Will print true if it exists
+});
+
 // ── Firebase Admin Setup ──
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -17,7 +24,7 @@ const app = express();
 
 // ── Middleware ──
 app.use(cors());
-app.use(express.json());
+app.use(express.json()); // Essential for parsing req.body in the POST request
 
 // ── Constants ──
 // Unified Snakes & Ladders map matching client-side constants.ts
