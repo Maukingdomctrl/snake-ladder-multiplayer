@@ -1,3 +1,25 @@
+const express = require("express");
+const cors = require("cors");
+const admin = require("firebase-admin");
+
+// ── Firebase Admin Setup ──
+admin.initializeApp({
+  credential: admin.credential.cert({
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    // Render environment variables often escape newlines, this converts them back
+    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+  }),
+});
+
+const db = admin.firestore();
+const app = express();
+
+// ── Middleware ──
+app.use(cors());
+app.use(express.json());
+
+// ── Constants ──
 // Unified Snakes & Ladders map matching client-side constants.ts
 const BOARD_JUMPS = {
   // Ladders
@@ -6,6 +28,7 @@ const BOARD_JUMPS = {
   46: 15, 48: 9, 52: 11, 59: 18, 64: 24, 68: 2, 69: 33, 83: 22, 89: 51, 93: 37, 98: 13,
 };
 
+// ── Routes ──
 app.post('/roll', async (req, res) => {
   try {
     const { roomId, playerId } = req.body;
@@ -75,4 +98,10 @@ app.post('/roll', async (req, res) => {
     console.error("Error rolling dice:", error);
     res.status(400).send({ error: error.message || "Failed to roll dice" });
   }
+});
+
+// ── Server Listen ──
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on port ${PORT}`);
 });
