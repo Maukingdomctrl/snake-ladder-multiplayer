@@ -14,7 +14,7 @@ interface DiceProps {
   feedback?: boolean;
 }
 
-const ROLL_MS = 2800;
+const ROLL_MS = 3000;
 
 // Contact frames (as fraction of ROLL_MS) and their relative impact strength.
 const IMPACTS: { at: number; strength: number }[] = [
