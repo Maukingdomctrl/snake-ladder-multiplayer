@@ -168,17 +168,23 @@ export default function App() {
   };
 
   const onRollDice = async () => {
-    if (!activeRoomId) return;
-    setLoading(true);
-    setError("");
-    try {
-      await rollDice(activeRoomId, playerId);
-    } catch (e: any) {
-      setError(e.message || "Failed to roll dice");
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (!activeRoomId) return;
+  setLoading(true);
+  setError("");
+  try {
+    await rollDice(activeRoomId, playerId);
+    console.log("rollDice success:", {
+      lastDice: roomData?.lastDice,
+      lastRolledBy: roomData?.lastRolledBy,
+      updatedAt: roomData?.updatedAt,
+      rollKey: `${roomData?.lastRolledBy}-${(roomData?.updatedAt as any)?.seconds}-${(roomData?.updatedAt as any)?.nanoseconds ?? ""}`,
+    });
+  } catch (e: any) {
+    setError(e.message || "Failed to roll dice");
+  } finally {
+    setLoading(false);
+  }
+};
 
   const onLeaveRoom = async () => {
     if (activeRoomId) {
