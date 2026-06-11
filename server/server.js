@@ -6,7 +6,7 @@ const admin = require("firebase-admin");
 console.log("ENV CHECK:", {
   projectId: process.env.FIREBASE_PROJECT_ID,
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  privateKeySet: !!process.env.FIREBASE_PRIVATE_KEY, // Will print true if it exists
+  privateKeySet: !!process.env.FIREBASE_PRIVATE_KEY, 
 });
 
 // ── Firebase Admin Setup ──
@@ -24,7 +24,7 @@ const app = express();
 
 // ── Middleware ──
 app.use(cors());
-app.use(express.json()); // Essential for parsing req.body in the POST request
+app.use(express.json()); // Essential for parsing req.body in POST requests
 
 // ── Constants ──
 // Unified Snakes & Ladders map matching client-side constants.ts
@@ -36,6 +36,59 @@ const BOARD_JUMPS = {
 };
 
 // ── Routes ──
+
+// 1. Create Room Route
+app.post('/createRoom', async (req, res) => {
+  try {
+    const { hostId, hostName, hostColor, instanceId } = req.body;
+
+    if (!hostId) return res.status(400).send({ error: "Missing hostId" });
+
+    // Generate unique 4-digit room code
+    let roomId;
+    let exists = true;
+    while (exists) {
+      roomId = Math.floor(1000 + Math.random() * 9000).toString();
+      const snap = await db.collection("rooms").doc(roomId).get();
+      exists = snap.exists;
+    }
+
+    // Initialize Room Data
+    await db.collection("rooms").doc(roomId).set({
+      hostId,
+      players: [hostId],
+      status: "waiting",
+      currentTurn: hostId,
+      playerNames: { [hostId]: hostName || hostId },
+      playerColors: { [hostId]: hostColor || "#ff0000" },
+      positions: { [hostId]: 1 },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastDice: null,
+      lastRolledBy: null,
+      lastFrom: null,
+      winnerId: null,
+      countdownEndsAt: null,
+    });
+
+    // Map Discord instanceId to roomId if provided
+    if (instanceId) {
+      await db.collection("instances").doc(instanceId).set(
+        { roomId, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
+        { merge: true }
+      );
+    }
+
+    res.status(200).send({ roomId });
+
+  } catch (error) {
+    console.error("Error creating room:", error);
+    res.status(400).send({ error: error.message || "Failed to create room" });
+  }
+});
+
+
+// 2. Roll Dice Route
 app.post('/roll', async (req, res) => {
   try {
     const { roomId, playerId } = req.body;
@@ -55,36 +108,36 @@ app.post('/roll', async (req, res) => {
 
       const roomData = roomDoc.data();
 
-      // 1. Validate Game State
+      // Validate Game State
       if (roomData.status !== "playing") {
         throw new Error("Game is not in progress.");
       }
 
-      // 2. Strict Turn Validation
+      // Strict Turn Validation
       if (roomData.currentTurn !== playerId) {
         throw new Error("It is not your turn.");
       }
 
-      // 3. Generate Authoritative Roll
+      // Generate Authoritative Roll
       const dice = Math.floor(Math.random() * 6) + 1;
 
-      // 4. Calculate Base Position
+      // Calculate Base Position
       const currentPositions = roomData.positions || {};
       const lastFrom = currentPositions[playerId] || 1;
       let newPosition = Math.min(100, lastFrom + dice);
 
-      // 5. Calculate Snakes & Ladders Jumps
+      // Calculate Snakes & Ladders Jumps
       if (BOARD_JUMPS[newPosition]) {
         newPosition = BOARD_JUMPS[newPosition];
       }
 
-      // 6. Game Progression Logic (Win State & Turn Advancement)
+      // Game Progression Logic (Win State & Turn Advancement)
       const isFinished = newPosition >= 100;
       const players = roomData.players || [];
       const currentIndex = players.indexOf(playerId);
       const nextTurn = players[(currentIndex + 1) % players.length];
 
-      // 7. Write State
+      // Write State
       t.update(roomRef, {
         lastDice: dice,
         lastRolledBy: playerId,
