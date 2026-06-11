@@ -53,7 +53,7 @@ export default function App() {
   const [roomData, setRoomData] = useState<Room | null>(null);
   const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({});
   const [jumpMessage, setJumpMessage] = useState<string>("");
-  const [diceComplete, setDiceComplete] = useState<boolean>(false);
+  const [diceComplete, setDiceComplete] = useState<boolean>(true);
   const { countdown } = useGameSync(roomData, playerId);
 
   // ── Chat State ──
@@ -69,6 +69,8 @@ export default function App() {
   const diceFinishedRef = useRef<boolean>(false);
   const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rollCompleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingJumpMessageRef = useRef<string>("");
+  const pendingPositionsRef = useRef<Record<string, number>>({});
 
   // ── Layout Listeners ──
   useEffect(() => {
@@ -97,16 +99,24 @@ export default function App() {
   }, [chatOpen, isTablet]);
 
   // ── Derived State ──
-  const isMyTurn = roomData?.status === "playing" && roomData?.currentTurn === playerId;
+  const isMyTurn = roomData?.status === "playing" && roomData?.currentTurn === playerId && diceComplete;
   const getName = (pid: string) => roomData?.playerNames?.[pid] || pid;
-  const currentTurnName = roomData?.currentTurn ? getName(roomData.currentTurn) : "";
+  const displayTurnId = diceComplete ? roomData?.currentTurn : roomData?.lastRolledBy;
+  const currentTurnName = displayTurnId ? getName(displayTurnId) : "";
 
   // ── Callbacks ──
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
     if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
+    
     setDiceComplete(true);
-    setLoading(false); // Clears loading state *after* the dice animation finishes
+    setJumpMessage(pendingJumpMessageRef.current);
+    
+    if (Object.keys(pendingPositionsRef.current).length > 0) {
+      setDisplayPositions(pendingPositionsRef.current);
+    }
+    
+    setLoading(false);
   };
 
   // ── Actions ──
@@ -182,9 +192,8 @@ export default function App() {
       });
     } catch (e: any) {
       setError(e.message || "Failed to roll dice");
-      setLoading(false); // Only clear immediately on error
+      setLoading(false);
     }
-    // Removed finally block here to keep loading = true during the animation
   };
 
   const onLeaveRoom = async () => {
@@ -229,11 +238,9 @@ export default function App() {
   useEffect(() => {
     if (!roomData) return;
     const prev = prevRoomRef.current;
+    let isNewRoll = false;
 
-    if (roomData.positions) {
-      setDisplayPositions(roomData.positions);
-    }
-
+    // 1. Detect if this update is a new roll FIRST
     if (
       prev &&
       roomData.lastDice != null &&
@@ -245,18 +252,22 @@ export default function App() {
       const moveKey = `${roomData.lastRolledBy}|${roomData.lastDice}|${ts?.seconds ?? ""}|${ts?.nanoseconds ?? ""}`;
 
       if (lastProcessedMoveRef.current !== moveKey) {
+        isNewRoll = true;
         diceFinishedRef.current = false;
         setDiceComplete(false);
+        setJumpMessage("");
 
-        if (observerTimeoutRef.current) {
-          clearTimeout(observerTimeoutRef.current);
-        }
+        if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
         observerTimeoutRef.current = setTimeout(() => {
           if (!diceFinishedRef.current) {
             diceFinishedRef.current = true;
             setDiceComplete(true);
+            setJumpMessage(pendingJumpMessageRef.current);
+            if (Object.keys(pendingPositionsRef.current).length > 0) {
+              setDisplayPositions(pendingPositionsRef.current);
+            }
           }
-        }, 5000); // ROLL_MS (4500) + 500 buffer
+        }, 5000);
 
         const pid = roomData.lastRolledBy;
         const from = roomData.lastFrom ?? 1;
@@ -264,14 +275,25 @@ export default function App() {
         const movedTo = Math.min(100, from + roomData.lastDice);
 
         if (to > movedTo) {
-          setJumpMessage(`🪜 Ladder! ${movedTo} → ${to}`);
+          pendingJumpMessageRef.current = `🪜 Ladder! ${movedTo} → ${to}`;
         } else if (to < movedTo) {
-          setJumpMessage(`🐍 Snake! ${movedTo} → ${to}`);
+          pendingJumpMessageRef.current = `🐍 Snake! ${movedTo} → ${to}`;
         } else {
-          setJumpMessage("");
+          pendingJumpMessageRef.current = "";
         }
 
         lastProcessedMoveRef.current = moveKey;
+      }
+    }
+
+    // 2. Buffer or Apply positions based on the refs/flags, NOT React state
+    if (roomData.positions) {
+      // If a roll was just triggered, OR a roll is currently in progress
+      if (isNewRoll || !diceFinishedRef.current) {
+        pendingPositionsRef.current = roomData.positions;
+      } else {
+        setDisplayPositions(roomData.positions);
+        pendingPositionsRef.current = roomData.positions;
       }
     }
 
@@ -424,7 +446,6 @@ export default function App() {
                         <div />
                       )}
 
-                      {/* Now wrapped so it only shows when finished */}
                       {roomData.status === "finished" && (
                         <div
                           style={{
@@ -489,7 +510,7 @@ export default function App() {
                     )}
 
                     {/* Winner overlay */}
-                    {roomData.status === "finished" && roomData.winnerId && (
+                    {roomData.status === "finished" && roomData.winnerId && diceComplete && (
                       <WinnerOverlay
                         winnerName={getName(roomData.winnerId)}
                         isHost={roomData.hostId === playerId}
