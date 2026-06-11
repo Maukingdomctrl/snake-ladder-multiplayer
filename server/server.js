@@ -1,3 +1,4 @@
+const { randomInt } = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
@@ -119,7 +120,8 @@ app.post('/roll', async (req, res) => {
       }
 
       // Generate Authoritative Roll
-      const dice = Math.floor(Math.random() * 6) + 1;
+      const dice = randomInt(1, 7);
+      console.log(`🎲 Rolled: ${dice} for player ${playerId}`);
 
       // Calculate Base Position
       const currentPositions = roomData.positions || {};
