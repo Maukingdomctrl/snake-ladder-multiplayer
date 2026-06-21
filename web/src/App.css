@@ -18,7 +18,7 @@
   --accent-hover: #1d8949;
 
   /* UI Elements */
-  --online: #23a55a;
+  --online: #23a559;
   --mention: rgba(245, 158, 11, 0.15); /* Soft amber background for mentions */
   --danger: #fa777c;
   
@@ -46,7 +46,6 @@ body {
   font-family: "Inter", sans-serif;
   /* Subtle radial gradient mimicking Discord's vignette shading */
   background: radial-gradient(circle at 50% 0%, var(--bg-secondary) 0%, var(--bg-base) 100%);
-  background-attachment: fixed;
   color: var(--text-primary);
   overscroll-behavior-y: none;
   -webkit-overflow-scrolling: touch;
@@ -78,6 +77,12 @@ textarea {
 input::placeholder,
 textarea::placeholder {
   color: var(--text-muted);
+}
+
+/* Firefox scrollbars */
+body, .game-column {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 /* Global scrollbar */
@@ -134,7 +139,7 @@ textarea::placeholder {
   cursor: not-allowed;
   transform: none;
 }
-.btn-primary:active {
+.btn-primary:active:not(:disabled) {
   transform: translateY(1px);
   box-shadow: none;
 }
@@ -259,7 +264,7 @@ textarea::placeholder {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 70vh;
+  height: 70dvh;
   background: var(--bg-primary);
   border-radius: 16px 16px 0 0;
   border-top: 1px solid var(--border); 

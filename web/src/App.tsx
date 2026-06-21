@@ -82,6 +82,9 @@ export default function App() {
   }, [isTablet]);
 
   useEffect(() => {
+    // Fix A-3: Prevent initial empty array from tripping the first load flag
+    if (messages.length === 0) return;
+
     if (isFirstMessageLoadRef.current) {
       isFirstMessageLoadRef.current = false;
     } else if (!chatOpen && !isTablet && messages.length > prevMsgCountRef.current) {
@@ -107,6 +110,7 @@ export default function App() {
   // ── Callbacks ──
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
+    if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current); 
     if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
     
     setDiceComplete(true);
@@ -184,12 +188,6 @@ export default function App() {
     setError("");
     try {
       await rollDice(activeRoomId, playerId);
-      console.log("rollDice success:", {
-        lastDice: roomData?.lastDice,
-        lastRolledBy: roomData?.lastRolledBy,
-        updatedAt: roomData?.updatedAt,
-        rollKey: `${roomData?.lastRolledBy}-${(roomData?.updatedAt as any)?.seconds}-${(roomData?.updatedAt as any)?.nanoseconds ?? ""}`,
-      });
     } catch (e: any) {
       setError(e.message || "Failed to roll dice");
       setLoading(false);
@@ -197,6 +195,8 @@ export default function App() {
   };
 
   const onLeaveRoom = async () => {
+    setError("");
+    setMessages([]);
     if (activeRoomId) {
       try {
         await leaveRoom(activeRoomId, playerId);
@@ -220,9 +220,16 @@ export default function App() {
     isFirstMessageLoadRef.current = true;
     prevMsgCountRef.current = 0;
     setUnreadCount(0); // Resets unread state on room switch
+    
+    // Clear out stale refs and messages gracefully when joining a new room
+    setMessages([]);
+    pendingJumpMessageRef.current = "";
+    pendingPositionsRef.current = {};
+    diceFinishedRef.current = false;
+    setDiceComplete(true);
 
     const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
-      console.log("subscribeRoom fired:", room);
+      // Fix A-6: Removed console.log for production
       setRoomData(room);
     });
     const unsubMessages = subscribeMessages(activeRoomId, setMessages);
@@ -231,7 +238,6 @@ export default function App() {
       if (typeof unsub === "function") unsub();
       if (typeof unsubMessages === "function") unsubMessages();
       if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
-      if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
     };
   }, [activeRoomId]);
 
@@ -248,8 +254,7 @@ export default function App() {
       roomData.positions &&
       prev.positions
     ) {
-      const ts: any = roomData.updatedAt;
-      const moveKey = `${roomData.lastRolledBy}|${roomData.lastDice}|${ts?.seconds ?? ""}|${ts?.nanoseconds ?? ""}`;
+      const moveKey = String(roomData.moveCount ?? 0);
 
       if (lastProcessedMoveRef.current !== moveKey) {
         isNewRoll = true;
@@ -262,6 +267,7 @@ export default function App() {
           if (!diceFinishedRef.current) {
             diceFinishedRef.current = true;
             setDiceComplete(true);
+            setLoading(false);
             setJumpMessage(pendingJumpMessageRef.current);
             if (Object.keys(pendingPositionsRef.current).length > 0) {
               setDisplayPositions(pendingPositionsRef.current);
@@ -276,7 +282,8 @@ export default function App() {
 
         if (to > movedTo) {
           pendingJumpMessageRef.current = `🪜 Ladder! ${movedTo} → ${to}`;
-        } else if (to < movedTo) {
+        } else if (to < movedTo && to !== from) { 
+          // Fix A-9: Added (to !== from) guard against future overshoot rules
           pendingJumpMessageRef.current = `🐍 Snake! ${movedTo} → ${to}`;
         } else {
           pendingJumpMessageRef.current = "";
@@ -341,6 +348,14 @@ export default function App() {
           />
         )}
 
+        {/* ── LOADING ROOM ── */}
+        {activeRoomId && !roomData && (
+          <div style={{ flex: 1, display: "flex", alignItems: "center",
+            justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
+            Loading room...
+          </div>
+        )}
+
         {/* ── MAIN GAME VIEW ── */}
         {roomData && (
           <div
@@ -352,6 +367,23 @@ export default function App() {
               overflow: "hidden",
             }}
           >
+            {/* In-game error banner */}
+            {error && (
+              <div style={{
+                position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
+                background: "var(--danger)", color: "#fff", padding: "8px 16px",
+                borderRadius: 6, zIndex: 1000, fontSize: 14, fontWeight: 600,
+                display: "flex", gap: 12, alignItems: "center",
+                boxShadow: "var(--shadow-lg)"
+              }}>
+                <span>{error}</span>
+                <button onClick={() => setError("")} style={{
+                  background: "transparent", border: "none", color: "#fff",
+                  cursor: "pointer", fontSize: 16, padding: 0
+                }}>✕</button>
+              </div>
+            )}
+
             {/* Header */}
             {!isCompact && (
               <GameHeader
@@ -532,7 +564,7 @@ export default function App() {
                         onRoll={onRollDice}
                         disabled={!isMyTurn || loading}
                         lastDice={(roomData.lastDice as Face) ?? null}
-                        rollKey={`${roomData.lastRolledBy}-${(roomData.updatedAt as any)?.seconds}-${(roomData.updatedAt as any)?.nanoseconds ?? ""}`}
+                        rollKey={String(roomData.moveCount ?? 0)}
                         jumpMessage={jumpMessage}
                         onRollComplete={handleRollComplete}
                       />

@@ -14,7 +14,7 @@ interface DiceProps {
   feedback?: boolean;
 }
 
-const ROLL_MS = 3000;
+const ROLL_MS = 4500;
 
 // Contact frames (as fraction of ROLL_MS) and their relative impact strength.
 const IMPACTS: { at: number; strength: number }[] = [
@@ -164,9 +164,11 @@ export default function Dice({
   const [wobble, setWobble] = useState({ x: 0, y: 0 }); // micro settle offset
   const [isAnimating, setIsAnimating] = useState(false);
   const [rolling, setRolling] = useState(false);
+  const [settled, setSettled] = useState(false);
 
   const processedRollKeyRef = useRef("");
   const isFirstLoad = useRef(true);
+  const isHistoricalLoadRef = useRef(lastDice !== null);
   const onRollCompleteRef = useRef(onRollComplete);
   const onImpactRef = useRef(onImpact);
   const feedbackRef = useRef(feedback);
@@ -206,14 +208,21 @@ export default function Dice({
 
     if (isFirstLoad.current) {
       isFirstLoad.current = false;
-      processedRollKeyRef.current = rollKey || "";
+      
       const [bx, by] = BASE_ANGLES[lastDice];
       prevTargetX.current = bx;
       prevTargetY.current = by;
       setRotations({ x: bx, y: by });
-      return;
+
+      // FIX: Only mark as processed immediately if they joined mid-game (historical).
+      // Do NOT set processedRollKeyRef.current if this is the very first roll of a new game.
+      if (isHistoricalLoadRef.current) {
+        processedRollKeyRef.current = rollKey || "";
+        return;
+      }
     }
 
+    // Check if this specific roll has already animated
     if (!rollKey || processedRollKeyRef.current === rollKey) return;
     processedRollKeyRef.current = rollKey;
 
@@ -226,11 +235,14 @@ export default function Dice({
       setRollZ(0);
       setWobble({ x: 0, y: 0 });
       setRotations({ x: tx, y: ty });
+      setSettled(true);
+      setTimeout(() => setSettled(false), 1200);
       onRollCompleteRef.current?.();
       return;
     }
 
     setRolling(true);
+    setSettled(false);
     setWobble({ x: 0, y: 0 });
 
     setIsAnimating(false);
@@ -267,7 +279,9 @@ export default function Dice({
       setRolling(false);
       setIsAnimating(false);
       setRollZ(0);
-      setWobble({ x: 0, y: 0 }); // settle perfectly flat at rest
+      setWobble({ x: 0, y: 0 });
+      setSettled(true);
+      setTimeout(() => setSettled(false), 1200);
       onRollCompleteRef.current?.();
     }, ROLL_MS);
   }, [rollKey, lastDice]);
@@ -299,6 +313,7 @@ export default function Dice({
       setRolling(false);
       setIsAnimating(false);
       setWobble({ x: 0, y: 0 });
+      setSettled(false);
     }
   };
 
@@ -306,11 +321,13 @@ export default function Dice({
     <>
       <style>{`
         @keyframes throw-and-bounce {
-          0%   { transform: translateY(-120px) rotateZ(-12deg) scale(1.15); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
-          30%  { transform: translateY(0px) rotateZ(3deg) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
-          52%  { transform: translateY(-22px) rotateZ(-2deg); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
-          70%  { transform: translateY(0px) rotateZ(0deg); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
-          84%  { transform: translateY(-5px); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          0%   { transform: translateY(-160px) rotateZ(-18deg) scale(1.2); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          25%  { transform: translateY(0px) rotateZ(4deg) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+          40%  { transform: translateY(-40px) rotateZ(-3deg); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          58%  { transform: translateY(0px) rotateZ(2deg); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+          72%  { transform: translateY(-18px) rotateZ(-1deg); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          85%  { transform: translateY(0px) rotateZ(0deg); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+          93%  { transform: translateY(-6px); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
           100% { transform: translateY(0px); }
         }
         .bouncing-dice { animation: throw-and-bounce ${ROLL_MS}ms forwards; }
@@ -320,18 +337,27 @@ export default function Dice({
           100% { transform: rotateZ(0deg); }
         }
         .dice-tilt { animation: impact-tilt ${ROLL_MS}ms forwards; }
+
+        @keyframes settle-glow {
+          0%   { filter: drop-shadow(0 0 24px rgba(245, 158, 11, 1.0)) drop-shadow(0 0 8px rgba(255,255,255,0.8)); }
+          100% { filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6)) drop-shadow(0 0 12px rgba(245, 158, 11, 0.25)); }
+        }
+        .settled-dice { animation: settle-glow 1.2s ease-out forwards; }
       `}</style>
 
       <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
         <div
+          className={settled ? "settled-dice" : ""}
           style={{
             width: 56,
             height: 56,
             perspective: 300,
             opacity: disabled && !rolling ? 0.5 : 1,
-            transition: "opacity 0.2s, filter 0.25s ease-out",
+            transition: "opacity 0.2s",
             filter: rolling
-              ? "drop-shadow(0 0 18px rgba(35, 165, 89, 0.8)) drop-shadow(0 0 6px rgba(35, 165, 89, 0.4))"
+              ? "drop-shadow(0 0 24px rgba(35, 165, 89, 1.0)) drop-shadow(0 0 12px rgba(35, 165, 89, 0.8)) drop-shadow(0 0 4px rgba(255,255,255,0.6))"
+              : settled
+              ? "none"
               : "drop-shadow(0 3px 6px rgba(0,0,0,0.6)) drop-shadow(0 0 12px rgba(245, 158, 11, 0.25))",
           }}
         >
@@ -344,10 +370,9 @@ export default function Dice({
                   position: "relative",
                   transformStyle: "preserve-3d",
                   transform: `translateZ(-28px) rotateX(${rotations.x + wobble.x}deg) rotateY(${rotations.y + wobble.y}deg) rotateZ(${isAnimating ? rollZ : 0}deg)`,
-                  // Main spin uses the long settle; the wobble overlay snaps in then eases out via the shorter transition.
                   transition: isAnimating
                     ? `transform ${ROLL_MS}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
-                    : "transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                    : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
                   willChange: "transform",
                 }}
               >

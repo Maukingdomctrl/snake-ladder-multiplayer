@@ -70,6 +70,7 @@ app.post('/createRoom', async (req, res) => {
       lastFrom: null,
       winnerId: null,
       countdownEndsAt: null,
+      moveCount: 0, // Initialized moveCount here
     });
 
     // Map Discord instanceId to roomId if provided
@@ -148,6 +149,7 @@ app.post('/roll', async (req, res) => {
         currentTurn: isFinished ? playerId : nextTurn,
         status: isFinished ? "finished" : "playing",
         winnerId: isFinished ? playerId : null,
+        moveCount: admin.firestore.FieldValue.increment(1),
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
       });
 

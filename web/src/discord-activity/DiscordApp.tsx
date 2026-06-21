@@ -42,7 +42,7 @@ export default function DiscordApp() {
   const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({});
   const [jumpMessage, setJumpMessage] = useState<string>("");
   const [diceComplete, setDiceComplete] = useState<boolean>(false);
-  const { countdown } = useGameSync(roomData);
+  const { countdown } = useGameSync(roomData, playerId);
 
   // ── Chat State ──
   const [messages, setMessages] = useState<Message[]>([]);
@@ -107,6 +107,8 @@ export default function DiscordApp() {
     prevRoomRef.current = null;
     lastProcessedMoveRef.current = "";
     setDisplayPositions({});
+    setMessages([]);
+    diceFinishedRef.current = false;
 
     const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
       setRoomData(room);
@@ -132,8 +134,7 @@ export default function DiscordApp() {
     }
 
     if (prev && roomData.lastDice != null && roomData.lastRolledBy && roomData.positions && prev.positions) {
-      const ts: any = roomData.updatedAt;
-      const moveKey = `${roomData.lastRolledBy}|${roomData.lastDice}|${ts?.seconds ?? ""}|${ts?.nanoseconds ?? ""}`;
+      const moveKey = String(roomData.moveCount ?? 0);
 
       if (lastProcessedMoveRef.current !== moveKey) {
         diceFinishedRef.current = false;
@@ -144,6 +145,7 @@ export default function DiscordApp() {
           if (!diceFinishedRef.current) {
             diceFinishedRef.current = true;
             setDiceComplete(true);
+            setLoading(false); // <-- Fix: Unblocks UI on fallback
           }
         }, 4000);
 
@@ -166,8 +168,13 @@ export default function DiscordApp() {
   // ── Callbacks ──
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
+    if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current); // <-- Fix: Prevent duplicate execution
     if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
-    rollCompleteTimeoutRef.current = setTimeout(() => setDiceComplete(true), 2000);
+    
+    rollCompleteTimeoutRef.current = setTimeout(() => {
+      setDiceComplete(true);
+      setLoading(false); // <-- Fix: Unblocks UI after successful roll
+    }, 2000);
   };
 
   const onPickColor = async (color: string) => {
@@ -208,8 +215,7 @@ export default function DiscordApp() {
       await rollDice(activeRoomId, playerId);
     } catch (e: any) {
       setError(e.message || "Failed to roll dice");
-    } finally {
-      setLoading(false);
+      setLoading(false); // Re-enable button ONLY on failure, let handleRollComplete handle success
     }
   };
 
@@ -224,6 +230,8 @@ export default function DiscordApp() {
     setActiveRoomId("");
     setRoomData(null);
     joinedRef.current = false;
+    setError("");
+    setMessages([]);
   };
 
   // ── Render ──
@@ -255,7 +263,7 @@ export default function DiscordApp() {
         <>
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, position: "relative" }}>
             
-            {/* Active Game Error Banner (Displays when room is active but an action failed) */}
+            {/* Active Game Error Banner */}
             {error && (
               <div style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", background: "#fa777c", color: "#111114", padding: "8px 16px", borderRadius: 6, zIndex: 100, fontSize: 14, fontWeight: "bold", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
                 <span>{error}</span>

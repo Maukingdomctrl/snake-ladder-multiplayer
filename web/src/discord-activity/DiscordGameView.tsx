@@ -1,8 +1,9 @@
-// src/discord-activity/DiscordGameView.tsx
-
 import type { Room } from "../firebase/rooms";
 import Board from "../components/Board";
 import DiceRow from "../components/DiceRow";
+
+// Add the Face type definition to satisfy DiceRow
+type Face = 1 | 2 | 3 | 4 | 5 | 6;
 
 interface DiscordGameViewProps {
   roomData: Room;
@@ -38,7 +39,7 @@ export default function DiscordGameView({
   return (
     <div
       style={{
-        position: "relative", // <-- Added to safely contain the absolute Winner overlay
+        position: "relative",
         flex: 1,
         display: "flex",
         flexDirection: "column",
@@ -150,8 +151,8 @@ export default function DiscordGameView({
           <DiceRow
             onRoll={onRollDice}
             disabled={loading || !isMyTurn}
-            lastDice={roomData.lastDice ?? null}
-            rollKey={`${roomData.lastRolledBy}-${(roomData.updatedAt as any)?.seconds}`}
+            lastDice={(roomData.lastDice as Face) ?? null} // <-- TypeScript fix applied here
+            rollKey={String(roomData.moveCount ?? 0)}
             jumpMessage={jumpMessage}
             onRollComplete={onRollComplete}
           />
@@ -191,7 +192,7 @@ export default function DiscordGameView({
             <div style={{ display: "flex", gap: 10 }}>
               {roomData.hostId === playerId ? (
                 <button
-                  onClick={onStartGame} // <-- Replaced redundant try/catch
+                  onClick={onStartGame}
                   style={{
                     flex: 1,
                     padding: "10px",
