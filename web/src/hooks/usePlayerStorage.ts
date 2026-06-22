@@ -1,16 +1,34 @@
 import { useState, useEffect } from "react";
-import { getDiscordUser } from "../discord"; // Adjust path if needed
+import { getDiscordUser } from "../discord";
 import { LOBBY_COLORS } from "../constants";
+
+// FIX: Safe localStorage wrapper to prevent crashes in Incognito/Private mode
+const safeLocalStorage = {
+  getItem(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch (e) {
+      return null;
+    }
+  },
+  setItem(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      // Ignore write errors (e.g., quota exceeded, private mode)
+    }
+  },
+};
 
 export function usePlayerStorage() {
   const [playerId] = useState<string>(() => {
     const discordUser = getDiscordUser();
     if (discordUser?.id) return `discord_${discordUser.id}`;
     
-    let id = localStorage.getItem("playerId");
+    let id = safeLocalStorage.getItem("playerId");
     if (!id) {
       id = `p_${Math.random().toString(36).slice(2, 10)}`;
-      localStorage.setItem("playerId", id);
+      safeLocalStorage.setItem("playerId", id);
     }
     return id;
   });
@@ -18,19 +36,19 @@ export function usePlayerStorage() {
   const [playerName, setPlayerName] = useState<string>(() => {
     const discordUser = getDiscordUser();
     if (discordUser?.username) return discordUser.username;
-    return localStorage.getItem("playerName") || "";
+    return safeLocalStorage.getItem("playerName") || "";
   });
 
   const [playerColor, setPlayerColor] = useState<string>(
-    () => localStorage.getItem("playerColor") || LOBBY_COLORS[0]
+    () => safeLocalStorage.getItem("playerColor") || LOBBY_COLORS[0]
   );
 
   useEffect(() => {
-    localStorage.setItem("playerName", playerName);
+    safeLocalStorage.setItem("playerName", playerName);
   }, [playerName]);
 
   useEffect(() => {
-    localStorage.setItem("playerColor", playerColor);
+    safeLocalStorage.setItem("playerColor", playerColor);
   }, [playerColor]);
 
   return { playerId, playerName, setPlayerName, playerColor, setPlayerColor };

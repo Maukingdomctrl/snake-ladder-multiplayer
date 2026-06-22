@@ -77,7 +77,8 @@ function calculateCellSize(w: number, h: number) {
   const availableWidth = w >= 768 ? Math.min(w - 340, 800) : w - 48;
   const availableHeight = w >= 768 ? h - 320 : h - 200;
   const maxBoardSize = Math.min(availableWidth, availableHeight);
-  const finalBoardSize = Math.max(300, Math.min(maxBoardSize, 800));
+  // FIX: Lowered minimum from 300 to 200 to prevent vertical overflow on short screens
+  const finalBoardSize = Math.max(200, Math.min(maxBoardSize, 800));
   return Math.floor(finalBoardSize / 10);
 }
 
@@ -145,8 +146,6 @@ interface BoardProps {
 
 // ── Per-snake visual config ───────────────────────────────────────────────────
 
-// Waypoints are listed head-cell-first (same pattern you used),
-// then reversed before passing into Snake.tsx so spine builds tail -> head.
 const SNAKE_WAYPOINTS: Record<number, { c: number; ox?: number; oy?: number }[]> = {
   83: [
     { c: 83 },
@@ -157,20 +156,28 @@ const SNAKE_WAYPOINTS: Record<number, { c: number; ox?: number; oy?: number }[]>
     { c: 38, ox: -0.4 },
     { c: 22, oy: -0.4 },
   ],
-  66: [
-    { c: 66 },
-    { c: 57, ox: 0.3 },
-    { c: 46, ox: -0.2 },
-    { c: 35, ox: 0.3 },
-    { c: 24, ox: -0.3 },
-    { c: 13, ox: 0.2 },
-    { c: 2 },
+  68: [
+    { c: 68, ox: 0.1, oy: -0.15 },
+    { c: 67, ox: 0.1, oy: -0.2 },
+    { c: 53, ox: -0.6, oy: -0.3 },
+    { c: 48, ox: -0.5, oy: 0.2 },
+    { c: 33, ox: -0.4, oy: -0.3 },
+    { c: 34, ox: -0.1, oy: -0.25 },
+    { c: 35, ox: -0.1, oy: -0.5 },
+    { c: 36, ox: -0.1, oy: 0.3 },
+    { c: 25, ox: 0.1, oy: -0.3 },
+    { c: 26, ox: -0.1, oy: -0.01 },
+    { c: 15, ox: -0.1, oy: 0.05 },
+    { c: 16, ox: -0.15, oy: 0.45 },
+    { c: 17, ox: -0.15, oy: 0.25 },
+    { c: 18, ox: -0.15, oy: 0.4 },
+    { c: 2 }
   ],
 };
 
 const SNAKE_THICKNESS: Record<number, number> = {
-  83: 12,
-  66: 18,
+  83: 10,
+  68: 11,
 };
 
 const SNAKE_COLORS: Record<number, SnakeColors> = {
@@ -182,18 +189,46 @@ const SNAKE_COLORS: Record<number, SnakeColors> = {
     scaleDark: "#4a1c1c",
     eye: "#d8c25a"
   },
-  66: { 
-    body: "#4a9b3f", 
-    outline: "#1a1a1a", 
-    belly: "#6bbf58", 
-    scaleLight: "#8bc34a",
-    scaleDark: "#2e7d32",
-    eye: "#ffc107"
+  68: { 
+    body: "#c0392b", 
+    outline: "#5a0e08", 
+    belly: "#e74c3c", 
+    scaleLight: "#e74c3c",
+    scaleDark: "#7a1810",
+    eye: "#f1c40f"
   },
 };
 
-// Only these two snakes are rendered.
-const SNAKE_RENDER_ORDER: number[] = [83, 66];
+const SNAKE_STYLE_CONFIGS: Record<number, { scaleStride?: number; bulgeProfile?: { t: number; width: number }[] }> = {
+  68: {
+    scaleStride: 10,
+    bulgeProfile: [
+      { t: 0.0, width: 0.2 },
+      { t: 0.1, width: 0.8 },
+      { t: 0.3, width: 1.4 },
+      { t: 0.5, width: 0.6 },
+      { t: 0.8, width: 1.2 },
+      { t: 1.0, width: 1.5 }
+    ]
+  }
+};
+
+const SNAKE_RENDER_ORDER: number[] = [83, 68];
+
+// FIX: Hoisted outside component to prevent object recreation on every render
+const LADDER_OFFSETS: Record<
+  number,
+  { aX: number; bX: number; aY?: number; bY?: number }
+> = {
+  8: { aX: -0.3, aY: -0.3, bX: 0.25, bY: 0.3 },
+  19: { aX: 0, bX: -0.15, bY: 0.35 },
+  21: { aX: -0.25, bX: 0.05, bY: 0.35 },
+  28: { aX: -0.1, bX: 0.15 },
+  36: { aX: -0.3, aY: -0.3, bX: 0.2, bY: 0.25 },
+  50: { aX: 0.2, bX: 0.2 },
+  61: { aX: -0.25, bX: -0.15, bY: 0.35 },
+  62: { aX: 0.25, aY: -0.25, bX: -0.3, bY: 0.35 },
+};
 
 // Toggle this while tuning waypoint shape.
 const SHOW_SNAKE_DEBUG = false;
@@ -277,11 +312,16 @@ export default function Board({
 
   const [tokenPixels, setTokenPixels] = useState<Record<string, { x: number; y: number }>>({});
 
+  // FIX: Properly sync positions when they change (e.g., player leaves) OR when cellSize changes.
+  // Does not block updates for other tokens if an animation is running, unless cellSize is unchanged.
   useEffect(() => {
-    if (prevCellSizeRef.current === cellSize) return;
-    if (scheduledTimeoutsRef.current.length > 0) return;
+    const cellSizeChanged = prevCellSizeRef.current !== cellSize;
+    if (cellSizeChanged) {
+      prevCellSizeRef.current = cellSize;
+    }
 
-    prevCellSizeRef.current = cellSize;
+    // If an animation is running and the board didn't resize, don't snap tokens backwards
+    if (scheduledTimeoutsRef.current.length > 0 && !cellSizeChanged) return;
 
     const next: Record<string, { x: number; y: number }> = {};
     Object.keys(positions).forEach((pid) => {
@@ -362,6 +402,7 @@ export default function Board({
     }
   };
 
+  // FIX: Removed `cellSize` from dependencies. If cellSize changes, this effect would return early anyway because moveKey hasn't changed.
   useEffect(() => {
     if (!roomData) return;
 
@@ -396,7 +437,7 @@ export default function Board({
         runAnimationRef.current(snap);
       }
     }, 5000);
-  }, [roomData, cellSize]);
+  }, [roomData]);
 
   useEffect(() => {
     if (!diceComplete || !pendingRoomDataRef.current) return;
@@ -430,20 +471,24 @@ export default function Board({
       if (!cellWaypoints || cellWaypoints.length < 2) return null;
 
       const pixelWaypoints = cellWaypoints
-        .map((wp) => getWaypointCenter(wp, cellSize))
-        .reverse(); // head-first -> tail-first for Snake.tsx
+        .map((wp) => getWaypointCenter(wp, cellSize));
 
       return {
         id,
         waypoints: pixelWaypoints,
         thickness: SNAKE_THICKNESS[id] ?? 12,
-        colors: SNAKE_COLORS[id] ?? SNAKE_COLORS[66],
+        colors: SNAKE_COLORS[id] ?? SNAKE_COLORS[68],
+        styleConfig: SNAKE_STYLE_CONFIGS[id]
       };
     }).filter(Boolean) as {
       id: number;
       waypoints: { x: number; y: number }[];
       thickness: number;
       colors: SnakeColors;
+      styleConfig?: {
+        scaleStride?: number;
+        bulgeProfile?: { t: number; width: number }[];
+      };
     }[];
   }, [cellSize]);
 
@@ -599,6 +644,7 @@ export default function Board({
                 waypoints={s.waypoints}
                 thickness={s.thickness}
                 colors={s.colors}
+                styleConfig={s.styleConfig}
               />
             ))}
 
@@ -637,20 +683,6 @@ export default function Board({
             {ladderEntries.map(({ from, to }) => {
               const aCenter = cellCenter(from, cellSize);
               const bCenter = cellCenter(to, cellSize);
-
-              const LADDER_OFFSETS: Record<
-                number,
-                { aX: number; bX: number; aY?: number; bY?: number }
-              > = {
-                8: { aX: -0.3, aY: -0.3, bX: 0.25, bY: 0.3 },
-                19: { aX: 0, bX: -0.15, bY: 0.35 },
-                21: { aX: -0.25, bX: 0.05, bY: 0.35 },
-                28: { aX: -0.1, bX: 0.15 },
-                36: { aX: -0.3, aY: -0.3, bX: 0.2, bY: 0.25 },
-                50: { aX: 0.2, bX: 0.2 },
-                61: { aX: -0.25, bX: -0.15, bY: 0.35 },
-                62: { aX: 0.25, aY: -0.25, bX: -0.3, bY: 0.35 },
-              };
 
               const offset = LADDER_OFFSETS[from] || { aX: 0, bX: 0 };
               const a = {
@@ -937,7 +969,8 @@ export default function Board({
                   top: 0,
                   left: 0,
                   transform: `translate(calc(${px.x}px - 50%), calc(${px.y}px - 50%))`,
-                  transition: "transform 0.15s ease-out",
+                  // FIX: Shortened transition to prevent lag/sluggishness during rapid jump frame updates (40-66ms)
+                  transition: "transform 0.1s linear",
                   zIndex: 20,
                   pointerEvents: "none",
                   userSelect: "none",

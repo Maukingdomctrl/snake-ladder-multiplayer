@@ -1,3 +1,4 @@
+// web/src/App.tsx
 import { useEffect, useRef, useState } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
@@ -66,9 +67,8 @@ export default function App() {
   const lastProcessedMoveRef = useRef<string>("");
   const prevMsgCountRef = useRef<number>(0);
   const isFirstMessageLoadRef = useRef<boolean>(true);
-  const diceFinishedRef = useRef<boolean>(false);
+  const diceFinishedRef = useRef<boolean>(true); // FIX: Initialize to true to prevent buffering lock on join
   const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const rollCompleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingJumpMessageRef = useRef<string>("");
   const pendingPositionsRef = useRef<Record<string, number>>({});
 
@@ -81,8 +81,14 @@ export default function App() {
     }
   }, [isTablet]);
 
+  // FIX: Clear observer timeout on component unmount to prevent memory leaks
   useEffect(() => {
-    // Fix A-3: Prevent initial empty array from tripping the first load flag
+    return () => {
+      if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (messages.length === 0) return;
 
     if (isFirstMessageLoadRef.current) {
@@ -111,7 +117,6 @@ export default function App() {
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
     if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current); 
-    if (rollCompleteTimeoutRef.current) clearTimeout(rollCompleteTimeoutRef.current);
     
     setDiceComplete(true);
     setJumpMessage(pendingJumpMessageRef.current);
@@ -221,15 +226,13 @@ export default function App() {
     prevMsgCountRef.current = 0;
     setUnreadCount(0); // Resets unread state on room switch
     
-    // Clear out stale refs and messages gracefully when joining a new room
     setMessages([]);
     pendingJumpMessageRef.current = "";
     pendingPositionsRef.current = {};
-    diceFinishedRef.current = false;
+    diceFinishedRef.current = true; // FIX: Ensure dice is marked as finished so positions apply immediately
     setDiceComplete(true);
 
     const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
-      // Fix A-6: Removed console.log for production
       setRoomData(room);
     });
     const unsubMessages = subscribeMessages(activeRoomId, setMessages);
@@ -244,11 +247,24 @@ export default function App() {
   useEffect(() => {
     if (!roomData) return;
     const prev = prevRoomRef.current;
+    
+    // FIX: Initialize state properly on first room load to prevent false 'new roll' detection
+    if (!prev) {
+      prevRoomRef.current = roomData;
+      const moveKey = String(roomData.moveCount ?? 0);
+      lastProcessedMoveRef.current = moveKey;
+      
+      if (roomData.positions) {
+        setDisplayPositions(roomData.positions);
+        pendingPositionsRef.current = roomData.positions;
+      }
+      return;
+    }
+
     let isNewRoll = false;
 
     // 1. Detect if this update is a new roll FIRST
     if (
-      prev &&
       roomData.lastDice != null &&
       roomData.lastRolledBy &&
       roomData.positions &&
@@ -257,6 +273,14 @@ export default function App() {
       const moveKey = String(roomData.moveCount ?? 0);
 
       if (lastProcessedMoveRef.current !== moveKey) {
+        // FIX: Force flush previous pending state if a new roll arrives before the previous animation finished
+        if (!diceFinishedRef.current) {
+          if (Object.keys(pendingPositionsRef.current).length > 0) {
+            setDisplayPositions(pendingPositionsRef.current);
+          }
+          setJumpMessage(pendingJumpMessageRef.current);
+        }
+
         isNewRoll = true;
         diceFinishedRef.current = false;
         setDiceComplete(false);
@@ -276,15 +300,18 @@ export default function App() {
         }, 5000);
 
         const pid = roomData.lastRolledBy;
-        const from = roomData.lastFrom ?? 1;
+        const from = roomData.lastFrom; // FIX: Don't default to 1, it causes false jump messages
         const to = roomData.positions?.[pid] ?? from;
-        const movedTo = Math.min(100, from + roomData.lastDice);
+        const movedTo = Math.min(100, (from ?? 1) + roomData.lastDice);
 
-        if (to > movedTo) {
-          pendingJumpMessageRef.current = `🪜 Ladder! ${movedTo} → ${to}`;
-        } else if (to < movedTo && to !== from) { 
-          // Fix A-9: Added (to !== from) guard against future overshoot rules
-          pendingJumpMessageRef.current = `🐍 Snake! ${movedTo} → ${to}`;
+        if (from != null) { // FIX: Only evaluate jump if `from` is known
+          if (to > movedTo) {
+            pendingJumpMessageRef.current = `🪜 Ladder! ${movedTo} → ${to}`;
+          } else if (to < movedTo && to !== from) { 
+            pendingJumpMessageRef.current = `🐍 Snake! ${movedTo} → ${to}`;
+          } else {
+            pendingJumpMessageRef.current = "";
+          }
         } else {
           pendingJumpMessageRef.current = "";
         }
@@ -295,7 +322,6 @@ export default function App() {
 
     // 2. Buffer or Apply positions based on the refs/flags, NOT React state
     if (roomData.positions) {
-      // If a roll was just triggered, OR a roll is currently in progress
       if (isNewRoll || !diceFinishedRef.current) {
         pendingPositionsRef.current = roomData.positions;
       } else {

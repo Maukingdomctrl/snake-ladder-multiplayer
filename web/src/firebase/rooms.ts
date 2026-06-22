@@ -40,10 +40,6 @@ export type Room = {
   moveCount?: number;
 };
 
-/**
- * Defensive Fetch Wrapper (Fix R-5)
- * Prevents infinite UI hangs during Render server cold-starts or network drops.
- */
 const fetchWithTimeout = async (url: string, options: any = {}, timeoutMs = 15000) => {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
@@ -60,20 +56,11 @@ const fetchWithTimeout = async (url: string, options: any = {}, timeoutMs = 1500
   }
 };
 
-/**
- * Creates a unique 4-digit multiplayer game room.
- * We use the full URL so the Discord SDK tunnel intercepts it automatically.
- */
 export async function createRoom(hostId: string, hostName: string, hostColor: string, instanceId?: string) {
-  console.log("➡️ [createRoom] Pinging Render server...");
-  
   try {
     const payload: any = { hostId, hostName, hostColor };
-    if (instanceId) {
-      payload.instanceId = instanceId;
-    }
+    if (instanceId) payload.instanceId = instanceId;
 
-    // Using defensive fetch wrapper
     const response = await fetchWithTimeout(`${RENDER_URL}/createRoom`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -86,8 +73,6 @@ export async function createRoom(hostId: string, hostName: string, hostColor: st
     }
 
     const data = await response.json();
-    console.log(`✅ [createRoom] Success! Room ${data.roomId} created.`);
-    
     return data.roomId; 
   } catch (error) {
     console.error("❌ [createRoom] Connection failed:", error);
@@ -95,10 +80,6 @@ export async function createRoom(hostId: string, hostName: string, hostColor: st
   }
 }
 
-/**
- * Allows a second or consecutive player to join an existing room
- * Enforces room capacity and idempotency via transaction.
- */
 export async function joinRoom(roomId: string, playerId: string, playerName: string, playerColor: string) {
   const roomRef = doc(db, "rooms", roomId);
   
@@ -107,10 +88,13 @@ export async function joinRoom(roomId: string, playerId: string, playerName: str
     if (!snap.exists()) throw new Error("Room not found");
 
     const room = snap.data() as Room;
-    if (room.status !== "waiting") throw new Error("Game already started");
-    if ((room.players?.length || 0) >= 8) throw new Error("Room is full");
-
-    const alreadyIn = room.players?.includes(playerId);
+    const alreadyIn = (room.players || []).includes(playerId);
+    
+    // FIX 1: Only enforce status and capacity if the player is NOT already in the room
+    if (!alreadyIn) {
+      if (room.status !== "waiting") throw new Error("Game already started");
+      if ((room.players?.length || 0) >= 8) throw new Error("Room is full");
+    }
     
     transaction.update(roomRef, {
       ...(alreadyIn ? {} : { players: arrayUnion(playerId) }),
@@ -121,10 +105,6 @@ export async function joinRoom(roomId: string, playerId: string, playerName: str
   });
 }
 
-/**
- * Cleanly removes a player from the room and clears their maps.
- * Handles room deletion if empty, host delegation, and early victory detection.
- */
 export async function leaveRoom(roomId: string, playerId: string) {
   const roomRef = doc(db, "rooms", roomId);
   
@@ -133,6 +113,9 @@ export async function leaveRoom(roomId: string, playerId: string) {
     if (!snap.exists()) return;
 
     const room = snap.data() as Room;
+    
+    // FIX 3: Consistent null-safety on room.players
+    const playerIndex = (room.players || []).indexOf(playerId);
     const updatedPlayers = (room.players || []).filter(p => p !== playerId);
 
     if (updatedPlayers.length === 0) {
@@ -140,18 +123,32 @@ export async function leaveRoom(roomId: string, playerId: string) {
       return;
     }
 
+    const safeIndex = playerIndex > -1 ? playerIndex : 0;
     const nextTurn = room.currentTurn === playerId
-      ? updatedPlayers[(updatedPlayers.indexOf(playerId) + 1) % updatedPlayers.length] ?? updatedPlayers[0]
+      ? updatedPlayers[safeIndex % updatedPlayers.length] ?? updatedPlayers[0]
       : room.currentTurn;
       
     const newHostId = room.hostId === playerId ? updatedPlayers[0] : room.hostId;
-    const newStatus = updatedPlayers.length === 1 && room.status === "playing" ? "finished" : room.status;
+    
+    // FIX 2: Reset to "waiting" if a player drops to 1 during "countdown"
+    let newStatus = room.status;
+    let newCountdownEndsAt = room.countdownEndsAt;
+    
+    if (updatedPlayers.length === 1) {
+      if (room.status === "playing") {
+        newStatus = "finished";
+      } else if (room.status === "countdown") {
+        newStatus = "waiting";
+        newCountdownEndsAt = null;
+      }
+    }
 
     transaction.update(roomRef, {
       players: updatedPlayers,
       currentTurn: nextTurn,
       hostId: newHostId,
       status: newStatus,
+      countdownEndsAt: newCountdownEndsAt,
       winnerId: newStatus === "finished" ? updatedPlayers[0] : room.winnerId,
       [`playerNames.${playerId}`]: deleteField(),
       [`playerColors.${playerId}`]: deleteField(),
@@ -161,10 +158,6 @@ export async function leaveRoom(roomId: string, playerId: string) {
   });
 }
 
-/**
- * Listens to active metadata changes for a game room in real time
- * Uses estimate to prevent optimistic write UI flickering.
- */
 export function subscribeRoom(roomId: string, cb: (room: Room | null) => void) {
   return onSnapshot(doc(db, "rooms", roomId), (snap) => {
     if (!snap.exists()) return cb(null);
@@ -172,9 +165,6 @@ export function subscribeRoom(roomId: string, cb: (room: Room | null) => void) {
   });
 }
 
-/**
- * Shifts room state into a 5-second countdown window securely using a transaction
- */
 export async function startGame(roomId: string, playerId: string) {
   const roomRef = doc(db, "rooms", roomId);
   
@@ -190,16 +180,13 @@ export async function startGame(roomId: string, playerId: string) {
     
     transaction.update(roomRef, {
       status: "countdown",
-      // Note (Fix R-3): Utilizing local Date.now() is an acceptable latency compromise for visual UI countdowns
+      // Note: Client clock compromise. Acceptable for 5s UI countdowns, but server-side is ideal.
       countdownEndsAt: Date.now() + 5000, 
       updatedAt: serverTimestamp(),
     });
   });
 }
 
-/**
- * Transitions game from countdown mode into full active play context
- */
 export async function finalizeGameStart(roomId: string) {
   const roomRef = doc(db, "rooms", roomId);
 
@@ -209,7 +196,15 @@ export async function finalizeGameStart(roomId: string) {
 
     const room = snap.data() as Room;
     
-    // CAS check inside the transaction to ensure thread safety
+    // FIX 2: Player-count guard. Abort if players dropped below 2 during countdown
+    if ((room.players?.length || 0) < 2) {
+      transaction.update(roomRef, {
+        status: "waiting",
+        countdownEndsAt: null,
+      });
+      return;
+    }
+    
     if (room.status !== "countdown" || (room.countdownEndsAt ?? 0) > Date.now()) {
       return;
     }
@@ -228,12 +223,8 @@ export async function finalizeGameStart(roomId: string) {
   });
 }
 
-/**
- * Delegates roll logic to the secure Render server endpoint.
- */
 export async function rollDice(roomId: string, playerId: string) {
   try {
-    // Using defensive fetch wrapper
     const response = await fetchWithTimeout(`${RENDER_URL}/roll`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -252,8 +243,14 @@ export async function rollDice(roomId: string, playerId: string) {
   }
 }
 
-export async function sendMessage(roomId: string, playerId: string, playerName: string, text: string) {
-  await addDoc(collection(db, "rooms", roomId, "messages"), { playerId, playerName, text, at: serverTimestamp() });
+export async function sendMessage(roomId: string, playerId: string, playerName: string, text: string, replyTo?: any) {
+  await addDoc(collection(db, "rooms", roomId, "messages"), { 
+    playerId, 
+    playerName, 
+    text, 
+    at: serverTimestamp(),
+    replyTo: replyTo || null 
+  });
 }
 
 export function subscribeMessages(roomId: string, cb: (msgs: any[]) => void) {
@@ -262,12 +259,9 @@ export function subscribeMessages(roomId: string, cb: (msgs: any[]) => void) {
     orderBy("at", "asc"),
     limitToLast(50)
   );
-  return onSnapshot(q, (snap) => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+  return onSnapshot(q, (snap) => cb(snap.docs.map(d => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }))));
 }
 
-/**
- * Retrieves the roomId associated with a given Discord instanceId
- */
 export async function getInstanceRoom(instanceId: string): Promise<string | null> {
   try {
     const instanceRef = doc(db, "instances", instanceId);
@@ -282,9 +276,6 @@ export async function getInstanceRoom(instanceId: string): Promise<string | null
   }
 }
 
-/**
- * Links a generated roomId to a specific Discord instanceId
- */
 export async function setInstanceRoom(instanceId: string, roomId: string): Promise<void> {
   try {
     const instanceRef = doc(db, "instances", instanceId);

@@ -20,12 +20,12 @@ export function useWindowDimensions() {
     };
     
     window.addEventListener('resize', handleResize);
-    
-    // Optional: Also listen to the visualViewport resize directly for better iOS responsiveness
+    window.addEventListener('orientationchange', handleResize); // FIX: Added orientationchange
     window.visualViewport?.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
       window.visualViewport?.removeEventListener('resize', handleResize);
     };
   }, []);

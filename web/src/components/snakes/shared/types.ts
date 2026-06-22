@@ -1,4 +1,3 @@
-// web/src/components/snakes/shared/types.ts
 export type Point = { x: number; y: number };
 
 export type SnakeColors = {
@@ -17,6 +16,7 @@ export type SnakeStyleConfig = {
   eyePosition?: number;
   fangLength?: number;
   jawStart?: number;
+  bulgeProfile?: { t: number; width: number }[];
 };
 
 export type SnakeProps = {
@@ -26,6 +26,9 @@ export type SnakeProps = {
   colors: SnakeColors;
   mobile?: boolean;
   styleConfig?: SnakeStyleConfig;
-  curveFactor?: number; // kept for Board.tsx compatibility
-  facing?: 1 | -1;      // kept for Board.tsx compatibility
+};
+
+// Added to support type safety in constants.ts
+export type ClassicSnakeColors = SnakeColors & {
+  curveFactor: number;
 };

@@ -1,4 +1,3 @@
-// web/src/components/snakes/shared/geometry.ts
 import type { Point } from "./types";
 
 export function getKnotInterval(pA: Point, pB: Point): number {
@@ -41,6 +40,9 @@ export function withGhostEndpoints(points: Point[]): Point[] {
 }
 
 export function resamplePolyline(points: Point[], stepPx: number): Point[] {
+  // FIX: Guard against empty points array to prevent undefined object initialization
+  if (points.length === 0) return [];
+  
   const resampled: Point[] = [points[0]];
   let d = 0;
   for (let i = 1; i < points.length; i++) {
@@ -65,6 +67,9 @@ export function resamplePolyline(points: Point[], stepPx: number): Point[] {
 }
 
 export function chaikinSmooth(points: Point[], passes: number): Point[] {
+  // FIX: Guard against arrays with less than 2 points
+  if (points.length < 2) return points;
+  
   let pts = points;
   for (let p = 0; p < passes; p++) {
     const next: Point[] = [pts[0]];
@@ -104,7 +109,8 @@ export function removeLoops(boundary: Point[]): Point[] {
     safety++;
     const n = pts.length;
     outer: for (let i = 0; i < n - 1; i++) {
-      for (let j = i + 8; j < n - 1; j++) {
+      // FIX: Lowered threshold from 8 to 3 so small tight curls/loops are properly resolved
+      for (let j = i + 3; j < n - 1; j++) {
         const ix = segIntersection(pts[i], pts[i + 1], pts[j], pts[j + 1]);
         if (ix) {
           const newPts = pts.slice(0, i + 1);

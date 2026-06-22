@@ -48,8 +48,8 @@ body {
   background: radial-gradient(circle at 50% 0%, var(--bg-secondary) 0%, var(--bg-base) 100%);
   color: var(--text-primary);
   overscroll-behavior-y: none;
-  -webkit-overflow-scrolling: touch;
-  height: 100dvh;
+  height: 100vh; /* FIX: Fallback for older browsers */
+  height: 100dvh; /* FIX: Modern dynamic viewport height */
   overflow: hidden;
 }
 
@@ -98,6 +98,10 @@ body, .game-column {
 }
 
 /* Left game column scrollbar — thin and subtle */
+.game-column {
+  /* FIX: Added smooth scrolling for iOS devices */
+  -webkit-overflow-scrolling: touch;
+}
 .game-column::-webkit-scrollbar {
   width: 4px;
 }
@@ -155,12 +159,7 @@ body, .game-column {
   font-size: 15px;
   font-weight: 400;
   line-height: 1.375;
-}
-
-/* Fix for emoji tinting */
-.chat-message .emoji,
-.chat-message {
-  color: inherit;
+  color: inherit; /* FIX: Moved inherit here for proper text tinting */
 }
 
 .chat-timestamp {
@@ -174,7 +173,7 @@ body, .game-column {
 .chat-row {
   padding: 4px 16px;
   border-radius: 4px; 
-  margin: 0 8px;
+  /* FIX: Removed margin: 0 8px to allow hover background to stretch edge-to-edge like Discord */
   transition: background 0.1s ease;
 }
 .chat-row:hover {
@@ -230,6 +229,7 @@ body, .game-column {
   font-size: 16px;
   color: #fff;
   box-shadow: var(--shadow-sm); 
+  position: relative; /* FIX: Added relative positioning to anchor the online-dot */
 }
 
 .online-dot {
@@ -265,6 +265,8 @@ body, .game-column {
   left: 0;
   right: 0;
   height: 70dvh;
+  max-height: 100vh; /* FIX: Fallback to prevent overflow on short screens */
+  max-height: 100dvh;
   background: var(--bg-primary);
   border-radius: 16px 16px 0 0;
   border-top: 1px solid var(--border); 
@@ -274,6 +276,7 @@ body, .game-column {
   flex-direction: column;
   transform: translateY(100%);
   transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  -webkit-overflow-scrolling: touch; /* FIX: Ensure smooth scrolling inside the drawer on iOS */
 }
 .chat-drawer.open {
   transform: translateY(0);
