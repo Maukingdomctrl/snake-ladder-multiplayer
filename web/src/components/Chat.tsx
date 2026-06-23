@@ -1,28 +1,39 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, memo } from "react";
 import EmojiPicker, { Theme } from "emoji-picker-react";
-import { sendMessage, Room, RoomMessage, MessageReply, toMillis } from "../firebase/rooms";
+import {
+  sendMessage,
+  Room,
+  RoomMessage,
+  MessageReply,
+  toMillis,
+} from "../firebase/rooms";
 
 function formatTime(at: any): string {
   const ms = toMillis(at);
   if (!ms) return "";
-  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(ms).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-const isSameDay = (d1: Date, d2: Date) => {
-  return d1.getFullYear() === d2.getFullYear() &&
-         d1.getMonth() === d2.getMonth() &&
-         d1.getDate() === d2.getDate();
-};
+const isSameDay = (d1: Date, d2: Date) =>
+  d1.getFullYear() === d2.getFullYear() &&
+  d1.getMonth() === d2.getMonth() &&
+  d1.getDate() === d2.getDate();
 
 const getDateString = (ms: number) => {
   const date = new Date(ms);
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-
   if (isSameDay(date, today)) return "Today";
   if (isSameDay(date, yesterday)) return "Yesterday";
-  return date.toLocaleDateString([], { year: 'numeric', month: 'long', day: 'numeric' });
+  return date.toLocaleDateString([], {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 };
 
 const emojiOnlyRegex =
@@ -30,29 +41,235 @@ const emojiOnlyRegex =
 
 const isEmojiOnly = (text: string) => {
   const t = (text || "").trim();
-  if (!t) return false;
-  return emojiOnlyRegex.test(t.replace(/\s+/g, ""));
+  return t ? emojiOnlyRegex.test(t.replace(/\s+/g, "")) : false;
 };
 
-// FIX 4: True grapheme counting using Intl.Segmenter
 const getEmojiFontSize = (text: string) => {
   const cleaned = (text || "").trim();
   let count = 0;
-  
-  // Cast to any to avoid TS errors if lib target is below ES2022
   const Segmenter = (Intl as any).Segmenter;
-  if (typeof Segmenter !== 'undefined') {
-    const seg = new Segmenter(undefined, { granularity: "grapheme" });
-    count = [...seg.segment(cleaned)].length;
+  if (typeof Segmenter !== "undefined") {
+    count = [
+      ...new Segmenter(undefined, { granularity: "grapheme" }).segment(cleaned),
+    ].length;
   } else {
-    count = [...cleaned].length; // Fallback for older browsers
+    count = [...cleaned].length;
   }
-  
   if (count <= 1) return 56;
   if (count <= 3) return 46;
   if (count <= 6) return 36;
   return 28;
 };
+
+// ─── ★★★ MEMOIZED MESSAGE ITEM — prevents re-render on every keystroke ★★★ ───
+
+interface MessageItemProps {
+  m: RoomMessage & { isFirstInGroup: boolean; showDateSeparator: boolean };
+  isMe: boolean;
+  playerId: string;
+  playerColor: string;
+  timeString: string;
+  emojiOnly: boolean;
+  emojiSize: number;
+  messageTime: number;
+  highlightedId: string | null;
+  onReply: (m: any) => void;
+  onScrollToReply: (id: string) => void;
+  messageRef: (el: HTMLDivElement | null) => void;
+  inDrawer: boolean;
+}
+
+const MessageItem = memo(function MessageItem({
+  m,
+  isMe,
+  playerColor,
+  timeString,
+  emojiOnly,
+  emojiSize,
+  messageTime,
+  highlightedId,
+  onReply,
+  onScrollToReply,
+  messageRef,
+}: MessageItemProps) {
+  const safeText = typeof m.text === "string" ? m.text : "";
+  const safeName =
+    typeof m.playerName === "string" && m.playerName
+      ? m.playerName
+      : m.playerId || "Player";
+
+  return (
+    <>
+      {m.showDateSeparator && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            margin: "16px 16px",
+            color: "var(--text-muted)",
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          <span style={{ padding: "0 8px" }}>
+            {getDateString(messageTime)}
+          </span>
+          <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+        </div>
+      )}
+
+      <div
+        ref={messageRef}
+        onClick={() => {
+          const sel = window.getSelection()?.toString();
+          if (!sel) onReply(m);
+        }}
+        style={{
+          position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: isMe ? "flex-end" : "flex-start",
+          marginTop: m.isFirstInGroup ? 12 : 2,
+          marginBottom: 2,
+          width: "100%",
+          cursor: "pointer",
+          transition: "background-color 0.3s ease",
+          backgroundColor:
+            highlightedId === m.id ? "rgba(245, 158, 11, 0.1)" : "transparent",
+          animation: "msg-in 0.2s ease-out",
+          opacity: m.isPending ? 0.6 : 1,
+        }}
+      >
+        {m.replyTo && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onScrollToReply(m.replyTo!.id);
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              cursor: "pointer",
+              backgroundColor: "rgba(255,255,255,0.06)",
+              borderLeft: `2px solid ${playerColor}`,
+              padding: "4px 8px",
+              borderRadius: 4,
+              marginBottom: 4,
+              maxWidth: "78%",
+              overflow: "hidden",
+              margin: "0 16px 4px 16px",
+            }}
+          >
+            <div
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                display: "flex",
+                gap: 6,
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{ color: playerColor, fontWeight: 700, fontSize: 11 }}
+              >
+                {m.replyTo.playerName}
+              </span>
+              <span
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: 11,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {m.replyTo.text}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div
+          className={m.isFirstInGroup ? "chat-row" : "chat-row chat-grouped"}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: isMe ? "flex-end" : "flex-start",
+            width: "100%",
+          }}
+        >
+          {m.isFirstInGroup && (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: isMe ? "row-reverse" : "row",
+                alignItems: "center",
+                marginBottom: 4,
+                padding: "0 16px",
+              }}
+            >
+              <div
+                className="avatar"
+                style={{
+                  backgroundColor: playerColor,
+                  marginRight: isMe ? 0 : 12,
+                  marginLeft: isMe ? 12 : 0,
+                  width: 28,
+                  height: 28,
+                  fontSize: 12,
+                }}
+              >
+                {[...safeName][0]?.toUpperCase() ?? "?"}
+              </div>
+              <span className="chat-sender" style={{ color: playerColor }}>
+                {safeName}
+              </span>
+              <span className="chat-timestamp">{timeString}</span>
+            </div>
+          )}
+
+          <div
+            className="chat-message"
+            style={{
+              background: emojiOnly
+                ? "transparent"
+                : isMe
+                ? "var(--bg-base)"
+                : "var(--bg-tertiary)",
+              color: emojiOnly
+                ? "inherit"
+                : isMe
+                ? "var(--text-secondary)"
+                : "var(--text-primary)",
+              fontSize: emojiSize,
+              padding: emojiOnly ? "0 8px" : "10px 14px",
+              borderRadius: emojiOnly ? 0 : 16,
+              borderBottomRightRadius: isMe && !emojiOnly ? 4 : 16,
+              borderBottomLeftRadius: !isMe && !emojiOnly ? 4 : 16,
+              maxWidth: "78%",
+              wordBreak: "break-word",
+              whiteSpace: "pre-wrap",
+              fontFamily: emojiOnly
+                ? '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'
+                : "'Inter', sans-serif",
+              lineHeight: emojiOnly ? 1.1 : 1.375,
+              margin: "0 16px",
+              border: emojiOnly ? "none" : "1px solid rgba(255,255,255,0.06)",
+              boxShadow: emojiOnly ? "none" : "0 2px 8px rgba(0,0,0,0.18)",
+            }}
+          >
+            {safeText}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+});
+
+// ─── Main Chat Component ───
 
 interface ChatProps {
   messages: RoomMessage[];
@@ -60,23 +277,29 @@ interface ChatProps {
   playerName: string;
   activeRoomId: string;
   roomData: Room | null;
+  inDrawer?: boolean;
+  edgePadding?: number;
 }
 
-export default function Chat({ messages, playerId, playerName, activeRoomId, roomData }: ChatProps) {
+export default function Chat({
+  messages,
+  playerId,
+  playerName,
+  activeRoomId,
+  roomData,
+  inDrawer = false,
+  edgePadding = 0,
+}: ChatProps) {
   const [chatInput, setChatInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [replyingTo, setReplyingTo] = useState<RoomMessage | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isComposing, setIsComposing] = useState(false);
-  
-  // FIX 5: Optimistic UI state
   const [optimisticMessages, setOptimisticMessages] = useState<RoomMessage[]>([]);
-  // FIX 7: Toast state
   const [toast, setToast] = useState<string | null>(null);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -84,53 +307,53 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isNearBottom = useRef(true);
-  const hasMountedRef = useRef(false); // FIX 6: Initial scroll instant
+  const hasMountedRef = useRef(false);
   const sendAttemptRef = useRef(0);
 
-  const showToast = (message: string) => {
-    setToast(message);
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
 
-  // Merge optimistic messages with server messages
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
+
   const processedMessages = useMemo(() => {
-    // Remove optimistic messages that have been confirmed by the server
-    const serverClientAts = new Set(messages.map(m => m.clientAt));
-    const activeOptimistic = optimisticMessages.filter(om => !serverClientAts.has(om.clientAt));
-    
-    const allMessages = [...activeOptimistic, ...messages];
-    
-    allMessages.sort((a, b) => {
-      const da = toMillis(a.at) || a.clientAt;
-      const db = toMillis(b.at) || b.clientAt;
-      return da - db;
-    });
+    const serverClientAts = new Set(messages.map((m) => m.clientAt));
+    const activeOptimistic = optimisticMessages.filter(
+      (om) => !serverClientAts.has(om.clientAt)
+    );
+    const all = [...activeOptimistic, ...messages];
+    all.sort(
+      (a, b) =>
+        (toMillis(a.at) || a.clientAt) - (toMillis(b.at) || b.clientAt)
+    );
 
-    let lastSenderId: string | null = null;
-    let lastMessageTime = 0;
-    let lastMessageDate = new Date(0);
-
-    return allMessages.map((m) => {
-      const messageTime = toMillis(m.at) || m.clientAt;
-      const messageDate = new Date(messageTime);
-      
-      const isTimeGap = messageTime - lastMessageTime > 300000; // 5 mins
-      const isFirstInGroup = lastSenderId !== m.playerId || isTimeGap;
-      const showDateSeparator = !isSameDay(lastMessageDate, messageDate);
-      
-      lastSenderId = m.playerId;
-      if (messageTime > 0) lastMessageTime = messageTime;
-      lastMessageDate = messageDate;
-
-      return { ...m, isFirstInGroup, showDateSeparator };
+    let lastSid: string | null = null,
+      lastTime = 0,
+      lastDate = new Date(0);
+    return all.map((m) => {
+      const mt = toMillis(m.at) || m.clientAt;
+      const md = new Date(mt);
+      const gap = mt - lastTime > 300000;
+      const first = lastSid !== m.playerId || gap;
+      const dateSep = !isSameDay(lastDate, md);
+      lastSid = m.playerId;
+      if (mt > 0) lastTime = mt;
+      lastDate = md;
+      return { ...m, isFirstInGroup: first, showDateSeparator: dateSep };
     });
   }, [messages, optimisticMessages]);
 
   useEffect(() => {
-    const currentIds = new Set(processedMessages.map((m) => m.id).filter(Boolean) as string[]);
+    const ids = new Set(
+      processedMessages.map((m) => m.id).filter(Boolean) as string[]
+    );
     Object.keys(messageRefs.current).forEach((id) => {
-      if (!currentIds.has(id)) delete messageRefs.current[id];
+      if (!ids.has(id)) delete messageRefs.current[id];
     });
   }, [processedMessages]);
 
@@ -141,51 +364,79 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
     };
   }, []);
 
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.currentTarget;
-    const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-    isNearBottom.current = distanceFromBottom < 150;
-  };
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const t = e.currentTarget;
+    isNearBottom.current = t.scrollHeight - t.scrollTop - t.clientHeight < 150;
+  }, []);
 
   useEffect(() => {
-    if (isNearBottom.current && bottomRef.current) {
-      // FIX 6: Instant scroll on first mount, smooth thereafter
-      bottomRef.current.scrollIntoView({ behavior: hasMountedRef.current ? "smooth" : "auto" });
+    if (isNearBottom.current) {
+      scrollToBottom(hasMountedRef.current ? "smooth" : "auto");
       hasMountedRef.current = true;
     }
-  }, [processedMessages.length]);
+  }, [processedMessages.length, scrollToBottom]);
 
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
     }
   }, [chatInput]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
+    if (!showEmojiPicker) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
       if (
         pickerRef.current &&
-        !pickerRef.current.contains(event.target as Node) &&
+        !pickerRef.current.contains(e.target as Node) &&
         buttonRef.current &&
-        !buttonRef.current.contains(event.target as Node)
-      ) {
+        !buttonRef.current.contains(e.target as Node)
+      )
         setShowEmojiPicker(false);
-      }
     };
-
-    if (showEmojiPicker) document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchend", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchend", handler);
+    };
   }, [showEmojiPicker]);
 
-  const onSendMessage = async () => {
+  useEffect(() => {
+    if (!inDrawer) return;
+    const c = scrollContainerRef.current;
+    if (!c) return;
+    let lastY = 0;
+    const onStart = (e: TouchEvent) => {
+      lastY = e.touches[0].clientY;
+    };
+    const onMove = (e: TouchEvent) => {
+      const { scrollTop, scrollHeight, clientHeight } = c;
+      const atTop = scrollTop <= 0;
+      const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
+      if (
+        (atTop && e.touches[0].clientY > lastY) ||
+        (atBottom && e.touches[0].clientY < lastY)
+      )
+        e.preventDefault();
+      lastY = e.touches[0].clientY;
+    };
+    c.addEventListener("touchstart", onStart, { passive: true });
+    c.addEventListener("touchmove", onMove, { passive: false });
+    return () => {
+      c.removeEventListener("touchstart", onStart);
+      c.removeEventListener("touchmove", onMove);
+    };
+  }, [inDrawer]);
+
+  const onSendMessage = useCallback(async () => {
     const text = chatInput.trim();
     if (!text || !activeRoomId || isSending) return;
-
-    const prevText = chatInput;
-    const prevReply = replyingTo;
-    const attemptId = ++sendAttemptRef.current;
-    const clientAt = Date.now();
+    const prevText = chatInput,
+      prevReply = replyingTo,
+      attemptId = ++sendAttemptRef.current,
+      clientAt = Date.now();
 
     setIsSending(true);
     setChatInput("");
@@ -193,67 +444,115 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
     setShowEmojiPicker(false);
     isNearBottom.current = true;
 
-    // FIX 5: Inject optimistic message immediately
-    const replyPayload: MessageReply | null = prevReply?.id ? {
-      id: prevReply.id,
-      text: (prevReply.text || "").substring(0, 100),
-      playerId: prevReply.playerId,
-      playerName: prevReply.playerName,
-    } : null;
+    const replyPayload: MessageReply | null = prevReply?.id
+      ? {
+          id: prevReply.id,
+          text: (prevReply.text || "").substring(0, 100),
+          playerId: prevReply.playerId,
+          playerName: prevReply.playerName,
+        }
+      : null;
 
-    const tempMessage: RoomMessage = {
-      id: `opt-${clientAt}`,
-      playerId,
-      playerName,
-      text,
-      at: null,
-      clientAt,
-      replyTo: replyPayload,
-      isPending: true,
-    };
-
-    setOptimisticMessages(prev => [...prev, tempMessage]);
+    setOptimisticMessages((p) => [
+      ...p,
+      {
+        id: `opt-${clientAt}`,
+        playerId,
+        playerName,
+        text,
+        at: null,
+        clientAt,
+        replyTo: replyPayload,
+        isPending: true,
+      },
+    ]);
 
     try {
-      await sendMessage(activeRoomId, playerId, playerName, text, replyPayload);
-      // If successful, remove from optimistic array (it will be replaced by server snapshot)
-      setOptimisticMessages(prev => prev.filter(m => m.clientAt !== clientAt));
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      // Remove the failed optimistic message
-      setOptimisticMessages(prev => prev.filter(m => m.clientAt !== clientAt));
-
+      await sendMessage(
+        activeRoomId,
+        playerId,
+        playerName,
+        text,
+        replyPayload
+      );
+      setOptimisticMessages((p) => p.filter((m) => m.clientAt !== clientAt));
+    } catch {
+      setOptimisticMessages((p) => p.filter((m) => m.clientAt !== clientAt));
       if (sendAttemptRef.current === attemptId) {
-        setChatInput((cur) => (cur.trim() ? cur : prevText));
-        setReplyingTo((cur) => cur ?? prevReply);
+        setChatInput((c) => (c.trim() ? c : prevText));
+        setReplyingTo((c) => c ?? prevReply);
       }
-
-      showToast("Failed to send message. Please try again.");
+      showToast("Failed to send message.");
     } finally {
       if (sendAttemptRef.current === attemptId) setIsSending(false);
+      
+      // ★★★ KEEP KEYBOARD OPEN: Refocus immediately after send ★★★
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
     }
-  };
+  }, [
+    chatInput,
+    activeRoomId,
+    isSending,
+    playerId,
+    playerName,
+    replyingTo,
+    showToast,
+  ]);
 
-  const scrollToMessage = (id: string) => {
-    const tryScroll = () => {
+  const scrollToMessage = useCallback(
+    (id: string) => {
       const target = messageRefs.current[id];
-      if (!target) return false;
-
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      const container = scrollContainerRef.current;
+      if (!target || !container) {
+        showToast("Original message not found.");
+        return;
+      }
+      const cRect = container.getBoundingClientRect();
+      const tRect = target.getBoundingClientRect();
+      container.scrollTo({
+        top:
+          tRect.top -
+          cRect.top +
+          container.scrollTop -
+          container.clientHeight / 2 +
+          tRect.height / 2,
+        behavior: "smooth",
+      });
+      if (highlightTimeoutRef.current)
+        clearTimeout(highlightTimeoutRef.current);
       setHighlightedId(id);
-      highlightTimeoutRef.current = setTimeout(() => setHighlightedId(null), 1500);
-      return true;
-    };
+      highlightTimeoutRef.current = setTimeout(
+        () => setHighlightedId(null),
+        1500
+      );
+    },
+    [showToast]
+  );
 
-    if (tryScroll()) return;
-    requestAnimationFrame(() => {
-      if (!tryScroll()) showToast("Original message is too old to scroll to.");
-    });
-  };
+  const handleReply = useCallback((m: any) => {
+    setReplyingTo(m);
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleMessageRef = useCallback(
+    (id: string) => (el: HTMLDivElement | null) => {
+      if (id) messageRefs.current[id] = el;
+    },
+    []
+  );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, position: "relative" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        flex: 1,
+        minHeight: 0,
+        position: "relative",
+      }}
+    >
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
@@ -261,210 +560,127 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
           flex: 1,
           minHeight: 0,
           overflowY: "auto",
-          padding: "12px 0 0 0",
+          padding: `12px ${edgePadding || 0}px 0 ${edgePadding || 0}px`,
           marginBottom: 8,
           backgroundColor: "var(--bg-primary)",
           borderRadius: 8,
+          overscrollBehaviorY: "contain",
           WebkitOverflowScrolling: "touch",
         }}
       >
         {processedMessages.length === 0 && (
-          <div style={{ textAlign: "center", color: "var(--text-muted)", marginTop: 40, fontSize: 14, padding: "0 20px" }}>
-            No messages yet. <br /> Start the conversation!
+          <div
+            style={{
+              textAlign: "center",
+              color: "var(--text-muted)",
+              marginTop: 40,
+              fontSize: 14,
+              padding: "0 20px",
+            }}
+          >
+            No messages yet.
+            <br />
+            Start the conversation!
           </div>
         )}
 
-        {processedMessages.map((m) => {
-          const safeText = typeof m.text === "string" ? m.text : "";
-          const safeName = typeof m.playerName === "string" && m.playerName ? m.playerName : m.playerId || "Player";
-          // FIX 1: Stable React key (fallback to clientAt)
-          const id = m.id || `opt-${m.clientAt}`;
+        {processedMessages.map((m) => (
+          <MessageItem
+            key={m.id || `opt-${m.clientAt}`}
+            m={m}
+            isMe={m.playerId === playerId}
+            playerId={playerId}
+            playerColor={
+              roomData?.playerColors?.[m.playerId] || "var(--text-primary)"
+            }
+            timeString={formatTime(m.at)}
+            emojiOnly={isEmojiOnly(typeof m.text === "string" ? m.text : "")}
+            emojiSize={
+              isEmojiOnly(typeof m.text === "string" ? m.text : "")
+                ? getEmojiFontSize(m.text as string)
+                : 14
+            }
+            messageTime={toMillis(m.at) || m.clientAt}
+            highlightedId={highlightedId}
+            onReply={handleReply}
+            onScrollToReply={scrollToMessage}
+            messageRef={handleMessageRef(m.id || "")}
+            inDrawer={inDrawer}
+          />
+        ))}
 
-          const isMe = m.playerId === playerId;
-          const timeString = formatTime(m.at);
-          const emojiOnly = isEmojiOnly(safeText);
-          const emojiSize = emojiOnly ? getEmojiFontSize(safeText) : 14;
-          const messageTime = toMillis(m.at) || m.clientAt;
-
-          return (
-            <div key={id}>
-              {/* Date Separator */}
-              {m.showDateSeparator && (
-                <div style={{ display: "flex", alignItems: "center", margin: "16px 16px", color: "var(--text-muted)", fontSize: 12, fontWeight: 600 }}>
-                  <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-                  <span style={{ padding: "0 8px" }}>{getDateString(messageTime)}</span>
-                  <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-                </div>
-              )}
-
-              <div
-                ref={(el) => { if (m.id) messageRefs.current[m.id] = el; }}
-                onClick={() => {
-                  const selected = window.getSelection()?.toString();
-                  if (selected) return;
-                  setReplyingTo(m);
-                  textareaRef.current?.focus();
-                }}
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: isMe ? "flex-end" : "flex-start",
-                  marginTop: m.isFirstInGroup ? 12 : 2,
-                  marginBottom: 2,
-                  width: "100%",
-                  cursor: "pointer",
-                  transition: "background-color 0.3s ease",
-                  backgroundColor: highlightedId === m.id ? "rgba(245, 158, 11, 0.1)" : "transparent",
-                  animation: "msg-in 0.2s ease-out",
-                  opacity: m.isPending ? 0.6 : 1, // Pending message visual cue
-                }}
-              >
-                {m.replyTo && (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      scrollToMessage(m.replyTo!.id);
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      cursor: "pointer",
-                      backgroundColor: "rgba(255, 255, 255, 0.06)",
-                      borderLeft: `2px solid ${roomData?.playerColors?.[m.replyTo.playerId] || "var(--text-muted)"}`,
-                      padding: "4px 8px",
-                      borderRadius: 4,
-                      marginBottom: 4,
-                      maxWidth: "78%",
-                      overflow: "hidden",
-                      margin: "0 16px 4px 16px",
-                    }}
-                  >
-                    <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", gap: 6, alignItems: "center" }}>
-                      <span style={{ color: roomData?.playerColors?.[m.replyTo.playerId] || "var(--text-secondary)", fontWeight: 700, fontSize: 11 }}>
-                        {m.replyTo.playerName}
-                      </span>
-                      <span style={{ color: "var(--text-muted)", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {m.replyTo.text}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <div
-                  className={m.isFirstInGroup ? "chat-row" : "chat-row chat-grouped"}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: isMe ? "flex-end" : "flex-start",
-                    width: "100%",
-                  }}
-                >
-                  {m.isFirstInGroup && (
-                    <div style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", alignItems: "center", marginBottom: 4, padding: "0 16px" }}>
-                      <div
-                        className="avatar"
-                        style={{
-                          backgroundColor: roomData?.playerColors?.[m.playerId] || "#888",
-                          marginRight: isMe ? 0 : 12,
-                          marginLeft: isMe ? 12 : 0,
-                          width: 28,
-                          height: 28,
-                          fontSize: 12,
-                        }}
-                      >
-                        {/* FIX 3: Avatar emoji/non-BMP fix */}
-                        {[...safeName][0]?.toUpperCase() ?? "?"}
-                      </div>
-                      <span className="chat-sender" style={{ color: roomData?.playerColors?.[m.playerId] || "var(--text-primary)" }}>
-                        {safeName}
-                      </span>
-                      <span className="chat-timestamp">{timeString}</span>
-                    </div>
-                  )}
-
-                  <div
-                    className="chat-message"
-                    style={{
-                      // FIX: User messages are a shade darker than the background (var(--bg-base))
-                      // Received messages are a shade lighter (var(--bg-tertiary))
-                      background: emojiOnly
-                        ? "transparent"
-                        : isMe
-                        ? "var(--bg-base)"
-                        : "var(--bg-tertiary)",
-                      color: emojiOnly ? "inherit" : isMe ? "var(--text-secondary)" : "var(--text-primary)",
-                      fontSize: emojiSize,
-                      padding: emojiOnly ? "0 8px" : "10px 14px",
-                      borderRadius: emojiOnly ? 0 : 16,
-                      borderBottomRightRadius: isMe && !emojiOnly ? 4 : 16,
-                      borderBottomLeftRadius: !isMe && !emojiOnly ? 4 : 16,
-                      maxWidth: "78%",
-                      wordBreak: "break-word",
-                      whiteSpace: "pre-wrap",
-                      fontFamily: emojiOnly
-                        ? '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Twemoji Mozilla","EmojiOne Color",sans-serif'
-                        : "'Inter', sans-serif",
-                      lineHeight: emojiOnly ? 1.1 : 1.375,
-                      margin: "0 16px",
-                      border: emojiOnly ? "none" : "1px solid rgba(255,255,255,0.06)",
-                      boxShadow: emojiOnly ? "none" : "0 2px 8px rgba(0,0,0,0.18)",
-                    }}
-                  >
-                    {safeText}
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-
-        <div ref={bottomRef} style={{ height: 12 }} />
+        <div style={{ height: 12 }} />
       </div>
 
-      {/* Toast Notification */}
       {toast && (
-        <div style={{
-          position: "absolute",
-          bottom: "80px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          background: "var(--danger)",
-          color: "#fff",
-          padding: "8px 16px",
-          borderRadius: 8,
-          fontSize: 14,
-          zIndex: 1000,
-          boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-          animation: "toast-in 0.2s ease-out"
-        }}>
+        <div
+          style={{
+            position: "absolute",
+            bottom: "80px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--danger)",
+            color: "#fff",
+            padding: "8px 16px",
+            borderRadius: 8,
+            fontSize: 14,
+            zIndex: 1000,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            animation: "toast-in 0.2s ease-out",
+          }}
+        >
           {toast}
         </div>
       )}
 
       {replyingTo && (
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "8px 16px",
-          backgroundColor: "var(--bg-tertiary)",
-          borderRadius: "8px 8px 0 0",
-          marginBottom: "-8px",
-          borderLeft: `3px solid ${roomData?.playerColors?.[replyingTo.playerId] || "var(--accent)"}`,
-          zIndex: 10,
-        }}>
-          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-            <span style={{ color: "var(--accent)", fontWeight: 600, fontSize: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: `8px ${edgePadding || 16}px`,
+            backgroundColor: "var(--bg-tertiary)",
+            borderRadius: "8px 8px 0 0",
+            marginBottom: "-8px",
+            borderLeft: `3px solid ${
+              roomData?.playerColors?.[replyingTo.playerId] || "var(--accent)"
+            }`,
+            zIndex: 10,
+          }}
+        >
+          <div
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+          >
+            <span
+              style={{
+                color: "var(--accent)",
+                fontWeight: 600,
+                fontSize: 12,
+              }}
+            >
               Replying to {replyingTo.playerName}
             </span>
-            <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <p
+              style={{
+                margin: 0,
+                color: "var(--text-muted)",
+                fontSize: 12,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
               {replyingTo.text}
             </p>
           </div>
           <button
-            onClick={(e) => { e.stopPropagation(); setReplyingTo(null); }}
+            onClick={() => setReplyingTo(null)}
             style={{
               background: "transparent",
               border: "none",
@@ -475,27 +691,44 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
               alignItems: "center",
             }}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
               <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
             </svg>
           </button>
         </div>
       )}
 
-      <div style={{ position: "relative" }}>
+      <div style={{ position: "relative", flexShrink: 0 }}>
         {showEmojiPicker && (
           <div
             ref={pickerRef}
-            style={{
-              position: "absolute",
-              bottom: "calc(100% + 12px)",
-              right: 0,
-              zIndex: 999,
-              background: "var(--bg-secondary)",
-              borderRadius: 8,
-              boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-              overflow: "hidden",
-            }}
+            style={
+              inDrawer
+                ? {
+                    height: 260,
+                    overflow: "hidden",
+                    borderRadius: 8,
+                    marginBottom: 8,
+                    background: "var(--bg-secondary)",
+                    boxShadow: "var(--shadow-md)",
+                  }
+                : {
+                    position: "absolute",
+                    bottom: "calc(100% + 8px)",
+                    right: 0,
+                    zIndex: 999,
+                    width: 308,
+                    background: "var(--bg-secondary)",
+                    borderRadius: 8,
+                    boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+                    overflow: "hidden",
+                  }
+            }
           >
             <EmojiPicker
               theme={Theme.DARK}
@@ -503,49 +736,76 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
                 const emoji = emojiData?.emoji || "";
                 const el = textareaRef.current;
                 if (!el) {
-                  setChatInput((prev) => prev + emoji);
+                  setChatInput((p) => p + emoji);
                   return;
                 }
-
                 const start = el.selectionStart ?? chatInput.length;
                 const end = el.selectionEnd ?? chatInput.length;
-                setChatInput((prev) => prev.slice(0, start) + emoji + prev.slice(end));
-
+                setChatInput(
+                  (p) => p.slice(0, start) + emoji + p.slice(end)
+                );
                 requestAnimationFrame(() => {
                   const pos = start + emoji.length;
                   el.focus();
                   el.setSelectionRange(pos, pos);
                 });
               }}
-              style={{ width: "100%", maxWidth: "320px", border: "none" }}
+              style={{
+                width: inDrawer ? "100%" : 308,
+                height: inDrawer ? 260 : 350,
+                border: "none",
+              }}
             />
           </div>
         )}
 
-        <div
+        {/* ★★★ FIX: Changed to form for native mobile submit + button types ★★★ */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSendMessage();
+          }}
           style={{
             display: "flex",
             alignItems: "flex-end",
             backgroundColor: "var(--bg-input)",
             borderRadius: replyingTo ? "0 0 16px 16px" : 16,
-            padding: "8px 12px",
+            padding: `8px ${edgePadding || 12}px`,
             gap: 8,
           }}
         >
           <button
+            type="button"
             disabled
             style={{
-              width: 28, height: 28, minWidth: 28, minHeight: 28, padding: 0,
-              borderRadius: "50%", backgroundColor: "var(--text-secondary)",
-              color: "var(--bg-input)", display: "flex", alignItems: "center", justifyContent: "center",
-              border: "none", fontSize: 18, fontWeight: "bold", cursor: "not-allowed", flexShrink: 0, marginBottom: 2,
+              width: 28,
+              height: 28,
+              minWidth: 28,
+              minHeight: 28,
+              padding: 0,
+              borderRadius: "50%",
+              backgroundColor: "var(--text-secondary)",
+              color: "var(--bg-input)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "none",
+              fontSize: 18,
+              fontWeight: "bold",
+              cursor: "not-allowed",
+              flexShrink: 0,
+              marginBottom: 2,
             }}
-          >+</button>
+          >
+            +
+          </button>
 
           <textarea
             ref={textareaRef}
             className="chat-input"
             value={chatInput}
+            enterKeyHint="send"
+            autoCapitalize="sentences"
             onChange={(e) => setChatInput(e.target.value)}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
@@ -558,25 +818,48 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
             }}
             onFocus={() => {
               isNearBottom.current = true;
-              setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+              requestAnimationFrame(() => scrollToBottom("smooth"));
             }}
             rows={1}
             placeholder="Message #game-room"
+            autoComplete="off"
             style={{
-              flex: 1, minWidth: 0, padding: "6px 0", lineHeight: "20px", maxHeight: "120px", overflowY: "auto",
-              background: "transparent", resize: "none", border: "none", outline: "none", color: "inherit",
-              fontFamily: "'Inter', sans-serif", fontSize: 15,
+              flex: 1,
+              minWidth: 0,
+              padding: "6px 0",
+              lineHeight: "20px",
+              maxHeight: "120px",
+              overflowY: "auto",
+              background: "transparent",
+              resize: "none",
+              border: "none",
+              outline: "none",
+              color: "inherit",
+              fontFamily: "'Inter', sans-serif",
+              fontSize: 16,
             }}
           />
 
           <button
+            type="button"
             ref={buttonRef}
             onClick={() => setShowEmojiPicker((p) => !p)}
             style={{
-              minHeight: 28, minWidth: 28, padding: 0, background: "transparent",
-              color: "var(--text-secondary)", border: "none",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              flexShrink: 0, cursor: "pointer", marginBottom: 2,
+              minHeight: 28,
+              minWidth: 28,
+              padding: 0,
+              background: "transparent",
+              color: showEmojiPicker
+                ? "var(--accent)"
+                : "var(--text-secondary)",
+              border: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              cursor: "pointer",
+              marginBottom: 2,
+              transition: "color 0.15s ease",
             }}
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
@@ -585,13 +868,25 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
           </button>
 
           <button
-            onClick={onSendMessage}
+            type="submit"
             disabled={!chatInput.trim() || isSending}
             style={{
-              minHeight: 28, minWidth: 28, padding: 0, background: "transparent", border: "none",
-              color: chatInput.trim() && !isSending ? "var(--accent)" : "var(--text-secondary)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: chatInput.trim() && !isSending ? "pointer" : "default", flexShrink: 0, marginBottom: 2,
+              minHeight: 28,
+              minWidth: 28,
+              padding: 0,
+              background: "transparent",
+              border: "none",
+              color:
+                chatInput.trim() && !isSending
+                  ? "var(--accent)"
+                  : "var(--text-secondary)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor:
+                chatInput.trim() && !isSending ? "pointer" : "default",
+              flexShrink: 0,
+              marginBottom: 2,
               opacity: isSending ? 0.7 : 1,
             }}
           >
@@ -599,17 +894,17 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
               <path d="M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 3.6a.993.993 0 00-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.06-.87.49-.87.99l.01 4.61c0 .71.73 1.2 1.39.92z" />
             </svg>
           </button>
-        </div>
+        </form>
       </div>
 
       <style>{`
-        @keyframes msg-in {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
+        @keyframes msg-in { 
+            from { opacity: 0; transform: translateY(8px); } 
+            to { opacity: 1; transform: translateY(0); } 
         }
-        @keyframes toast-in {
-          from { opacity: 0; transform: translate(-50%, 10px); }
-          to { opacity: 1; transform: translate(-50%, 0); }
+        @keyframes toast-in { 
+            from { opacity: 0; transform: translate(-50%, 10px); } 
+            to { opacity: 1; transform: translate(-50%, 0); } 
         }
       `}</style>
     </div>

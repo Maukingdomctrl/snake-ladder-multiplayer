@@ -359,10 +359,13 @@ button, input, textarea {
   position: fixed;
   inset-block-end: 0;
   inset-inline: 0;
-  height: 70dvh;
+  left: 0;
+  right: 0;
+  width: 100vw;
+  height: 85dvh;
   max-height: 100dvh;
   background: var(--bg-primary);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: 12px 12px 0 0;
   border-top: 1px solid var(--border-strong);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-lg);
   z-index: var(--z-drawer);
@@ -373,6 +376,10 @@ button, input, textarea {
   -webkit-overflow-scrolling: touch;
 
   &.open { transform: translateY(0); }
+
+  &.keyboard-active {
+    transition: none !important;
+  }
 }
 
 /* Ensure JS strictly mounts/unmounts this during the transitionend lifecycle */

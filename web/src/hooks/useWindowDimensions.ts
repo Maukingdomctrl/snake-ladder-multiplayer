@@ -5,7 +5,7 @@ export function useWindowDimensions() {
     if (typeof window !== "undefined") {
       return {
         width: window.innerWidth,
-        height: window.visualViewport?.height ?? window.innerHeight,
+        height: window.innerHeight,
       };
     }
     return { width: 0, height: 0 };
@@ -15,18 +15,16 @@ export function useWindowDimensions() {
     const handleResize = () => {
       setDimensions({
         width: window.innerWidth,
-        height: window.visualViewport?.height ?? window.innerHeight,
+        height: window.innerHeight,
       });
     };
     
     window.addEventListener('resize', handleResize);
     window.addEventListener('orientationchange', handleResize); // FIX: Added orientationchange
-    window.visualViewport?.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('orientationchange', handleResize);
-      window.visualViewport?.removeEventListener('resize', handleResize);
     };
   }, []);
 

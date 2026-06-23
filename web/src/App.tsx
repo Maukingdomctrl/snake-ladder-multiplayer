@@ -1,5 +1,5 @@
 // web/src/App.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
 import "./App.css";
@@ -56,7 +56,13 @@ export default function App() {
 
   // ★ Board container measurement
   const boardContainerRef = useRef<HTMLDivElement>(null);
-  const [boardDims, setBoardDims] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [boardDims, setBoardDims] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  // ★ Mobile keyboard tracking
+  const drawerRef = useRef<HTMLDivElement>(null);
 
   const prevRoomRef = useRef<Room | null>(null);
   const lastProcessedMoveRef = useRef<string>("");
@@ -67,7 +73,7 @@ export default function App() {
   const pendingJumpMessageRef = useRef<string>("");
   const pendingPositionsRef = useRef<Record<string, number>>({});
 
-  // ★ ResizeObserver for board container — measures actual available space
+  // ★ ResizeObserver for board container
   useEffect(() => {
     const el = boardContainerRef.current;
     if (!el) return;
@@ -75,7 +81,6 @@ export default function App() {
     let timeoutId: ReturnType<typeof setTimeout>;
     const ro = new ResizeObserver((entries) => {
       clearTimeout(timeoutId);
-      // Small debounce to avoid excessive re-renders during live resize
       timeoutId = setTimeout(() => {
         for (const entry of entries) {
           const { width, height } = entry.contentRect;
@@ -88,7 +93,6 @@ export default function App() {
 
     ro.observe(el);
 
-    // Synchronous initial measurement
     const rect = el.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) {
       setBoardDims({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
@@ -98,7 +102,58 @@ export default function App() {
       ro.disconnect();
       clearTimeout(timeoutId);
     };
-  }, [roomData?.status]); // Re-setup when board container mounts/unmounts
+  }, [roomData?.status]);
+
+  // ★★★ FIX 1: VisualViewport keyboard detection for mobile drawer ★★★
+  useEffect(() => {
+    if (isTablet || !chatOpen) return;
+
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    let rafId = 0;
+    const update = () => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const kh = window.innerHeight - vv.height - vv.offsetTop;
+        const drawer = drawerRef.current;
+        if (!drawer) return;
+        if (kh > 50) {
+          // ★ Use bottom instead of transform — drawer sits directly above keyboard
+          drawer.style.bottom = `${kh}px`;
+          drawer.style.height = `${(window.innerHeight - kh) * 0.85}px`;
+          drawer.classList.add('keyboard-active');
+        } else {
+          drawer.style.bottom = '';
+          drawer.style.height = '';
+          drawer.classList.remove('keyboard-active');
+        }
+      });
+    };
+
+    update();
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+      cancelAnimationFrame(rafId);
+    };
+  }, [isTablet, chatOpen]);
+
+  // ★★★ FIX 2: Lock body scroll when mobile chat drawer is open ★★★
+  useEffect(() => {
+    if (chatOpen && !isTablet) {
+      const prev = document.body.style.overflow;
+      const prevTouch = document.body.style.overscrollBehavior;
+      document.body.style.overflow = "hidden";
+      document.body.style.overscrollBehavior = "none";
+      return () => {
+        document.body.style.overflow = prev;
+        document.body.style.overscrollBehavior = prevTouch;
+      };
+    }
+  }, [chatOpen, isTablet]);
 
   useEffect(() => {
     if (isTablet) {
@@ -133,7 +188,8 @@ export default function App() {
     if (chatOpen || isTablet) setUnreadCount(0);
   }, [chatOpen, isTablet]);
 
-  const isMyTurn = roomData?.status === "playing" && roomData?.currentTurn === playerId && diceComplete;
+  const isMyTurn =
+    roomData?.status === "playing" && roomData?.currentTurn === playerId && diceComplete;
   const getName = (pid: string) => roomData?.playerNames?.[pid] || pid;
   const displayTurnId = diceComplete ? roomData?.currentTurn : roomData?.lastRolledBy;
   const currentTurnName = displayTurnId ? getName(displayTurnId) : "";
@@ -183,7 +239,8 @@ export default function App() {
   const onJoinRoom = async () => {
     setError("");
     const trimmedId = joinId.trim();
-    if (trimmedId.length !== 4) return setError("Room code must be exactly 4 digits");
+    if (trimmedId.length !== 4)
+      return setError("Room code must be exactly 4 digits");
     if (!playerName.trim()) return setError("Please enter your name first");
 
     setLoading(true);
@@ -352,9 +409,19 @@ export default function App() {
     prevRoomRef.current = roomData;
   }, [roomData]);
 
-  // ★ Determine if game column should scroll (lobby) or be fixed (playing)
   const isPlayingOrFinished =
     roomData?.status === "playing" || roomData?.status === "finished";
+
+  // ★★★ FIX 3: Close chat drawer helper ★★★
+  const closeChatDrawer = useCallback(() => {
+    setChatOpen(false);
+    const drawer = drawerRef.current;
+    if (drawer) {
+      drawer.style.bottom = '';
+      drawer.style.height = '';
+      drawer.classList.remove('keyboard-active');
+    }
+  }, []);
 
   return (
     <div
@@ -399,8 +466,16 @@ export default function App() {
 
         {/* ── LOADING ROOM ── */}
         {activeRoomId && !roomData && (
-          <div style={{ flex: 1, display: "flex", alignItems: "center",
-            justifyContent: "center", color: "var(--text-muted)", fontSize: 15 }}>
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "var(--text-muted)",
+              fontSize: 15,
+            }}
+          >
             Loading room...
           </div>
         )}
@@ -416,24 +491,43 @@ export default function App() {
               overflow: "hidden",
             }}
           >
-            {/* In-game error banner */}
             {error && (
-              <div style={{
-                position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
-                background: "var(--danger)", color: "#fff", padding: "8px 16px",
-                borderRadius: 6, zIndex: 1000, fontSize: 14, fontWeight: 600,
-                display: "flex", gap: 12, alignItems: "center",
-                boxShadow: "var(--shadow-lg)"
-              }}>
+              <div
+                style={{
+                  position: "fixed",
+                  top: 16,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  background: "var(--danger)",
+                  color: "#fff",
+                  padding: "8px 16px",
+                  borderRadius: 6,
+                  zIndex: 1000,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  display: "flex",
+                  gap: 12,
+                  alignItems: "center",
+                  boxShadow: "var(--shadow-lg)",
+                }}
+              >
                 <span>{error}</span>
-                <button onClick={() => setError("")} style={{
-                  background: "transparent", border: "none", color: "#fff",
-                  cursor: "pointer", fontSize: 16, padding: 0
-                }}>✕</button>
+                <button
+                  onClick={() => setError("")}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontSize: 16,
+                    padding: 0,
+                  }}
+                >
+                  ✕
+                </button>
               </div>
             )}
 
-            {/* Header */}
             {!isCompact && (
               <GameHeader
                 roomId={roomData.id!}
@@ -444,7 +538,6 @@ export default function App() {
               />
             )}
 
-            {/* ★ CHANGED: alignItems stretch so both columns fill height */}
             <div
               style={{
                 display: "flex",
@@ -456,13 +549,12 @@ export default function App() {
                 overflow: "hidden",
               }}
             >
-              {/* LEFT COLUMN: PLAY AREA / LOBBY */}
+              {/* LEFT COLUMN */}
               <div
                 style={{
                   flex: 1,
                   minWidth: 0,
                   height: "100%",
-                  /* ★ CHANGED: scroll only for lobby, fixed for gameplay */
                   overflow: isPlayingOrFinished ? "hidden" : "auto",
                   display: "flex",
                   flexDirection: "column",
@@ -472,7 +564,6 @@ export default function App() {
                   position: "relative",
                 }}
               >
-                {/* ── STATE 1: WAITING LOBBY ── */}
                 {roomData.status === "waiting" && (
                   <Lobby
                     roomData={roomData}
@@ -488,7 +579,6 @@ export default function App() {
                   />
                 )}
 
-                {/* ── STATE 2: COUNTDOWN CARD ── */}
                 {roomData.status === "countdown" && (
                   <CountdownCard
                     countdown={countdown}
@@ -496,8 +586,8 @@ export default function App() {
                   />
                 )}
 
-                {/* ★ ── STATE 3: ACTIVE GAME — Flex 3-section layout ── */}
-                {(roomData.status === "playing" || roomData.status === "finished") && (
+                {(roomData.status === "playing" ||
+                  roomData.status === "finished") && (
                   <div
                     style={{
                       display: "flex",
@@ -508,11 +598,19 @@ export default function App() {
                       overflow: "hidden",
                     }}
                   >
-                    {/* ── TOP BAR: Turn + Scoreboard ── */}
+                    {/* TOP BAR */}
                     <div style={{ flexShrink: 0, padding: "2px 8px 4px" }}>
                       {roomData.status === "playing" ? (
-                        <div className="turn-indicator" style={{ fontSize: 13, padding: "1px 0", marginBottom: 4 }}>
-                          {currentTurnName}'s turn{roomData.currentTurn === playerId ? " (You)" : ""}
+                        <div
+                          className="turn-indicator"
+                          style={{
+                            fontSize: 13,
+                            padding: "1px 0",
+                            marginBottom: 4,
+                          }}
+                        >
+                          {currentTurnName}'s turn
+                          {roomData.currentTurn === playerId ? " (You)" : ""}
                         </div>
                       ) : (
                         <div
@@ -529,10 +627,16 @@ export default function App() {
                           }}
                         >
                           <span>
-                            <b style={{ color: "var(--text-primary)" }}>Status:</b> {roomData.status}
+                            <b style={{ color: "var(--text-primary)" }}>
+                              Status:
+                            </b>{" "}
+                            {roomData.status}
                           </span>
                           <span>
-                            <b style={{ color: "var(--text-primary)" }}>Host:</b> {getName(roomData.hostId)}
+                            <b style={{ color: "var(--text-primary)" }}>
+                              Host:
+                            </b>{" "}
+                            {getName(roomData.hostId)}
                           </span>
                         </div>
                       )}
@@ -553,7 +657,7 @@ export default function App() {
                       )}
                     </div>
 
-                    {/* ★ ── BOARD AREA: Hero — fills all remaining space ── */}
+                    {/* BOARD AREA */}
                     <div
                       ref={boardContainerRef}
                       style={{
@@ -572,27 +676,33 @@ export default function App() {
                         roomData={roomData}
                         hideLegend={true}
                         diceComplete={diceComplete}
-                        dimensions={boardDims.width > 0 ? boardDims : undefined}
+                        dimensions={
+                          boardDims.width > 0 ? boardDims : undefined
+                        }
                       />
                     </div>
 
-                    {/* ── BOTTOM BAR: Dice + Winner ── */}
+                    {/* BOTTOM BAR */}
                     <div style={{ flexShrink: 0, padding: "0 8px" }}>
-                      {roomData.status === "finished" && roomData.winnerId && diceComplete && (
-                        <WinnerOverlay
-                          winnerName={getName(roomData.winnerId)}
-                          isHost={roomData.hostId === playerId}
-                          onPlayAgain={async () => {
-                            setError("");
-                            try {
-                              await startGame(activeRoomId, playerId);
-                            } catch (e: any) {
-                              setError(e.message || "Failed to restart game");
-                            }
-                          }}
-                          onLeave={onLeaveRoom}
-                        />
-                      )}
+                      {roomData.status === "finished" &&
+                        roomData.winnerId &&
+                        diceComplete && (
+                          <WinnerOverlay
+                            winnerName={getName(roomData.winnerId)}
+                            isHost={roomData.hostId === playerId}
+                            onPlayAgain={async () => {
+                              setError("");
+                              try {
+                                await startGame(activeRoomId, playerId);
+                              } catch (e: any) {
+                                setError(
+                                  e.message || "Failed to restart game"
+                                );
+                              }
+                            }}
+                            onLeave={onLeaveRoom}
+                          />
+                        )}
 
                       {roomData.status === "playing" && (
                         <DiceRow
@@ -636,8 +746,18 @@ export default function App() {
                       paddingLeft: 8,
                     }}
                   >
-                    <span style={{ color: "var(--text-muted)", fontSize: 20 }}>#</span>
-                    <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 16 }}>
+                    <span
+                      style={{ color: "var(--text-muted)", fontSize: 20 }}
+                    >
+                      #
+                    </span>
+                    <h3
+                      style={{
+                        margin: 0,
+                        color: "var(--text-primary)",
+                        fontSize: 16,
+                      }}
+                    >
                       chat
                     </h3>
                   </div>
@@ -647,6 +767,7 @@ export default function App() {
                     playerName={playerName}
                     activeRoomId={activeRoomId}
                     roomData={roomData}
+                    inDrawer={false}
                   />
                 </div>
               )}
@@ -678,7 +799,12 @@ export default function App() {
               transition: "transform 0.2s ease",
             }}
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
               <path d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z" />
             </svg>
             {unreadCount > 0 && (
@@ -692,17 +818,18 @@ export default function App() {
           </button>
         )}
 
-        {/* MOBILE CHAT: SLIDE-UP DRAWER */}
+        {/* ★★★ MOBILE CHAT: SLIDE-UP DRAWER — Keyboard-aware ★★★ */}
         {!isTablet && activeRoomId && (
           <>
             <div
               className={`drawer-backdrop ${chatOpen ? "open" : ""}`}
-              onClick={() => setChatOpen(false)}
+              onClick={closeChatDrawer}
             />
             <div
+              ref={drawerRef}
               className={`chat-drawer ${chatOpen ? "open" : ""}`}
               style={{
-                padding: "12px 8px",
+                padding: "12px 0",
                 paddingBottom: "max(12px, env(safe-area-inset-bottom))",
               }}
             >
@@ -713,19 +840,29 @@ export default function App() {
                   justifyContent: "space-between",
                   alignItems: "center",
                   marginBottom: 12,
-                  padding: "0 8px",
+                  padding: "0 12px",
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ color: "var(--text-muted)", fontSize: 20 }}>#</span>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 8 }}
+                >
+                  <span
+                    style={{ color: "var(--text-muted)", fontSize: 20 }}
+                  >
+                    #
+                  </span>
                   <h3
-                    style={{ margin: 0, color: "var(--text-primary)", fontSize: 16 }}
+                    style={{
+                      margin: 0,
+                      color: "var(--text-primary)",
+                      fontSize: 16,
+                    }}
                   >
                     chat
                   </h3>
                 </div>
                 <button
-                  onClick={() => setChatOpen(false)}
+                  onClick={closeChatDrawer}
                   style={{
                     minHeight: 32,
                     minWidth: 32,
@@ -748,6 +885,8 @@ export default function App() {
                 playerName={playerName}
                 activeRoomId={activeRoomId}
                 roomData={roomData}
+                inDrawer={true}
+                edgePadding={12}
               />
             </div>
           </>
