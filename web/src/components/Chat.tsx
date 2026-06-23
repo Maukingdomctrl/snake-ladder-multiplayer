@@ -278,7 +278,6 @@ interface ChatProps {
   activeRoomId: string;
   roomData: Room | null;
   inDrawer?: boolean;
-  edgePadding?: number;
 }
 
 export default function Chat({
@@ -288,7 +287,6 @@ export default function Chat({
   activeRoomId,
   roomData,
   inDrawer = false,
-  edgePadding = 0,
 }: ChatProps) {
   const [chatInput, setChatInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -485,11 +483,6 @@ export default function Chat({
       showToast("Failed to send message.");
     } finally {
       if (sendAttemptRef.current === attemptId) setIsSending(false);
-      
-      // ★★★ KEEP KEYBOARD OPEN: Refocus immediately after send ★★★
-      requestAnimationFrame(() => {
-        textareaRef.current?.focus();
-      });
     }
   }, [
     chatInput,
@@ -560,7 +553,7 @@ export default function Chat({
           flex: 1,
           minHeight: 0,
           overflowY: "auto",
-          padding: `12px ${edgePadding || 0}px 0 ${edgePadding || 0}px`,
+          padding: "12px 0 0 0",
           marginBottom: 8,
           backgroundColor: "var(--bg-primary)",
           borderRadius: 8,
@@ -639,7 +632,7 @@ export default function Chat({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: `8px ${edgePadding || 16}px`,
+            padding: "8px 16px",
             backgroundColor: "var(--bg-tertiary)",
             borderRadius: "8px 8px 0 0",
             marginBottom: "-8px",
@@ -770,7 +763,7 @@ export default function Chat({
             alignItems: "flex-end",
             backgroundColor: "var(--bg-input)",
             borderRadius: replyingTo ? "0 0 16px 16px" : 16,
-            padding: `8px ${edgePadding || 12}px`,
+            padding: "8px 12px",
             gap: 8,
           }}
         >
@@ -844,6 +837,7 @@ export default function Chat({
             type="button"
             ref={buttonRef}
             onClick={() => setShowEmojiPicker((p) => !p)}
+            onMouseDown={e => e.preventDefault()}
             style={{
               minHeight: 28,
               minWidth: 28,
@@ -870,6 +864,7 @@ export default function Chat({
           <button
             type="submit"
             disabled={!chatInput.trim() || isSending}
+            onMouseDown={e => e.preventDefault()}
             style={{
               minHeight: 28,
               minWidth: 28,

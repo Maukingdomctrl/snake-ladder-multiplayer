@@ -886,7 +886,6 @@ export default function App() {
                 activeRoomId={activeRoomId}
                 roomData={roomData}
                 inDrawer={true}
-                edgePadding={12}
               />
             </div>
           </>

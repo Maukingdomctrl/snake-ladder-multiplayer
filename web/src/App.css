@@ -357,12 +357,11 @@ button, input, textarea {
 /* Mobile Drawer */
 .chat-drawer {
   position: fixed;
-  inset-block-end: 0;
-  inset-inline: 0;
+  bottom: 0;
   left: 0;
   right: 0;
   width: 100vw;
-  height: 85dvh;
+  height: 85vh;
   max-height: 100dvh;
   background: var(--bg-primary);
   border-radius: 12px 12px 0 0;
