@@ -9,9 +9,7 @@ interface DiceRowProps {
   rollKey: string;
   jumpMessage: string;
   onRollComplete?: () => void;
-  /** Fires at each physical contact (bounce) so the parent can react if needed. */
   onImpact?: (strength: number) => void;
-  /** Master switch for built-in sound + vibration. Defaults to true. */
   feedback?: boolean;
 }
 
@@ -31,9 +29,9 @@ export default function DiceRow({
         display: "flex",
         alignItems: "center",
         width: "100%",
-        marginTop: 16,
-        marginBottom: 24,
-        minHeight: 82,
+        marginTop: 6,
+        marginBottom: 8,
+        minHeight: 68,
       }}
     >
       <div style={{ flex: 1 }} />
@@ -41,8 +39,8 @@ export default function DiceRow({
       <div
         style={{
           background: "var(--bg-tertiary)",
-          borderRadius: 16,
-          padding: "16px 24px",
+          borderRadius: 14,
+          padding: "10px 20px",
           boxShadow: "var(--shadow-md)",
           border: "1px solid var(--border)",
           zIndex: 2,
@@ -65,7 +63,7 @@ export default function DiceRow({
           flex: 1,
           display: "flex",
           justifyContent: "flex-start",
-          paddingLeft: 24,
+          paddingLeft: 20,
         }}
       >
         {jumpMessage && (
@@ -75,9 +73,9 @@ export default function DiceRow({
             style={{
               background: "var(--accent)",
               boxShadow: "var(--shadow-sm)",
-              borderRadius: 24,
-              padding: "12px 20px",
-              fontSize: 15,
+              borderRadius: 20,
+              padding: "8px 16px",
+              fontSize: 14,
               fontWeight: 700,
               color: "#fff",
               whiteSpace: "nowrap",

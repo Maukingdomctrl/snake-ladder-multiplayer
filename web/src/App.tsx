@@ -4,7 +4,6 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
 import "./App.css";
 
-// ── Firebase & Data ──
 import {
   createRoom,
   joinRoom,
@@ -16,12 +15,10 @@ import {
   Room,
 } from "./firebase/rooms";
 
-// ── Hooks ──
 import { usePlayerStorage } from "./hooks/usePlayerStorage";
 import { useGameSync } from "./hooks/useGameSync";
 import { useWindowDimensions } from "./hooks/useWindowDimensions";
 
-// ── Components ──
 import Board from "./components/Board";
 import LoginScreen from "./components/LoginScreen";
 import Lobby from "./components/Lobby";
@@ -35,53 +32,82 @@ import DiceRow from "./components/DiceRow";
 type Face = 1 | 2 | 3 | 4 | 5 | 6;
 
 export default function App() {
-  // ── Hook State ──
   const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
   const { width, height } = useWindowDimensions();
-  
-  // Single source of truth for layout derived from hook
+
   const isTablet = width >= 768;
   const isCompact = height < 700;
 
-  // ── Local UI State ──
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
   const [joinId, setJoinId] = useState<string>("");
   const [activeRoomId, setActiveRoomId] = useState<string>("");
   const [copied, setCopied] = useState<boolean>(false);
 
-  // ── Game State ──
   const [roomData, setRoomData] = useState<Room | null>(null);
   const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({});
   const [jumpMessage, setJumpMessage] = useState<string>("");
   const [diceComplete, setDiceComplete] = useState<boolean>(true);
   const { countdown } = useGameSync(roomData, playerId);
 
-  // ── Chat State ──
   const [messages, setMessages] = useState<any[]>([]);
   const [chatOpen, setChatOpen] = useState<boolean>(isTablet);
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
-  // ── Refs ──
+  // ★ Board container measurement
+  const boardContainerRef = useRef<HTMLDivElement>(null);
+  const [boardDims, setBoardDims] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+
   const prevRoomRef = useRef<Room | null>(null);
   const lastProcessedMoveRef = useRef<string>("");
   const prevMsgCountRef = useRef<number>(0);
   const isFirstMessageLoadRef = useRef<boolean>(true);
-  const diceFinishedRef = useRef<boolean>(true); // FIX: Initialize to true to prevent buffering lock on join
+  const diceFinishedRef = useRef<boolean>(true);
   const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingJumpMessageRef = useRef<string>("");
   const pendingPositionsRef = useRef<Record<string, number>>({});
 
-  // ── Layout Listeners ──
+  // ★ ResizeObserver for board container — measures actual available space
+  useEffect(() => {
+    const el = boardContainerRef.current;
+    if (!el) return;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const ro = new ResizeObserver((entries) => {
+      clearTimeout(timeoutId);
+      // Small debounce to avoid excessive re-renders during live resize
+      timeoutId = setTimeout(() => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            setBoardDims({ width: Math.floor(width), height: Math.floor(height) });
+          }
+        }
+      }, 50);
+    });
+
+    ro.observe(el);
+
+    // Synchronous initial measurement
+    const rect = el.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      setBoardDims({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
+    }
+
+    return () => {
+      ro.disconnect();
+      clearTimeout(timeoutId);
+    };
+  }, [roomData?.status]); // Re-setup when board container mounts/unmounts
+
   useEffect(() => {
     if (isTablet) {
       setChatOpen(true);
     } else {
-      setChatOpen(false); // Fixes the stuck-open glitch when resizing tablet -> mobile
+      setChatOpen(false);
     }
   }, [isTablet]);
 
-  // FIX: Clear observer timeout on component unmount to prevent memory leaks
   useEffect(() => {
     return () => {
       if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
@@ -107,28 +133,25 @@ export default function App() {
     if (chatOpen || isTablet) setUnreadCount(0);
   }, [chatOpen, isTablet]);
 
-  // ── Derived State ──
   const isMyTurn = roomData?.status === "playing" && roomData?.currentTurn === playerId && diceComplete;
   const getName = (pid: string) => roomData?.playerNames?.[pid] || pid;
   const displayTurnId = diceComplete ? roomData?.currentTurn : roomData?.lastRolledBy;
   const currentTurnName = displayTurnId ? getName(displayTurnId) : "";
 
-  // ── Callbacks ──
   const handleRollComplete = () => {
     diceFinishedRef.current = true;
-    if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current); 
-    
+    if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+
     setDiceComplete(true);
     setJumpMessage(pendingJumpMessageRef.current);
-    
+
     if (Object.keys(pendingPositionsRef.current).length > 0) {
       setDisplayPositions(pendingPositionsRef.current);
     }
-    
+
     setLoading(false);
   };
 
-  // ── Actions ──
   const onPickColor = async (color: string) => {
     setPlayerColor(color);
     if (activeRoomId) {
@@ -224,12 +247,12 @@ export default function App() {
     setDisplayPositions({});
     isFirstMessageLoadRef.current = true;
     prevMsgCountRef.current = 0;
-    setUnreadCount(0); // Resets unread state on room switch
-    
+    setUnreadCount(0);
+
     setMessages([]);
     pendingJumpMessageRef.current = "";
     pendingPositionsRef.current = {};
-    diceFinishedRef.current = true; // FIX: Ensure dice is marked as finished so positions apply immediately
+    diceFinishedRef.current = true;
     setDiceComplete(true);
 
     const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
@@ -247,13 +270,12 @@ export default function App() {
   useEffect(() => {
     if (!roomData) return;
     const prev = prevRoomRef.current;
-    
-    // FIX: Initialize state properly on first room load to prevent false 'new roll' detection
+
     if (!prev) {
       prevRoomRef.current = roomData;
       const moveKey = String(roomData.moveCount ?? 0);
       lastProcessedMoveRef.current = moveKey;
-      
+
       if (roomData.positions) {
         setDisplayPositions(roomData.positions);
         pendingPositionsRef.current = roomData.positions;
@@ -263,7 +285,6 @@ export default function App() {
 
     let isNewRoll = false;
 
-    // 1. Detect if this update is a new roll FIRST
     if (
       roomData.lastDice != null &&
       roomData.lastRolledBy &&
@@ -273,7 +294,6 @@ export default function App() {
       const moveKey = String(roomData.moveCount ?? 0);
 
       if (lastProcessedMoveRef.current !== moveKey) {
-        // FIX: Force flush previous pending state if a new roll arrives before the previous animation finished
         if (!diceFinishedRef.current) {
           if (Object.keys(pendingPositionsRef.current).length > 0) {
             setDisplayPositions(pendingPositionsRef.current);
@@ -300,14 +320,14 @@ export default function App() {
         }, 5000);
 
         const pid = roomData.lastRolledBy;
-        const from = roomData.lastFrom; // FIX: Don't default to 1, it causes false jump messages
+        const from = roomData.lastFrom;
         const to = roomData.positions?.[pid] ?? from;
         const movedTo = Math.min(100, (from ?? 1) + roomData.lastDice);
 
-        if (from != null) { // FIX: Only evaluate jump if `from` is known
+        if (from != null) {
           if (to > movedTo) {
             pendingJumpMessageRef.current = `🪜 Ladder! ${movedTo} → ${to}`;
-          } else if (to < movedTo && to !== from) { 
+          } else if (to < movedTo && to !== from) {
             pendingJumpMessageRef.current = `🐍 Snake! ${movedTo} → ${to}`;
           } else {
             pendingJumpMessageRef.current = "";
@@ -320,7 +340,6 @@ export default function App() {
       }
     }
 
-    // 2. Buffer or Apply positions based on the refs/flags, NOT React state
     if (roomData.positions) {
       if (isNewRoll || !diceFinishedRef.current) {
         pendingPositionsRef.current = roomData.positions;
@@ -332,6 +351,10 @@ export default function App() {
 
     prevRoomRef.current = roomData;
   }, [roomData]);
+
+  // ★ Determine if game column should scroll (lobby) or be fixed (playing)
+  const isPlayingOrFinished =
+    roomData?.status === "playing" || roomData?.status === "finished";
 
   return (
     <div
@@ -421,33 +444,31 @@ export default function App() {
               />
             )}
 
+            {/* ★ CHANGED: alignItems stretch so both columns fill height */}
             <div
               style={{
                 display: "flex",
                 flexDirection: isTablet ? "row" : "column",
                 flex: 1,
                 minHeight: 0,
-                gap: 16,
-                alignItems: "flex-start",
+                gap: isTablet ? 16 : 0,
+                alignItems: "stretch",
                 overflow: "hidden",
               }}
             >
               {/* LEFT COLUMN: PLAY AREA / LOBBY */}
               <div
-                className="game-column"
                 style={{
                   flex: 1,
                   minWidth: 0,
                   height: "100%",
-                  overflowY: "auto",
-                  scrollbarGutter: "stable",
-                  paddingRight: 8,
-                  paddingBottom: !isTablet ? 68 : 0,
+                  /* ★ CHANGED: scroll only for lobby, fixed for gameplay */
+                  overflow: isPlayingOrFinished ? "hidden" : "auto",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "flex-start",
-                  paddingTop: 12,
+                  paddingTop: 8,
                   position: "relative",
                 }}
               >
@@ -475,126 +496,115 @@ export default function App() {
                   />
                 )}
 
-                {/* ── STATE 3: ACTIVE GAME (Playing or Finished) ── */}
+                {/* ★ ── STATE 3: ACTIVE GAME — Flex 3-section layout ── */}
                 {(roomData.status === "playing" || roomData.status === "finished") && (
                   <div
                     style={{
                       display: "flex",
                       flexDirection: "column",
-                      alignItems: "center",
                       width: "100%",
-                      padding: "0 8px",
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: "hidden",
                     }}
                   >
-                    <div
-                      style={{
-                        width: "100%",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        marginBottom: 16,
-                      }}
-                    >
+                    {/* ── TOP BAR: Turn + Scoreboard ── */}
+                    <div style={{ flexShrink: 0, padding: "2px 8px 4px" }}>
                       {roomData.status === "playing" ? (
-                        <div className="turn-indicator">
-                          It's {currentTurnName}'s turn{" "}
-                          {roomData.currentTurn === playerId ? "(You)" : ""}
+                        <div className="turn-indicator" style={{ fontSize: 13, padding: "1px 0", marginBottom: 4 }}>
+                          {currentTurnName}'s turn{roomData.currentTurn === playerId ? " (You)" : ""}
                         </div>
                       ) : (
-                        <div />
-                      )}
-
-                      {roomData.status === "finished" && (
                         <div
                           style={{
                             background: "var(--bg-tertiary)",
                             borderRadius: 8,
-                            padding: "8px 12px",
-                            fontSize: 13,
+                            padding: "4px 10px",
+                            fontSize: 12,
                             color: "var(--text-secondary)",
                             display: "flex",
-                            gap: 16,
-                            boxShadow: "var(--shadow-sm)",
+                            gap: 12,
                             border: "1px solid var(--border)",
+                            marginBottom: 4,
                           }}
                         >
                           <span>
-                            <b style={{ color: "var(--text-primary)" }}>Status:</b>{" "}
-                            {roomData.status}
+                            <b style={{ color: "var(--text-primary)" }}>Status:</b> {roomData.status}
                           </span>
                           <span>
-                            <b style={{ color: "var(--text-primary)" }}>Host:</b>{" "}
-                            {getName(roomData.hostId)}
+                            <b style={{ color: "var(--text-primary)" }}>Host:</b> {getName(roomData.hostId)}
                           </span>
                         </div>
                       )}
+
+                      {roomData.positions && (
+                        <Scoreboard
+                          players={roomData.players}
+                          positions={roomData.positions}
+                          playerColors={roomData.playerColors || {}}
+                          playerNames={roomData.playerNames || {}}
+                          currentTurn={roomData.currentTurn}
+                          status={roomData.status}
+                          winnerId={roomData.winnerId ?? null}
+                          playerId={playerId}
+                          lastDice={roomData.lastDice ?? null}
+                          lastRolledBy={roomData.lastRolledBy ?? null}
+                        />
+                      )}
                     </div>
 
-                    {/* Scoreboard */}
-                    {roomData.positions && (
-                      <Scoreboard
-                        players={roomData.players}
-                        positions={roomData.positions}
-                        playerColors={roomData.playerColors || {}}
-                        playerNames={roomData.playerNames || {}}
-                        currentTurn={roomData.currentTurn}
-                        status={roomData.status}
-                        winnerId={roomData.winnerId ?? null}
-                        playerId={playerId}
-                        lastDice={roomData.lastDice ?? null}
-                        lastRolledBy={roomData.lastRolledBy ?? null}
+                    {/* ★ ── BOARD AREA: Hero — fills all remaining space ── */}
+                    <div
+                      ref={boardContainerRef}
+                      style={{
+                        flex: 1,
+                        minHeight: 0,
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <Board
+                        key={activeRoomId}
+                        positions={displayPositions}
+                        playerNames={roomData?.playerNames || {}}
+                        roomData={roomData}
+                        hideLegend={true}
+                        diceComplete={diceComplete}
+                        dimensions={boardDims.width > 0 ? boardDims : undefined}
                       />
-                    )}
+                    </div>
 
-                    {/* The Board */}
-                    {roomData.positions && (
-                      <div
-                        style={{
-                          paddingBottom: 16,
-                          width: "100%",
-                          display: "flex",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <Board
-                          key={activeRoomId}
-                          positions={displayPositions}
-                          playerNames={roomData?.playerNames || {}}
-                          roomData={roomData}
-                          hideLegend={true}
-                          diceComplete={diceComplete}
+                    {/* ── BOTTOM BAR: Dice + Winner ── */}
+                    <div style={{ flexShrink: 0, padding: "0 8px" }}>
+                      {roomData.status === "finished" && roomData.winnerId && diceComplete && (
+                        <WinnerOverlay
+                          winnerName={getName(roomData.winnerId)}
+                          isHost={roomData.hostId === playerId}
+                          onPlayAgain={async () => {
+                            setError("");
+                            try {
+                              await startGame(activeRoomId, playerId);
+                            } catch (e: any) {
+                              setError(e.message || "Failed to restart game");
+                            }
+                          }}
+                          onLeave={onLeaveRoom}
                         />
-                      </div>
-                    )}
+                      )}
 
-                    {/* Winner overlay */}
-                    {roomData.status === "finished" && roomData.winnerId && diceComplete && (
-                      <WinnerOverlay
-                        winnerName={getName(roomData.winnerId)}
-                        isHost={roomData.hostId === playerId}
-                        onPlayAgain={async () => {
-                          setError("");
-                          try {
-                            await startGame(activeRoomId, playerId);
-                          } catch (e: any) {
-                            setError(e.message || "Failed to restart game");
-                          }
-                        }}
-                        onLeave={onLeaveRoom}
-                      />
-                    )}
-
-                    {/* Dice row */}
-                    {roomData.status === "playing" && (
-                      <DiceRow
-                        onRoll={onRollDice}
-                        disabled={!isMyTurn || loading}
-                        lastDice={(roomData.lastDice as Face) ?? null}
-                        rollKey={String(roomData.moveCount ?? 0)}
-                        jumpMessage={jumpMessage}
-                        onRollComplete={handleRollComplete}
-                      />
-                    )}
+                      {roomData.status === "playing" && (
+                        <DiceRow
+                          onRoll={onRollDice}
+                          disabled={!isMyTurn || loading}
+                          lastDice={(roomData.lastDice as Face) ?? null}
+                          rollKey={String(roomData.moveCount ?? 0)}
+                          jumpMessage={jumpMessage}
+                          onRollComplete={handleRollComplete}
+                        />
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
