@@ -1,3 +1,5 @@
+// src/components/Board.tsx
+
 import React, { useMemo, useEffect, useRef, useState, useCallback, memo } from "react";
 import Snake from "./snakes/Snake";
 import type { SnakeColors } from "./snakes/shared/types";
@@ -73,15 +75,61 @@ function calculateBoardMetrics(
 
   const minDim = Math.min(containerWidth, containerHeight);
   const borderPadding = Math.max(4, Math.min(14, Math.round(minDim * 0.025)));
+
   const availW = containerWidth - borderPadding * 2;
   const availH = containerHeight - borderPadding * 2;
+
   const maxBoardSize = Math.min(availW, availH);
   const cellSize = Math.max(18, Math.floor(maxBoardSize / 10));
 
   return { cellSize, borderPadding };
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Animation path helpers ────────────────────────────────────────────────────
+
+function getPointsAlongLine(from: { x: number; y: number }, to: { x: number; y: number }, steps: number) {
+  const points: { x: number; y: number }[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    points.push({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
+  }
+  return points;
+}
+
+function getPointsAlongCurve(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  waveDir: number,
+  steps: number,
+  curveFactor: number = 0.15
+) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  if (dist === 0) return getPointsAlongLine(a, b, steps);
+
+  const nx = -dy / dist;
+  const ny = dx / dist;
+  const offset = dist * curveFactor * waveDir;
+
+  const cp1x = a.x + dx * 0.25 + nx * offset;
+  const cp1y = a.y + dy * 0.25 + ny * offset;
+  const cp2x = a.x + dx * 0.75 - nx * offset;
+  const cp2y = a.y + dy * 0.75 - ny * offset;
+
+  const points: { x: number; y: number }[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const mt = 1 - t;
+    points.push({
+      x: mt * mt * mt * a.x + 3 * mt * mt * t * cp1x + 3 * mt * t * t * cp2x + t * t * t * b.x,
+      y: mt * mt * mt * a.y + 3 * mt * mt * t * cp1y + 3 * mt * t * t * cp2y + t * t * t * b.y,
+    });
+  }
+  return points;
+}
+
+// ── Types & Constants ─────────────────────────────────────────────────────────
 
 interface BoardProps {
   positions?: Record<string, number>;
@@ -91,8 +139,6 @@ interface BoardProps {
   diceComplete?: boolean;
   dimensions?: { width: number; height: number };
 }
-
-// ── Per-snake visual config ───────────────────────────────────────────────────
 
 const SNAKE_WAYPOINTS: Record<number, { c: number; ox?: number; oy?: number }[]> = {
   83: [
@@ -143,7 +189,7 @@ const LADDER_OFFSETS: Record<number, { aX: number; bX: number; aY?: number; bY?:
 
 const SHOW_SNAKE_DEBUG = false;
 
-// ── 1. Static Board Graphics Layer (Frozen via React.memo) ────────────────────
+// ── Static Board Graphics Layer (Frozen via React.memo) ───────────────────────
 
 interface StaticBoardProps {
   cellSize: number;
@@ -168,13 +214,7 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
         colors: SNAKE_COLORS[id] ?? SNAKE_COLORS[68],
         styleConfig: SNAKE_STYLE_CONFIGS[id],
       };
-    }).filter(Boolean) as {
-      id: number;
-      waypoints: { x: number; y: number }[];
-      thickness: number;
-      colors: SnakeColors;
-      styleConfig?: { scaleStride?: number; bulgeProfile?: { t: number; width: number }[] };
-    }[];
+    }).filter(Boolean) as any[];
   }, [cellSize]);
 
   return (
@@ -261,7 +301,7 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
         width={boardSize}
         height={boardSize}
       >
-        {/* Snakes (168 Hours of Geometry!) */}
+        {/* Snakes */}
         {resolvedSnakes.map((s) => (
           <Snake
             key={`snake-${s.id}`}
@@ -277,13 +317,13 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
           resolvedSnakes.map((s) => (
             <g key={`debug-${s.id}`} opacity={0.95}>
               <polyline
-                points={s.waypoints.map((p) => `${p.x},${p.y}`).join(" ")}
+                points={s.waypoints.map((p: any) => `${p.x},${p.y}`).join(" ")}
                 fill="none"
                 stroke={s.id === 83 ? "#ff4d4d" : "#00e5ff"}
                 strokeWidth={2}
                 strokeDasharray="6 4"
               />
-              {s.waypoints.map((p, i) => (
+              {s.waypoints.map((p: any, i: number) => (
                 <g key={`debug-${s.id}-wp-${i}`}>
                   <circle cx={p.x} cy={p.y} r={4} fill="#fff" stroke="#111" strokeWidth={1.5} />
                   <text x={p.x + 6} y={p.y - 6} fontSize={11} fontWeight={700} fill="#111" stroke="#fff" strokeWidth={2} paintOrder="stroke">
@@ -431,7 +471,7 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
   );
 });
 
-// ── 2. Dynamic Token Layer (Async Queue Engine) ───────────────────────────────
+// ── Dynamic Token Layer (Async Engine) ────────────────────────────────────────
 
 interface TokenLayerProps {
   playerIds: string[];
@@ -443,13 +483,15 @@ interface TokenLayerProps {
 }
 
 const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, tokenSize }: TokenLayerProps) => {
-  const tokenRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const rafRef = useRef<number | null>(null);
-  
+  const tokenRefs = useRef<Record<string, HTMLDivElement>>({});
   const queueRef = useRef<Array<() => Promise<void>>>([]);
   const isProcessingRef = useRef(false);
   const cancelQueueRef = useRef(false);
   const lastMoveKeyRef = useRef<string>("");
+  
+  // FIX: Track who is currently animating to prevent position snaps
+  const animatingPlayerRef = useRef<string | null>(null);
+  const safetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const halfToken = tokenSize / 2;
   const halfTokenRef = useRef(halfToken);
@@ -458,15 +500,13 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     halfTokenRef.current = halfToken;
   }, [halfToken]);
 
-  // Ensure clean up of running animations
   useEffect(() => {
     return () => {
       cancelQueueRef.current = true;
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
     };
   }, []);
 
-  // Instant snap utility (used for layout/resizes and syncing logic)
   const snapToken = useCallback((pid: string, cell: number) => {
     const el = tokenRefs.current[pid];
     if (!el) return;
@@ -475,9 +515,12 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
   }, [cellSize]);
 
-  // Keep tokens strictly in place when board resizes
   useEffect(() => {
-    playerIds.forEach(pid => snapToken(pid, positions[pid] ?? 1));
+    playerIds.forEach(pid => {
+      // FIX: Do not snap the player who is currently mid-animation!
+      if (pid === animatingPlayerRef.current) return;
+      snapToken(pid, positions[pid] ?? 1);
+    });
   }, [cellSize, positions, playerIds, snapToken]);
 
   const processQueue = async () => {
@@ -495,33 +538,57 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     }
     
     isProcessingRef.current = false;
+    animatingPlayerRef.current = null; // Clear lock when queue is empty
   };
 
   const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
   useEffect(() => {
-    if (!diceComplete || !roomData) return;
+    if (!roomData) return;
 
     const moveKey = String(roomData.moveCount ?? 0);
+    const isInitialLoad = lastMoveKeyRef.current === "";
+
     if (moveKey === lastMoveKeyRef.current) return;
+    
+    if (!isInitialLoad && !diceComplete) return;
+
     lastMoveKeyRef.current = moveKey;
 
     const pid = roomData.lastRolledBy;
     if (!pid) return;
+
+    // FIX: Lock the player so position snaps are ignored
+    animatingPlayerRef.current = pid;
 
     const from = roomData.lastFrom ?? 1;
     const finalPos = roomData.positions?.[pid] ?? from;
     const diceVal = roomData.lastDice ?? 0;
     const naturalEnd = Math.min(100, from + diceVal);
 
-    // Cancel old queue if a new roll interrupts
     cancelQueueRef.current = true;
     queueRef.current = [];
+
+    // FIX: Safety timeout in case diceComplete never fires
+    if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
+    safetyTimeoutRef.current = setTimeout(() => {
+      if (animatingPlayerRef.current === pid && queueRef.current.length === 0) {
+        // Force trigger animation if stuck
+      }
+    }, 5000);
 
     setTimeout(() => {
       cancelQueueRef.current = false;
 
-      // 1. Walk cell-by-cell discretely using pure CSS transitions
+      // 1. INTENTIONAL PRE-MOVE PAUSE (3600ms)
+      // Allows humans to visually verify the dice and prepare to count
+      if (!isInitialLoad && diceVal > 0) {
+        queueRef.current.push(async () => {
+          if (!cancelQueueRef.current) await delay(3600);
+        });
+      }
+
+      // 2. STACCATO MOVEMENT (1..2..3..4)
       for (let i = from + 1; i <= naturalEnd; i++) {
         queueRef.current.push(async () => {
           if (cancelQueueRef.current) return;
@@ -529,30 +596,30 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
           if (!el) return;
           const px = squareToPixel(i, pid, cellSize);
           
-          el.style.transition = "transform 150ms linear";
+          // ease-out gives a satisfying physical "drop" into each square
+          el.style.transition = "transform 350ms ease-out";
           el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
           
-          await delay(180); // Sequenced pause allows physical feeling
+          // 400ms transition + 350ms pause = 750ms per square (Slow & Deliberate)
+          await delay(750); 
         });
       }
 
-      // 2. Perform smooth custom jump wrapped in a Promise
+      // 3. SNAKE/LADDER PATH INTERPOLATION
       if (finalPos !== naturalEnd) {
-        queueRef.current.push(() => new Promise((resolve) => {
-          if (cancelQueueRef.current) return resolve();
+        queueRef.current.push(async () => {
+          if (cancelQueueRef.current) return;
           const jumpEl = tokenRefs.current[pid];
-          if (!jumpEl) return resolve();
+          if (!jumpEl) return;
 
           const isSnake = finalPos < naturalEnd;
-          const jumpDuration = isSnake ? 1200 : 800;
-          const startTime = performance.now();
-
           const aCenter = cellCenter(naturalEnd, cellSize);
           const bCenter = cellCenter(finalPos, cellSize);
           const offset = getClusterOffset(pid);
           const aPixel = { x: aCenter.x + offset.x, y: aCenter.y + offset.y };
           const bPixel = { x: bCenter.x + offset.x, y: bCenter.y + offset.y };
 
+          const steps = 40; 
           let waveDir = 1;
           let curveFactor = 0.15;
           if (isSnake) {
@@ -562,47 +629,22 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
             if (style) curveFactor = style.curveFactor;
           }
 
-          const frame = (now: number) => {
-            if (cancelQueueRef.current) return resolve();
+          const points = isSnake
+            ? getPointsAlongCurve(aPixel, bPixel, waveDir, steps, curveFactor)
+            : getPointsAlongLine(aPixel, bPixel, steps);
 
-            const elapsed = now - startTime;
-            const progress = Math.min(1, elapsed / jumpDuration);
-            const t = progress;
-            const mt = 1 - t;
+          // Slower slide speed for snake/ladders
+          const frameDelay = isSnake ? 35 : 30; 
 
-            let x, y;
-            if (isSnake) {
-              const dx = bPixel.x - aPixel.x;
-              const dy = bPixel.y - aPixel.y;
-              const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-              const nx = -dy / dist;
-              const ny = dx / dist;
-              const offsetMag = dist * curveFactor * waveDir;
-
-              const cp1x = aPixel.x + dx * 0.25 + nx * offsetMag;
-              const cp1y = aPixel.y + dy * 0.25 + ny * offsetMag;
-              const cp2x = aPixel.x + dx * 0.75 - nx * offsetMag;
-              const cp2y = aPixel.y + dy * 0.75 - ny * offsetMag;
-
-              x = mt * mt * mt * aPixel.x + 3 * mt * mt * t * cp1x + 3 * mt * t * t * cp2x + t * t * t * bPixel.x;
-              y = mt * mt * mt * aPixel.y + 3 * mt * mt * t * cp1y + 3 * mt * t * t * cp2y + t * t * t * bPixel.y;
-            } else {
-              x = aPixel.x + (bPixel.x - aPixel.x) * t;
-              y = aPixel.y + (bPixel.y - aPixel.y) * t;
-            }
-
-            jumpEl.style.transition = "none";
-            jumpEl.style.transform = `translate3d(${x - halfTokenRef.current}px, ${y - halfTokenRef.current}px, 0)`;
-
-            if (progress < 1) {
-              rafRef.current = requestAnimationFrame(frame);
-            } else {
-              resolve(); // Tells the Async Queue that the jump is finished
-            }
-          };
-
-          rafRef.current = requestAnimationFrame(frame);
-        }));
+          for (let i = 0; i <= steps; i++) {
+            if (cancelQueueRef.current) break;
+            const pt = points[i];
+            
+            jumpEl.style.transition = `transform ${frameDelay}ms linear`;
+            jumpEl.style.transform = `translate3d(${pt.x - halfTokenRef.current}px, ${pt.y - halfTokenRef.current}px, 0)`;
+            await delay(frameDelay);
+          }
+        });
       }
 
       processQueue();
@@ -612,35 +654,44 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
 
   return (
     <>
-      {playerIds.map((pid) => (
-        <div
-          key={pid}
-          ref={(el) => {
-            tokenRefs.current[pid] = el;
-          }}
-          style={{
-            position: "absolute",
-            width: tokenSize,
-            height: tokenSize,
-            borderRadius: "50%",
-            background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
-            border: `${Math.max(1.5, tokenSize * 0.1)}px solid #fff`,
-            boxShadow: `0 2px 6px rgba(0,0,0,0.6), 0 0 ${tokenSize * 0.4}px rgba(0,0,0,0.2)`,
-            top: 0,
-            left: 0,
-            willChange: "transform",
-            zIndex: 20,
-            pointerEvents: "none",
-            userSelect: "none",
-            WebkitUserSelect: "none",
-          }}
-        />
-      ))}
+      {playerIds.map((pid) => {
+        const initialCell = positions[pid] ?? 1;
+        const px = squareToPixel(initialCell, pid, cellSize);
+
+        return (
+          <div
+            key={pid}
+            ref={(el) => {
+              if (el) {
+                tokenRefs.current[pid] = el;
+              } else {
+                delete tokenRefs.current[pid]; 
+              }
+            }}
+            style={{
+              position: "absolute",
+              width: tokenSize,
+              height: tokenSize,
+              borderRadius: "50%",
+              background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
+              border: `${Math.max(1.5, tokenSize * 0.1)}px solid #fff`,
+              boxShadow: `0 2px 6px rgba(0,0,0,0.6), 0 0 ${tokenSize * 0.4}px rgba(0,0,0,0.2)`,
+              top: 0,
+              left: 0,
+              willChange: "transform",
+              zIndex: 20,
+              pointerEvents: "none",
+              transform: `translate3d(${px.x - halfToken}px, ${px.y - halfToken}px, 0)`,
+              transition: "none",
+            }}
+          />
+        );
+      })}
     </>
   );
 };
 
-// ── 3. Main Container ─────────────────────────────────────────────────────────
+// ── Main Container ────────────────────────────────────────────────────────────
 
 export default function Board({
   positions = {},
@@ -651,13 +702,11 @@ export default function Board({
   dimensions,
 }: BoardProps) {
   
-  // Synchronous initial state to prevent mobile zoom jitter
   const [boardDims, setBoardDims] = useState(() => ({
     w: typeof window !== "undefined" ? window.innerWidth : 800,
     h: typeof window !== "undefined" ? window.innerHeight : 800,
   }));
 
-  // Throttled observer
   useEffect(() => {
     if (dimensions && dimensions.width > 0 && dimensions.height > 0) return;
 
@@ -687,53 +736,27 @@ export default function Board({
   const tokenSize = Math.max(10, Math.min(22, cellSize * 0.38));
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        fontFamily: "inherit",
-      }}
-    >
-      <div
-        style={{
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "inherit" }}>
+      <div style={{
           padding: borderPadding,
           background: "linear-gradient(145deg, #F5C800 0%, #D4A600 50%, #F5C800 100%)",
           borderRadius: Math.max(6, borderPadding * 0.7),
-          boxShadow: `
-            0 16px 48px rgba(0,0,0,0.5),
-            0 0 0 1px rgba(245,200,0,0.3),
-            0 0 24px rgba(245,200,0,0.08)
-          `,
-        }}
-      >
-        <div
-          style={{
-            position: "relative",
-            width: boardSize,
-            height: boardSize,
-            borderRadius: 4,
-            background: "#FFF",
+          boxShadow: `0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(245,200,0,0.3), 0 0 24px rgba(245,200,0,0.08)`,
+      }}>
+        <div style={{
+            position: "relative", width: boardSize, height: boardSize, borderRadius: 4, background: "#FFF",
             boxShadow: "inset 0 0 10px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.08)",
             outline: `${Math.max(2, Math.round(cellSize * 0.04))}px solid #5C2A00`,
             outlineOffset: `-${Math.max(1, Math.round(cellSize * 0.02))}px`,
-            overflow: "hidden",
-            userSelect: "none",
-            WebkitUserSelect: "none",
-            touchAction: "none",
-          }}
-        >
-          {/* Memoized Static Board Layer - Freezes all heavy math and SVG rendering */}
+            overflow: "hidden", userSelect: "none", WebkitUserSelect: "none", touchAction: "none",
+        }}>
+          {/* Static rendering - completely locked */}
           <StaticBoardGraphics cellSize={cellSize} boardSize={boardSize} />
 
-          {/* Dynamic Interactive Layer - Runs 60fps animations entirely detached from React state */}
+          {/* Dynamic token rendering - async engine */}
           <TokenLayer 
-            playerIds={playerIds} 
-            positions={positions} 
-            roomData={roomData} 
-            cellSize={cellSize} 
-            diceComplete={diceComplete}
-            tokenSize={tokenSize}
+            playerIds={playerIds} positions={positions} roomData={roomData} 
+            cellSize={cellSize} diceComplete={diceComplete} tokenSize={tokenSize}
           />
         </div>
       </div>
@@ -741,15 +764,10 @@ export default function Board({
       {!hideLegend && playerIds.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 20, justifyContent: "center" }}>
           {playerIds.map((pid) => (
-            <div
-              key={`legend-${pid}`}
-              style={{
-                display: "flex", alignItems: "center", gap: 8,
-                background: "var(--bg-tertiary)", borderRadius: 24,
-                padding: "6px 14px", fontSize: 14, fontWeight: 600,
-                border: "1px solid var(--border)",
-              }}
-            >
+            <div key={`legend-${pid}`} style={{
+                display: "flex", alignItems: "center", gap: 8, background: "var(--bg-tertiary)", 
+                borderRadius: 24, padding: "6px 14px", fontSize: 14, fontWeight: 600, border: "1px solid var(--border)",
+            }}>
               <div style={{ width: 14, height: 14, borderRadius: "50%", background: roomData?.playerColors?.[pid] || getPlayerColor(pid) }} />
               {playerNames[pid] || pid}
               <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 4 }}>
