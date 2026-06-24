@@ -85,54 +85,6 @@ function calculateBoardMetrics(
   return { cellSize, borderPadding };
 }
 
-// ── Animation path helpers ────────────────────────────────────────────────────
-
-function getPointsAlongLine(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-  steps: number
-) {
-  const points: { x: number; y: number }[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    points.push({ x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t });
-  }
-  return points;
-}
-
-function getPointsAlongCurve(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  waveDir: number,
-  steps: number,
-  curveFactor: number = 0.15
-) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist === 0) return getPointsAlongLine(a, b, steps);
-
-  const nx = -dy / dist;
-  const ny = dx / dist;
-  const offset = dist * curveFactor * waveDir;
-
-  const cp1x = a.x + dx * 0.25 + nx * offset;
-  const cp1y = a.y + dy * 0.25 + ny * offset;
-  const cp2x = a.x + dx * 0.75 - nx * offset;
-  const cp2y = a.y + dy * 0.75 - ny * offset;
-
-  const points: { x: number; y: number }[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const mt = 1 - t;
-    points.push({
-      x: mt*mt*mt*a.x + 3*mt*mt*t*cp1x + 3*mt*t*t*cp2x + t*t*t*b.x,
-      y: mt*mt*mt*a.y + 3*mt*mt*t*cp1y + 3*mt*t*t*cp2y + t*t*t*b.y,
-    });
-  }
-  return points;
-}
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface BoardProps {
@@ -144,7 +96,6 @@ interface BoardProps {
   dimensions?: { width: number; height: number };
 }
 
-// ★ NEW: Track duration and easing dynamically for lag-free token updates
 interface TokenState {
   x: number;
   y: number;
@@ -259,26 +210,25 @@ export default function Board({
 
   const lastMoveKeyRef = useRef<string>("");
   const pendingRoomDataRef = useRef<Room | null>(null);
-  const scheduledTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const runAnimationRef = useRef<((snap: Room) => void) | null>(null);
   const tokenPixelsRef = useRef<Record<string, TokenState>>({});
   const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animFrameRef = useRef<number | null>(null);
 
-  // ★ NEW: Stateful tokens now contain x, y, duration, and ease
   const [tokenPixels, setTokenPixels] = useState<Record<string, TokenState>>({});
 
+  // ★ FIX 1: Prevent snapping to final position before the animation starts
   useEffect(() => {
     const cellSizeChanged = prevCellSizeRef.current !== cellSize;
     if (cellSizeChanged) {
       prevCellSizeRef.current = cellSize;
     }
 
-    if (scheduledTimeoutsRef.current.length > 0 && !cellSizeChanged) return;
+    if (pendingRoomDataRef.current && !cellSizeChanged) return;
 
     const next: Record<string, TokenState> = {};
     Object.keys(positions).forEach((pid) => {
       const px = squareToPixel(positions[pid] ?? 1, pid, cellSize);
-      // duration 0 on initial sync so the token snaps into place instantly on page load
       next[pid] = { ...px, duration: 0, ease: "linear" };
     });
 
@@ -286,6 +236,7 @@ export default function Board({
     setTokenPixels({ ...next });
   }, [cellSize, positions]);
 
+  // ★ FIX 2: requestAnimationFrame loop for 60fps fluid motion on mobile
   runAnimationRef.current = (snap: Room) => {
     const pid = snap.lastRolledBy;
     if (!pid) return;
@@ -294,75 +245,115 @@ export default function Board({
     const finalPos = snap.positions?.[pid] ?? from;
     const diceVal = snap.lastDice ?? 0;
     const naturalEnd = Math.min(100, from + diceVal);
-
-    scheduledTimeoutsRef.current.forEach(clearTimeout);
-    scheduledTimeoutsRef.current = [];
-
-    const stepDelay = 300;
     const steps = naturalEnd - from;
 
-    // ★ PHASE 1: Standard Dice Movement (1 Square at a Time)
-    for (let s = 1; s <= steps; s++) {
-      const targetCell = from + s;
-      const t = setTimeout(() => {
-        const px = squareToPixel(targetCell, pid, cellSizeRef.current);
-        tokenPixelsRef.current = { 
-          ...tokenPixelsRef.current, 
-          // Match CSS transition perfectly to JS delay to prevent stutter
-          [pid]: { ...px, duration: stepDelay, ease: "ease-out" } 
-        };
-        if (isMounted.current) setTokenPixels({ ...tokenPixelsRef.current });
-      }, s * stepDelay);
-      scheduledTimeoutsRef.current.push(t);
-    }
+    if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
 
-    const stepsDuration = steps * stepDelay;
+    const stepDelay = 250; // Slightly faster, feels much more fluid
+    const stepStartTime = performance.now();
+    const stepsTotalDuration = steps * stepDelay;
 
-    // ★ PHASE 2: Snake/Ladder Slide (High frequency JS curve update)
-    if (finalPos !== naturalEnd) {
-      const isSnake = finalPos < naturalEnd;
-      const jumpDelay = stepsDuration + 400;
+    const phase1 = (now: number) => {
+      const elapsed = now - stepStartTime;
+      const progress = Math.min(1, elapsed / stepsTotalDuration);
 
-      const jumpT = setTimeout(() => {
-        const aCenter = cellCenter(naturalEnd, cellSizeRef.current);
-        const bCenter = cellCenter(finalPos, cellSizeRef.current);
-        const offset = getClusterOffset(pid);
+      const exactCell = from + progress * steps;
+      const cellBefore = Math.floor(exactCell);
+      const cellAfter = Math.min(cellBefore + 1, from + steps);
+      const frac = exactCell - cellBefore;
 
-        const aPixel = { x: aCenter.x + offset.x, y: aCenter.y + offset.y };
-        const bPixel = { x: bCenter.x + offset.x, y: bCenter.y + offset.y };
+      const pxBefore = squareToPixel(cellBefore, pid, cellSizeRef.current);
+      const pxAfter = squareToPixel(cellAfter, pid, cellSizeRef.current);
 
-        const curveSteps = 30;
-        const frameDuration = isSnake ? 2000 : 1200;
-        const frameDelay = frameDuration / curveSteps;
+      tokenPixelsRef.current = {
+        ...tokenPixelsRef.current,
+        [pid]: {
+          x: pxBefore.x + (pxAfter.x - pxBefore.x) * frac,
+          y: pxBefore.y + (pxAfter.y - pxBefore.y) * frac,
+          duration: 0,
+          ease: "linear",
+        },
+      };
+      if (isMounted.current) setTokenPixels({ ...tokenPixelsRef.current });
 
-        let waveDir = 1;
-        let curveFactor = 0.15;
+      if (progress < 1) {
+        animFrameRef.current = requestAnimationFrame(phase1);
+      } else {
+        if (finalPos !== naturalEnd) {
+          startJump(pid, naturalEnd, finalPos, cellSizeRef.current);
+        } else {
+          animFrameRef.current = null;
+        }
+      }
+    };
 
+    const startJump = (pid: string, startCell: number, endCell: number, cs: number) => {
+      const isSnake = endCell < startCell;
+      const jumpStartTime = performance.now();
+      const jumpDuration = isSnake ? 1200 : 800;
+
+      const aCenter = cellCenter(startCell, cs);
+      const bCenter = cellCenter(endCell, cs);
+      const offset = getClusterOffset(pid);
+      const aPixel = { x: aCenter.x + offset.x, y: aCenter.y + offset.y };
+      const bPixel = { x: bCenter.x + offset.x, y: bCenter.y + offset.y };
+
+      let waveDir = 1;
+      let curveFactor = 0.15;
+      if (isSnake) {
+        const snakeIndex = Object.keys(SNAKES).indexOf(String(startCell));
+        waveDir = snakeIndex % 2 === 0 ? 1 : -1;
+        const style = CLASSIC_SNAKES[startCell];
+        if (style) curveFactor = style.curveFactor;
+      }
+
+      const phase2 = (now: number) => {
+        const elapsed = now - jumpStartTime;
+        const progress = Math.min(1, elapsed / jumpDuration);
+        const t = progress;
+        const mt = 1 - t;
+
+        let x, y;
         if (isSnake) {
-          const snakeIndex = Object.keys(SNAKES).indexOf(String(naturalEnd));
-          waveDir = snakeIndex % 2 === 0 ? 1 : -1;
-          const style = CLASSIC_SNAKES[naturalEnd];
-          if (style) curveFactor = style.curveFactor;
+          const dx = bPixel.x - aPixel.x;
+          const dy = bPixel.y - aPixel.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nx = -dy / dist;
+          const ny = dx / dist;
+          const offsetMag = dist * curveFactor * waveDir;
+
+          const cp1x = aPixel.x + dx * 0.25 + nx * offsetMag;
+          const cp1y = aPixel.y + dy * 0.25 + ny * offsetMag;
+          const cp2x = aPixel.x + dx * 0.75 - nx * offsetMag;
+          const cp2y = aPixel.y + dy * 0.75 - ny * offsetMag;
+
+          x = mt*mt*mt*aPixel.x + 3*mt*mt*t*cp1x + 3*mt*t*t*cp2x + t*t*t*bPixel.x;
+          y = mt*mt*mt*aPixel.y + 3*mt*mt*t*cp1y + 3*mt*t*t*cp2y + t*t*t*bPixel.y;
+        } else {
+          x = aPixel.x + (bPixel.x - aPixel.x) * t;
+          y = aPixel.y + (bPixel.y - aPixel.y) * t;
         }
 
-        const curvePoints = isSnake
-          ? getPointsAlongCurve(aPixel, bPixel, waveDir, curveSteps, curveFactor)
-          : getPointsAlongLine(aPixel, bPixel, curveSteps);
+        tokenPixelsRef.current = {
+          ...tokenPixelsRef.current,
+          [pid]: { x, y, duration: 0, ease: "linear" },
+        };
+        if (isMounted.current) setTokenPixels({ ...tokenPixelsRef.current });
 
-        curvePoints.forEach((pt, i) => {
-          const frameT = setTimeout(() => {
-            tokenPixelsRef.current = { 
-              ...tokenPixelsRef.current, 
-              // Set duration to frameDelay and linear so it glides perfectly between 66ms ticks
-              [pid]: { ...pt, duration: frameDelay, ease: "linear" } 
-            };
-            if (isMounted.current) setTokenPixels({ ...tokenPixelsRef.current });
-          }, i * frameDelay);
-          scheduledTimeoutsRef.current.push(frameT);
-        });
-      }, jumpDelay);
+        if (progress < 1) {
+          animFrameRef.current = requestAnimationFrame(phase2);
+        } else {
+          animFrameRef.current = null;
+        }
+      };
 
-      scheduledTimeoutsRef.current.push(jumpT);
+      animFrameRef.current = requestAnimationFrame(phase2);
+    };
+
+    if (steps > 0) {
+      animFrameRef.current = requestAnimationFrame(phase1);
+    } else if (finalPos !== naturalEnd) {
+      startJump(pid, naturalEnd, finalPos, cellSizeRef.current);
     }
   };
 
@@ -381,7 +372,7 @@ export default function Board({
       Object.keys(roomData.positions).forEach((pid) => {
         if (shouldSnapAll || !tokenPixelsRef.current[pid]) {
           const px = squareToPixel(roomData.positions![pid] ?? 1, pid, cellSize);
-          next[pid] = { ...px, duration: 0, ease: "linear" }; // Instant snap on load
+          next[pid] = { ...px, duration: 0, ease: "linear" };
         }
       });
 
@@ -422,7 +413,8 @@ export default function Board({
 
   useEffect(() => {
     return () => {
-      scheduledTimeoutsRef.current.forEach(clearTimeout);
+      isMounted.current = false;
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
     };
   }, []);
@@ -451,6 +443,7 @@ export default function Board({
   }, [cellSize]);
 
   const tokenSize = Math.max(10, Math.min(22, cellSize * 0.38));
+  const halfToken = tokenSize / 2; // ★ FIX 3: Pre-compute offset to avoid expensive CSS calc() on mobile
 
   return (
     <div
@@ -738,7 +731,7 @@ export default function Board({
             })}
           </svg>
 
-          {/* Tokens - ★ PERFORMANCE FIX: hardware acceleration + dynamic transition durations */}
+          {/* Tokens - ★ PERFORMANCE FIX: pre-computed pixel offset replaces CSS calc() */}
           {playerIds.map((pid) => {
             const px = tokenPixels[pid];
             if (!px) return null;
@@ -756,7 +749,7 @@ export default function Board({
                   boxShadow: `0 2px 6px rgba(0,0,0,0.6), 0 0 ${tokenSize * 0.4}px rgba(0,0,0,0.2)`,
                   top: 0,
                   left: 0,
-                  transform: `translate3d(calc(${px.x}px - 50%), calc(${px.y}px - 50%), 0)`,
+                  transform: `translate3d(${px.x - halfToken}px, ${px.y - halfToken}px, 0)`,
                   transition: `transform ${px.duration}ms ${px.ease}`,
                   willChange: "transform",
                   zIndex: 20,
