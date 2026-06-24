@@ -17,10 +17,11 @@ interface DiceProps {
 const ROLL_MS = 4500;
 
 // Contact frames (as fraction of ROLL_MS) and their relative impact strength.
+// NOTE: these now match the translateY(0) touchdowns in the keyframes below.
 const IMPACTS: { at: number; strength: number }[] = [
-  { at: 0.30, strength: 1.0 },  // main landing
-  { at: 0.70, strength: 0.5 },  // second bounce
-  { at: 0.84, strength: 0.2 },  // settle tap
+  { at: 0.25, strength: 1.0 }, // main landing
+  { at: 0.58, strength: 0.5 }, // second bounce
+  { at: 0.85, strength: 0.2 }, // settle tap
 ];
 
 // Pip positions as [col, row] in a 3x3 grid, authored for the FRONT view.
@@ -33,12 +34,13 @@ const PIPS: Record<Face, [number, number][]> = {
   6: [[1, 1], [1, 2], [1, 3], [3, 1], [3, 2], [3, 3]],
 };
 
-// Right-handed Western die. Opposite faces sum to 7; 1-2-3 counterclockwise about a vertex.
+// Right-handed Western die. Opposite faces sum to 7; 1-2-3 counterclockwise
+// about a vertex. (3 now on the LEFT, 4 on the RIGHT, to fix the chirality.)
 const FACE_TRANSFORMS: { face: Face; transform: string }[] = [
   { face: 1, transform: "rotateY(0deg)   translateZ(28px)" }, // front
   { face: 6, transform: "rotateY(180deg) translateZ(28px)" }, // back
-  { face: 4, transform: "rotateY(-90deg) translateZ(28px)" }, // left
-  { face: 3, transform: "rotateY(90deg)  translateZ(28px)" }, // right
+  { face: 3, transform: "rotateY(-90deg) translateZ(28px)" }, // left
+  { face: 4, transform: "rotateY(90deg)  translateZ(28px)" }, // right
   { face: 2, transform: "rotateX(90deg)  translateZ(28px)" }, // top
   { face: 5, transform: "rotateX(-90deg) translateZ(28px)" }, // bottom
 ];
@@ -47,15 +49,16 @@ const FACE_TRANSFORMS: { face: Face; transform: string }[] = [
 const BASE_ANGLES: Record<Face, [number, number]> = {
   1: [0, 0],
   6: [0, 180],
-  4: [0, 90],
-  3: [0, -90],
+  3: [0, 90],   // left  → swapped with 4
+  4: [0, -90],  // right → swapped with 3
   2: [-90, 0],
   5: [90, 0],
 };
 
-const prefersReducedMotion = () =>
-  typeof window !== "undefined" &&
-  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const reducedMotionQuery = () =>
+  typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(prefers-reduced-motion: reduce)")
+    : null;
 
 /* ---------- Built-in feedback (Web Audio + Vibration) ---------- */
 
@@ -68,7 +71,10 @@ function getAudioCtx(): AudioContext | null {
       if (!Ctx) return null;
       audioCtx = new Ctx();
     }
-    if (audioCtx.state === "suspended") audioCtx.resume();
+    if (audioCtx.state === "suspended") {
+      // resume() is async; swallow the rejection so we never throw on a gesture.
+      audioCtx.resume().catch(() => {});
+    }
     return audioCtx;
   } catch {
     return null;
@@ -78,7 +84,7 @@ function getAudioCtx(): AudioContext | null {
 // Short woody "tok" — filtered noise burst + low body, scaled by strength.
 function playClack(strength: number) {
   const ctx = getAudioCtx();
-  if (!ctx) return;
+  if (!ctx || ctx.state !== "running") return;
   const now = ctx.currentTime;
   const gain = ctx.createGain();
   const vol = 0.06 + strength * 0.18;
@@ -165,11 +171,16 @@ export default function Dice({
   const [isAnimating, setIsAnimating] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [settled, setSettled] = useState(false);
-  const [rollNonce, setRollNonce] = useState(0);
+  const [pending, setPending] = useState(false); // guards the await window
+
+  // reactive reduced-motion flag
+  const [reducedMotion, setReducedMotion] = useState<boolean>(
+    () => reducedMotionQuery()?.matches ?? false
+  );
 
   const processedRollKeyRef = useRef("");
   const didInitRef = useRef(false);
-  
+
   const onRollCompleteRef = useRef(onRollComplete);
   const onImpactRef = useRef(onImpact);
   const feedbackRef = useRef(feedback);
@@ -177,7 +188,12 @@ export default function Dice({
   const prevTargetX = useRef(0);
   const prevTargetY = useRef(0);
 
+  // Element we restart the bounce keyframes on (no React remount → keeps the
+  // inner cube's transform transition alive).
+  const bounceRef = useRef<HTMLDivElement>(null);
+
   const finishTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impactTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
@@ -186,12 +202,36 @@ export default function Dice({
     feedbackRef.current = feedback;
   }, [onRollComplete, onImpact, feedback]);
 
-  const isBusy = disabled || rolling;
+  // Keep reduced-motion preference reactive.
+  useEffect(() => {
+    const mql = reducedMotionQuery();
+    if (!mql) return;
+    const handler = (e: MediaQueryListEvent) => setReducedMotion(e.matches);
+    mql.addEventListener?.("change", handler);
+    return () => mql.removeEventListener?.("change", handler);
+  }, []);
+
+  const isBusy = disabled || rolling || pending;
 
   const clearAllTimers = () => {
     if (finishTimeoutRef.current) clearTimeout(finishTimeoutRef.current);
+    if (settleTimeoutRef.current) clearTimeout(settleTimeoutRef.current);
     impactTimeoutsRef.current.forEach(clearTimeout);
     impactTimeoutsRef.current = [];
+  };
+
+  const scheduleSettle = () => {
+    setSettled(true);
+    if (settleTimeoutRef.current) clearTimeout(settleTimeoutRef.current);
+    settleTimeoutRef.current = setTimeout(() => setSettled(false), 1200);
+  };
+
+  const restartBounce = () => {
+    const el = bounceRef.current;
+    if (!el) return;
+    el.classList.remove("bouncing-dice");
+    void el.offsetWidth; // force reflow to restart the keyframes
+    el.classList.add("bouncing-dice");
   };
 
   const fireImpact = (strength: number) => {
@@ -206,7 +246,7 @@ export default function Dice({
   useEffect(() => {
     if (didInitRef.current) return;
     didInitRef.current = true;
-    
+
     if (lastDice != null) {
       const [bx, by] = BASE_ANGLES[lastDice];
       prevTargetX.current = bx;
@@ -220,20 +260,21 @@ export default function Dice({
   useEffect(() => {
     if (lastDice == null) return;
     if (!rollKey || processedRollKeyRef.current === rollKey) return;
-    
+
     processedRollKeyRef.current = rollKey;
 
     const [tx, ty] = BASE_ANGLES[lastDice];
 
-    if (prefersReducedMotion()) {
+    if (reducedMotion) {
+      clearAllTimers();
       prevTargetX.current = tx;
       prevTargetY.current = ty;
       setIsAnimating(false);
+      setRolling(false);
       setRollZ(0);
       setWobble({ x: 0, y: 0 });
       setRotations({ x: tx, y: ty });
-      setSettled(true);
-      setTimeout(() => setSettled(false), 1200);
+      scheduleSettle();
       onRollCompleteRef.current?.();
       return;
     }
@@ -243,8 +284,8 @@ export default function Dice({
     setWobble({ x: 0, y: 0 });
 
     clearAllTimers();
-    setRollNonce((n) => n + 1);
     setIsAnimating(true);
+    restartBounce();
 
     setRotations((prev) => {
       const baseX = Math.round((prev.x - prevTargetX.current) / 360) * 360;
@@ -277,11 +318,10 @@ export default function Dice({
       setIsAnimating(false);
       setRollZ(0);
       setWobble({ x: 0, y: 0 });
-      setSettled(true);
-      setTimeout(() => setSettled(false), 1200);
+      scheduleSettle();
       onRollCompleteRef.current?.();
     }, ROLL_MS);
-  }, [rollKey, lastDice]);
+  }, [rollKey, lastDice, reducedMotion]);
 
   useEffect(() => clearAllTimers, []);
 
@@ -302,6 +342,7 @@ export default function Dice({
 
   const handleClick = async () => {
     if (isBusy) return;
+    setPending(true);
     getAudioCtx(); // unlock audio on the user gesture
     try {
       await onRoll();
@@ -311,6 +352,8 @@ export default function Dice({
       setIsAnimating(false);
       setWobble({ x: 0, y: 0 });
       setSettled(false);
+    } finally {
+      setPending(false);
     }
   };
 
@@ -340,11 +383,22 @@ export default function Dice({
           100% { filter: drop-shadow(0 3px 6px rgba(0,0,0,0.6)) drop-shadow(0 0 12px rgba(245, 158, 11, 0.25)); }
         }
         .settled-dice { animation: settle-glow 1.2s ease-out forwards; }
+
+        .sr-only {
+          position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+          overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+        }
       `}</style>
+
+      {/* Screen-reader announcement of the latest result */}
+      <span className="sr-only" aria-live="polite">
+        {!rolling && lastDice != null ? `Rolled a ${lastDice}` : ""}
+      </span>
 
       <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
         <div
           className={settled ? "settled-dice" : ""}
+          aria-hidden="true"
           style={{
             width: 56,
             height: 56,
@@ -356,19 +410,20 @@ export default function Dice({
               : "drop-shadow(0 3px 6px rgba(0,0,0,0.6)) drop-shadow(0 0 12px rgba(245, 158, 11, 0.25))",
           }}
         >
-          <div key={rollNonce} className={isAnimating ? "bouncing-dice" : ""} style={{ width: "100%", height: "100%" }}>
+          {/* Bounce layer — keyframes restarted imperatively, NOT remounted */}
+          <div ref={bounceRef} style={{ width: "100%", height: "100%" }}>
             <div className={isAnimating ? "dice-tilt" : ""} style={{ width: "100%", height: "100%" }}>
               {/* Wobble Wrapper */}
               <div
                 style={{
-                  width: "100%", 
+                  width: "100%",
                   height: "100%",
                   transformStyle: "preserve-3d",
                   transform: `rotateX(${wobble.x}deg) rotateY(${wobble.y}deg)`,
                   transition: "transform 0.15s ease-out",
                 }}
               >
-                {/* Main Transform Inner Cube */}
+                {/* Main Transform Inner Cube (persistent → transition animates) */}
                 <div
                   style={{
                     width: "100%",
@@ -397,6 +452,8 @@ export default function Dice({
           className="btn-primary"
           onClick={handleClick}
           disabled={isBusy}
+          aria-label="Roll the dice"
+          aria-busy={rolling || pending}
           style={{ minHeight: 44, minWidth: 100 }}
         >
           {rolling ? "Rolling..." : "Roll Dice"}
