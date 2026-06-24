@@ -15,8 +15,6 @@ interface DiceProps {
 const ROLL_MS = 4500;
 
 // Physics impacts mapped to animation keyframes
-// FIX #9: added a 4th, very light impact matching the final 93%->100% settle-dip
-// in the throw-and-bounce keyframes, which previously had no sound/haptic/wobble.
 const IMPACTS: { at: number; strength: number }[] = [
   { at: 0.25, strength: 1.0 },
   { at: 0.58, strength: 0.5 },
@@ -24,7 +22,6 @@ const IMPACTS: { at: number; strength: number }[] = [
   { at: 0.97, strength: 0.08 },
 ];
 
-// Right-handed Western die. Opposite faces sum to 7; 1-2-3 counterclockwise
 const PIPS: Record<Face, [number, number][]> = {
   1: [[2, 2]],
   2: [[1, 1], [3, 3]],
@@ -57,7 +54,7 @@ const reducedMotionQuery = () =>
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
     : null;
 
-/* ---------- High-Tech Audio Engine (Cached & Synthesized) ---------- */
+/* ---------- Audio Engine ---------- */
 
 let audioCtx: AudioContext | null = null;
 let noiseBufferCache: AudioBuffer | null = null;
@@ -65,7 +62,6 @@ let noiseBufferCache: AudioBuffer | null = null;
 function getAudioCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
   try {
-    // FIX #6: a browser/OS can transition an existing AudioContext to "closed"
     if (!audioCtx || audioCtx.state === "closed") {
       const Ctx = window.AudioContext || (window as any).webkitAudioContext;
       if (!Ctx) return null;
@@ -80,7 +76,6 @@ function getAudioCtx(): AudioContext | null {
   }
 }
 
-// Generate noise buffer once to prevent GC spikes during animation
 function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
   if (!noiseBufferCache) {
     const len = Math.floor(ctx.sampleRate * 0.05);
@@ -93,7 +88,6 @@ function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
 }
 
 function playClack(strength: number) {
-  // FIX #7: wrap the whole thing in try/catch to handle Web Audio failures cleanly.
   try {
     const ctx = getAudioCtx();
     if (!ctx) return; 
@@ -105,7 +99,6 @@ function playClack(strength: number) {
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12 + strength * 0.08);
     gain.connect(ctx.destination);
 
-    // Noise burst (the "tick")
     const noise = ctx.createBufferSource();
     noise.buffer = getNoiseBuffer(ctx);
     const bp = ctx.createBiquadFilter();
@@ -114,7 +107,6 @@ function playClack(strength: number) {
     bp.Q.value = 0.9;
     noise.connect(bp).connect(gain);
 
-    // Low body thud
     const osc = ctx.createOscillator();
     osc.type = "triangle";
     osc.frequency.setValueAtTime(240 - strength * 80, now);
@@ -129,7 +121,7 @@ function playClack(strength: number) {
     osc.start(now);
     osc.stop(now + 0.12);
   } catch {
-    // Audio is best-effort; never let it break the roll.
+    // Audio is best-effort
   }
 }
 
@@ -163,27 +155,22 @@ export default function Dice({
 
   const processedRollKeyRef = useRef("");
 
-  // Refs to bypass React reconciliation during high-frequency animation updates
   const onRollCompleteRef = useRef(onRollComplete);
   const onImpactRef = useRef(onImpact);
   const feedbackRef = useRef(feedback);
 
-  // Bypass React state for visual physics (wobble) to prevent frame drops
   const wobbleRef = useRef<HTMLDivElement>(null);
   const shadowRef = useRef<HTMLDivElement>(null);
 
-  // Pure math tracking for 3D rotation paths
   const currentRotRef = useRef({ x: 0, y: 0 });
   const prevTargetX = useRef(0);
   const prevTargetY = useRef(0);
-  // FIX #1: track accumulated Z spin 
   const currentZRef = useRef(0);
 
   const bounceRef = useRef<HTMLDivElement>(null);
   const finishTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impactTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
-  // FIX #4: track the wobble's requestAnimationFrame id
   const wobbleRafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -213,9 +200,8 @@ export default function Dice({
     }
   };
 
-  // FIX #8: force a real class toggle + prevent phantom timers on reduced-motion
   const scheduleSettle = () => {
-    if (reducedMotion) return; // Saves JS from scheduling state changes invisible to the user
+    if (reducedMotion) return; 
 
     setSettled(false);
     requestAnimationFrame(() => setSettled(true));
@@ -227,12 +213,11 @@ export default function Dice({
     const el = bounceRef.current;
     const shadow = shadowRef.current;
     
-    // Centers row before animating to avoid body overflow: hidden clipping
     el?.scrollIntoView({ block: "center", behavior: "instant" });
 
     if (el) {
       el.classList.remove("bouncing-dice");
-      void el.offsetWidth; // Force reflow
+      void el.offsetWidth; 
       el.classList.add("bouncing-dice");
     }
     if (shadow) {
@@ -242,7 +227,7 @@ export default function Dice({
     }
   };
 
-  // FIX #3 & #4: Damped Harmonic Oscillator for micro-wobble
+  // ★ PERFORMANCE FIX: Use performance.now() and force translateZ(0) for composite layer segregation
   const applyDampedWobble = (strength: number) => {
     const el = wobbleRef.current;
     if (!el) return;
@@ -253,22 +238,24 @@ export default function Dice({
     }
 
     const amp = 6 * strength;
-    const gamma = 4; // Damping factor
-    const omega = 18; // Frequency
+    const gamma = 4; 
+    const omega = 18; 
 
     let start: number | null = null;
-    const animateWobble = (now: number) => {
+    const animateWobble = () => {
+      const now = performance.now(); // High precision timestamp
       if (start === null) start = now;
       const t = now - start;
       const decay = Math.exp(-gamma * (t / 1000));
       const offset = amp * decay * Math.cos(omega * (t / 1000));
 
       if (Math.abs(offset) < 0.1) {
-        el.style.transform = "rotateX(0deg) rotateY(0deg)";
+        // translateZ(0px) explicitly forces mobile browsers to keep this on the GPU
+        el.style.transform = "rotateX(0deg) rotateY(0deg) translateZ(0px)"; 
         wobbleRafRef.current = null;
         return;
       }
-      el.style.transform = `rotateX(${offset}deg) rotateY(${offset * 0.5}deg)`;
+      el.style.transform = `rotateX(${offset}deg) rotateY(${offset * 0.5}deg) translateZ(0px)`;
       wobbleRafRef.current = requestAnimationFrame(animateWobble);
     };
     wobbleRafRef.current = requestAnimationFrame(animateWobble);
@@ -304,7 +291,6 @@ export default function Dice({
     if (reducedMotion) {
       clearAllTimers();
 
-      // FIX #2: use the same "shortest physical path" math
       const baseX = Math.round((currentRotRef.current.x - prevTargetX.current) / 360) * 360;
       const baseY = Math.round((currentRotRef.current.y - prevTargetY.current) / 360) * 360;
       const newX = baseX + tx;
@@ -329,7 +315,6 @@ export default function Dice({
     setIsAnimating(true);
     restartBounce();
 
-    // Calculate shortest physical path safely outside React state updater
     const prevX = currentRotRef.current.x;
     const prevY = currentRotRef.current.y;
 
@@ -348,7 +333,6 @@ export default function Dice({
 
     setRotations({ x: newX, y: newY });
 
-    // FIX #1: accumulate from the die's actual current Z angle
     const zSpin = (Math.floor(Math.random() * 4) + 3) * 360 * (Math.random() < 0.5 ? -1 : 1);
     const newZ = currentZRef.current + zSpin;
     currentZRef.current = newZ;
@@ -417,14 +401,14 @@ export default function Dice({
         }
         .bouncing-dice { animation: throw-and-bounce ${ROLL_MS}ms forwards; }
 
-        /* Dynamic Shadow maps inverse to height */
+        /* ★ PERFORMANCE FIX: Removed blur() filter, relying purely on opacity + scale */
         @keyframes physics-shadow {
-          0%   { transform: scale(0.4) translateY(10px); opacity: 0.1; filter: blur(8px); }
-          25%  { transform: scale(1.0) translateY(0); opacity: 0.6; filter: blur(2px); }
-          40%  { transform: scale(0.6) translateY(6px); opacity: 0.2; filter: blur(6px); }
-          58%  { transform: scale(0.9) translateY(2px); opacity: 0.5; filter: blur(3px); }
-          85%  { transform: scale(0.98) translateY(0); opacity: 0.55; filter: blur(2px); }
-          100% { transform: scale(1) translateY(0); opacity: 0.6; filter: blur(2px); }
+          0%   { transform: scale(0.4) translateY(10px); opacity: 0.1; }
+          25%  { transform: scale(1.0) translateY(0); opacity: 0.6; }
+          40%  { transform: scale(0.6) translateY(6px); opacity: 0.2; }
+          58%  { transform: scale(0.9) translateY(2px); opacity: 0.5; }
+          85%  { transform: scale(0.98) translateY(0); opacity: 0.55; }
+          100% { transform: scale(1) translateY(0); opacity: 0.6; }
         }
         .physics-shadow { animation: physics-shadow ${ROLL_MS}ms forwards; }
 
@@ -470,13 +454,23 @@ export default function Dice({
               transformStyle: "preserve-3d",
             }}
           >
-            <div ref={bounceRef} style={{ width: "100%", height: "100%", transformStyle: "preserve-3d" }}>
+            {/* ★ PERFORMANCE FIX: will-change applied here */}
+            <div 
+              ref={bounceRef} 
+              style={{ 
+                width: "100%", 
+                height: "100%", 
+                transformStyle: "preserve-3d",
+                willChange: "transform" 
+              }}
+            >
               <div
                 ref={wobbleRef}
                 style={{
                   width: "100%",
                   height: "100%",
                   transformStyle: "preserve-3d",
+                  willChange: "transform" /* Ensures the wobble layer gets accelerated */
                 }}
               >
                 <div
@@ -510,6 +504,7 @@ export default function Dice({
             </div>
           </div>
 
+          {/* ★ PERFORMANCE FIX: Baked-in radial gradient replaces expensive blur() filter */}
           <div
             ref={shadowRef}
             style={{
@@ -519,12 +514,12 @@ export default function Dice({
               width: 56,
               height: 16,
               marginLeft: -28,
-              backgroundColor: "rgba(0,0,0,0.6)",
+              background: "radial-gradient(ellipse at center, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 70%)",
               borderRadius: "50%",
               transform: "scale(1) translateY(0)",
               opacity: 0.6,
-              filter: "blur(2px)",
               zIndex: -1,
+              willChange: "transform, opacity"
             }}
           />
         </div>

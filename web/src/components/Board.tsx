@@ -65,7 +65,6 @@ function squareToPixel(squareNum: number, pid: string, cellSize: number) {
   };
 }
 
-// ★ NEW: Container-aware sizing — returns both cellSize AND borderPadding
 function calculateBoardMetrics(
   containerWidth: number,
   containerHeight: number
@@ -74,7 +73,6 @@ function calculateBoardMetrics(
     return { cellSize: 50, borderPadding: 14 };
   }
 
-  // Golden border padding scales with container size (4px min, 14px max)
   const minDim = Math.min(containerWidth, containerHeight);
   const borderPadding = Math.max(4, Math.min(14, Math.round(minDim * 0.025)));
 
@@ -146,6 +144,14 @@ interface BoardProps {
   dimensions?: { width: number; height: number };
 }
 
+// ★ NEW: Track duration and easing dynamically for lag-free token updates
+interface TokenState {
+  x: number;
+  y: number;
+  duration: number;
+  ease: string;
+}
+
 // ── Per-snake visual config ───────────────────────────────────────────────────
 
 const SNAKE_WAYPOINTS: Record<number, { c: number; ox?: number; oy?: number }[]> = {
@@ -212,11 +218,9 @@ export default function Board({
     []
   );
 
-  // ★ NEW: Computed cellSize + borderPadding from container dimensions
   const [fallbackDims, setFallbackDims] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    // If we have real container dimensions, skip window fallback
     if (dimensions && dimensions.width > 0 && dimensions.height > 0) return;
 
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -257,12 +261,12 @@ export default function Board({
   const pendingRoomDataRef = useRef<Room | null>(null);
   const scheduledTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const runAnimationRef = useRef<((snap: Room) => void) | null>(null);
-  const tokenPixelsRef = useRef<Record<string, { x: number; y: number }>>({});
+  const tokenPixelsRef = useRef<Record<string, TokenState>>({});
   const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [tokenPixels, setTokenPixels] = useState<Record<string, { x: number; y: number }>>({});
+  // ★ NEW: Stateful tokens now contain x, y, duration, and ease
+  const [tokenPixels, setTokenPixels] = useState<Record<string, TokenState>>({});
 
-  // Sync positions when they change or cellSize changes
   useEffect(() => {
     const cellSizeChanged = prevCellSizeRef.current !== cellSize;
     if (cellSizeChanged) {
@@ -271,9 +275,11 @@ export default function Board({
 
     if (scheduledTimeoutsRef.current.length > 0 && !cellSizeChanged) return;
 
-    const next: Record<string, { x: number; y: number }> = {};
+    const next: Record<string, TokenState> = {};
     Object.keys(positions).forEach((pid) => {
-      next[pid] = squareToPixel(positions[pid] ?? 1, pid, cellSize);
+      const px = squareToPixel(positions[pid] ?? 1, pid, cellSize);
+      // duration 0 on initial sync so the token snaps into place instantly on page load
+      next[pid] = { ...px, duration: 0, ease: "linear" };
     });
 
     tokenPixelsRef.current = next;
@@ -295,11 +301,16 @@ export default function Board({
     const stepDelay = 300;
     const steps = naturalEnd - from;
 
+    // ★ PHASE 1: Standard Dice Movement (1 Square at a Time)
     for (let s = 1; s <= steps; s++) {
       const targetCell = from + s;
       const t = setTimeout(() => {
         const px = squareToPixel(targetCell, pid, cellSizeRef.current);
-        tokenPixelsRef.current = { ...tokenPixelsRef.current, [pid]: px };
+        tokenPixelsRef.current = { 
+          ...tokenPixelsRef.current, 
+          // Match CSS transition perfectly to JS delay to prevent stutter
+          [pid]: { ...px, duration: stepDelay, ease: "ease-out" } 
+        };
         if (isMounted.current) setTokenPixels({ ...tokenPixelsRef.current });
       }, s * stepDelay);
       scheduledTimeoutsRef.current.push(t);
@@ -307,6 +318,7 @@ export default function Board({
 
     const stepsDuration = steps * stepDelay;
 
+    // ★ PHASE 2: Snake/Ladder Slide (High frequency JS curve update)
     if (finalPos !== naturalEnd) {
       const isSnake = finalPos < naturalEnd;
       const jumpDelay = stepsDuration + 400;
@@ -339,7 +351,11 @@ export default function Board({
 
         curvePoints.forEach((pt, i) => {
           const frameT = setTimeout(() => {
-            tokenPixelsRef.current = { ...tokenPixelsRef.current, [pid]: pt };
+            tokenPixelsRef.current = { 
+              ...tokenPixelsRef.current, 
+              // Set duration to frameDelay and linear so it glides perfectly between 66ms ticks
+              [pid]: { ...pt, duration: frameDelay, ease: "linear" } 
+            };
             if (isMounted.current) setTokenPixels({ ...tokenPixelsRef.current });
           }, i * frameDelay);
           scheduledTimeoutsRef.current.push(frameT);
@@ -360,11 +376,12 @@ export default function Board({
 
     if (roomData.positions) {
       const shouldSnapAll = !roomData.lastDice;
-      const next: Record<string, { x: number; y: number }> = {};
+      const next: Record<string, TokenState> = {};
 
       Object.keys(roomData.positions).forEach((pid) => {
         if (shouldSnapAll || !tokenPixelsRef.current[pid]) {
-          next[pid] = squareToPixel(roomData.positions![pid] ?? 1, pid, cellSize);
+          const px = squareToPixel(roomData.positions![pid] ?? 1, pid, cellSize);
+          next[pid] = { ...px, duration: 0, ease: "linear" }; // Instant snap on load
         }
       });
 
@@ -433,7 +450,6 @@ export default function Board({
     }[];
   }, [cellSize]);
 
-  // ★ Token size scales with cellSize for visual clarity
   const tokenSize = Math.max(10, Math.min(22, cellSize * 0.38));
 
   return (
@@ -445,7 +461,6 @@ export default function Board({
         fontFamily: "inherit",
       }}
     >
-      {/* ★ Dynamic borderPadding + enhanced glow */}
       <div
         style={{
           padding: borderPadding,
@@ -723,7 +738,7 @@ export default function Board({
             })}
           </svg>
 
-          {/* Tokens */}
+          {/* Tokens - ★ PERFORMANCE FIX: hardware acceleration + dynamic transition durations */}
           {playerIds.map((pid) => {
             const px = tokenPixels[pid];
             if (!px) return null;
@@ -741,8 +756,9 @@ export default function Board({
                   boxShadow: `0 2px 6px rgba(0,0,0,0.6), 0 0 ${tokenSize * 0.4}px rgba(0,0,0,0.2)`,
                   top: 0,
                   left: 0,
-                  transform: `translate(calc(${px.x}px - 50%), calc(${px.y}px - 50%))`,
-                  transition: "transform 0.1s linear",
+                  transform: `translate3d(calc(${px.x}px - 50%), calc(${px.y}px - 50%), 0)`,
+                  transition: `transform ${px.duration}ms ${px.ease}`,
+                  willChange: "transform",
                   zIndex: 20,
                   pointerEvents: "none",
                   userSelect: "none",

@@ -13,6 +13,7 @@ import {
   rollDice,
   subscribeMessages,
   Room,
+  RoomMessage, // ★ STRICT TS: Imported RoomMessage
 } from "./firebase/rooms";
 
 import { usePlayerStorage } from "./hooks/usePlayerStorage";
@@ -50,7 +51,8 @@ export default function App() {
   const [diceComplete, setDiceComplete] = useState<boolean>(true);
   const { countdown } = useGameSync(roomData, playerId);
 
-  const [messages, setMessages] = useState<any[]>([]);
+  // ★ STRICT TS: Removed any[]
+  const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [chatOpen, setChatOpen] = useState<boolean>(isTablet);
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
@@ -104,7 +106,7 @@ export default function App() {
     };
   }, [roomData?.status]);
 
-  // ★★★ FIX 1: VisualViewport keyboard detection for mobile drawer ★★★
+  // ★ VisualViewport keyboard detection for mobile drawer
   useEffect(() => {
     if (isTablet || !chatOpen) return;
 
@@ -119,7 +121,6 @@ export default function App() {
         const drawer = drawerRef.current;
         if (!drawer) return;
         if (kh > 50) {
-          // ★ Use bottom instead of transform — drawer sits directly above keyboard
           drawer.style.bottom = `${kh}px`;
           drawer.style.height = `${(window.innerHeight - kh) * 0.85}px`;
           drawer.classList.add('keyboard-active');
@@ -141,7 +142,7 @@ export default function App() {
     };
   }, [isTablet, chatOpen]);
 
-  // ★★★ FIX 2: Lock body scroll when mobile chat drawer is open ★★★
+  // ★ Lock body scroll when mobile chat drawer is open
   useEffect(() => {
     if (chatOpen && !isTablet) {
       const prev = document.body.style.overflow;
@@ -229,8 +230,8 @@ export default function App() {
       const id = await createRoom(playerId, playerName.trim(), playerColor);
       setJoinId(id);
       setActiveRoomId(id);
-    } catch (e: any) {
-      setError(e.message || "Failed to create room");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to create room");
     } finally {
       setLoading(false);
     }
@@ -247,8 +248,8 @@ export default function App() {
     try {
       await joinRoom(trimmedId, playerId, playerName.trim(), playerColor);
       setActiveRoomId(trimmedId);
-    } catch (e: any) {
-      setError(e.message || "Failed to join room");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to join room");
     } finally {
       setLoading(false);
     }
@@ -260,8 +261,8 @@ export default function App() {
     setError("");
     try {
       await startGame(activeRoomId, playerId);
-    } catch (e: any) {
-      setError(e.message || "Failed to start game");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to start game");
     } finally {
       setLoading(false);
     }
@@ -273,8 +274,8 @@ export default function App() {
     setError("");
     try {
       await rollDice(activeRoomId, playerId);
-    } catch (e: any) {
-      setError(e.message || "Failed to roll dice");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to roll dice");
       setLoading(false);
     }
   };
@@ -412,7 +413,6 @@ export default function App() {
   const isPlayingOrFinished =
     roomData?.status === "playing" || roomData?.status === "finished";
 
-  // ★★★ FIX 3: Close chat drawer helper ★★★
   const closeChatDrawer = useCallback(() => {
     setChatOpen(false);
     const drawer = drawerRef.current;
@@ -502,7 +502,7 @@ export default function App() {
                   color: "#fff",
                   padding: "8px 16px",
                   borderRadius: 6,
-                  zIndex: 1000,
+                  zIndex: "var(--z-modal)", // ★ DESIGN TOKEN
                   fontSize: 14,
                   fontWeight: 600,
                   display: "flex",
@@ -694,9 +694,9 @@ export default function App() {
                               setError("");
                               try {
                                 await startGame(activeRoomId, playerId);
-                              } catch (e: any) {
+                              } catch (e: unknown) {
                                 setError(
-                                  e.message || "Failed to restart game"
+                                  e instanceof Error ? e.message : "Failed to restart game"
                                 );
                               }
                             }}
@@ -789,7 +789,7 @@ export default function App() {
               backgroundColor: "var(--accent)",
               color: "white",
               fontSize: 24,
-              zIndex: 900,
+              zIndex: "var(--z-drawer)", // ★ DESIGN TOKEN
               boxShadow: "var(--shadow-lg)",
               display: "flex",
               alignItems: "center",
@@ -818,7 +818,7 @@ export default function App() {
           </button>
         )}
 
-        {/* ★★★ MOBILE CHAT: SLIDE-UP DRAWER — Keyboard-aware ★★★ */}
+        {/* MOBILE CHAT: SLIDE-UP DRAWER — Keyboard-aware */}
         {!isTablet && activeRoomId && (
           <>
             <div
