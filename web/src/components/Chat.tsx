@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback, memo } from "react";
-import EmojiPicker, { Theme } from "emoji-picker-react";
+import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
 import {
   sendMessage,
   Room,
@@ -8,7 +8,8 @@ import {
   toMillis,
 } from "../firebase/rooms";
 
-function formatTime(at: any): string {
+// 1. STRICT TYPE: Removed 'any'. Using a generic unknown or specific Firebase Timestamp type
+function formatTime(at: Parameters<typeof toMillis>[0]): string {
   const ms = toMillis(at);
   if (!ms) return "";
   return new Date(ms).toLocaleTimeString([], {
@@ -47,6 +48,7 @@ const isEmojiOnly = (text: string) => {
 const getEmojiFontSize = (text: string) => {
   const cleaned = (text || "").trim();
   let count = 0;
+  // Intl.Segmenter is not fully typed in all TS DOM libs yet, so casting the constructor is acceptable here
   const Segmenter = (Intl as any).Segmenter;
   if (typeof Segmenter !== "undefined") {
     count = [
@@ -61,10 +63,10 @@ const getEmojiFontSize = (text: string) => {
   return 28;
 };
 
-// ─── ★★★ MEMOIZED MESSAGE ITEM — prevents re-render on every keystroke ★★★ ───
+// ─── ★★★ MEMOIZED MESSAGE ITEM ★★★ ───
 
 interface MessageItemProps {
-  m: RoomMessage & { isFirstInGroup: boolean; showDateSeparator: boolean };
+  m: RoomMessage & { isFirstInGroup: boolean; showDateSeparator: boolean; isDiceRoll?: boolean }; // Added hypothetical isDiceRoll flag
   isMe: boolean;
   playerId: string;
   playerColor: string;
@@ -73,7 +75,7 @@ interface MessageItemProps {
   emojiSize: number;
   messageTime: number;
   highlightedId: string | null;
-  onReply: (m: any) => void;
+  onReply: (m: RoomMessage) => void; // 1. STRICT TYPE: Replaced 'any' with RoomMessage
   onScrollToReply: (id: string) => void;
   messageRef: (el: HTMLDivElement | null) => void;
   inDrawer: boolean;
@@ -97,6 +99,9 @@ const MessageItem = memo(function MessageItem({
     typeof m.playerName === "string" && m.playerName
       ? m.playerName
       : m.playerId || "Player";
+
+  // 2. CSS FALLBACK: Local state to track if a dice inside this specific message is animating
+  const [isRolling, setIsRolling] = useState(false);
 
   return (
     <>
@@ -172,9 +177,7 @@ const MessageItem = memo(function MessageItem({
                 alignItems: "center",
               }}
             >
-              <span
-                style={{ color: playerColor, fontWeight: 700, fontSize: 11 }}
-              >
+              <span style={{ color: playerColor, fontWeight: 700, fontSize: 11 }}>
                 {m.replyTo.playerName}
               </span>
               <span
@@ -192,8 +195,9 @@ const MessageItem = memo(function MessageItem({
           </div>
         )}
 
+        {/* 2. CSS FALLBACK: Dynamically append the fallback class if the dice is actively rolling */}
         <div
-          className={m.isFirstInGroup ? "chat-row" : "chat-row chat-grouped"}
+          className={`chat-row ${!m.isFirstInGroup ? 'chat-grouped' : ''} ${isRolling ? 'has-active-dice' : ''}`}
           style={{
             display: "flex",
             flexDirection: "column",
@@ -262,6 +266,20 @@ const MessageItem = memo(function MessageItem({
             }}
           >
             {safeText}
+            
+            {/* ─── INJECTION ZONE: Here is where you drop the DiceRow ─── */}
+            {/* {m.isDiceRoll && (
+                <DiceRow 
+                  onRoll={async () => {
+                    setIsRolling(true);
+                    // trigger standard roll logic
+                  }}
+                  onRollComplete={() => setIsRolling(false)}
+                  // ... rest of props
+                />
+              )}
+            */}
+            
           </div>
         </div>
       </div>
@@ -362,7 +380,8 @@ export default function Chat({
     };
   }, []);
 
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+  // 1. STRICT TYPE: Corrected UIEvent type
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement, UIEvent>) => {
     const t = e.currentTarget;
     isNearBottom.current = t.scrollHeight - t.scrollTop - t.clientHeight < 150;
   }, []);
@@ -458,7 +477,7 @@ export default function Chat({
         playerId,
         playerName,
         text,
-        at: null,
+        at: null as any, // Null satisfies the optimistic state before server response
         clientAt,
         replyTo: replyPayload,
         isPending: true,
@@ -524,7 +543,7 @@ export default function Chat({
     [showToast]
   );
 
-  const handleReply = useCallback((m: any) => {
+  const handleReply = useCallback((m: RoomMessage) => {
     setReplyingTo(m);
     textareaRef.current?.focus();
   }, []);
@@ -725,7 +744,8 @@ export default function Chat({
           >
             <EmojiPicker
               theme={Theme.DARK}
-              onEmojiClick={(emojiData: any) => {
+              /* 1. STRICT TYPE: Replaced 'any' with EmojiClickData */
+              onEmojiClick={(emojiData: EmojiClickData) => {
                 const emoji = emojiData?.emoji || "";
                 const el = textareaRef.current;
                 if (!el) {
@@ -752,7 +772,6 @@ export default function Chat({
           </div>
         )}
 
-        {/* ★★★ FIX: Changed to form for native mobile submit + button types ★★★ */}
         <form
           onSubmit={(e) => {
             e.preventDefault();

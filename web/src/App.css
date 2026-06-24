@@ -18,8 +18,7 @@
   --text-link: #38bdf8;
 
   --accent: oklch(62% 0.19 255); 
-  /* --accent-hover removed: relying on filter: brightness() for dynamic interaction */
-
+  
   --online: #3b82f6;
   --mention: rgba(56, 189, 248, 0.12);
   --danger: oklch(63% 0.22 25);  
@@ -31,7 +30,10 @@
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.3);
-  --shadow-glow: 0 0 0 1px rgba(59, 130, 246, 0.2), 0 4px 16px rgba(59, 130, 246, 0.25);
+  
+  /* Derived dynamically from --accent */
+  --shadow-glow: 0 0 0 1px color-mix(in oklch, var(--accent) 20%, transparent), 
+                 0 4px 16px color-mix(in oklch, var(--accent) 25%, transparent);
 
   /* Typography */
   --font-stack: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -53,7 +55,9 @@
 
   /* Layout Components */
   --avatar-size: 40px;
-  --header-h: 44px; /* was --space-12 (≈56px), now a dedicated smaller token */
+  --avatar-ring-color: var(--accent);
+  --header-h: 44px;
+  
   /* Radius */
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -62,10 +66,10 @@
 
   /* Z-Index Scale */
   --z-base: 1;
-  --z-dropdown: 10;
   --z-sticky: 100;
-  --z-drawer: 500;
+  --z-dropdown: 200; /* Elevated above sticky */
   --z-backdrop: 499;
+  --z-drawer: 500;
   --z-modal: 1000;
 
   /* Motion */
@@ -101,7 +105,6 @@ body {
   color-scheme: dark; 
 }
 
-/* Base-layer noise texture (prevents banding, avoids muddying glass UI) */
 body::after {
   content: "";
   position: fixed;
@@ -133,7 +136,6 @@ button, input, textarea {
    3. ACCESSIBILITY & SCROLLBARS
    ========================================= */
 
-/* Universal Focus States (No global border-radius) */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -168,7 +170,6 @@ button, input, textarea {
 
 /* Buttons */
 .btn-primary {
-  /* Using OKLCH color-mix to prevent sRGB hue-shifting */
   background: linear-gradient(180deg, color-mix(in oklch, var(--accent) 90%, white), var(--accent));
   color: #fff;
   font-weight: 600;
@@ -207,18 +208,15 @@ button, input, textarea {
 .chat-sender { font-size: var(--fs-base); font-weight: 600; letter-spacing: -0.01em; }
 .chat-message { font-size: var(--fs-base); font-weight: 400; line-height: var(--lh-normal); color: inherit; text-wrap: pretty; }
 .chat-timestamp { font-size: var(--fs-xs); color: var(--text-muted); margin-inline-start: var(--space-2); }
-
-/* Fully dynamic grouping padding based on established layout tokens */
 .chat-grouped { padding-inline-start: calc(var(--avatar-size) + var(--space-3)); }
 
-/* Premium Chat Hover */
+/* Premium Chat Hover & Animation Overrides */
 .chat-row {
   position: relative;
   padding: var(--space-1) var(--space-4);
   border-radius: var(--radius-sm);
   transition: background var(--dur-fast) var(--ease-out);
   
-  /* Performance virtualizer - ensure JS scroll-anchoring accounts for this */
   content-visibility: auto; 
   contain-intrinsic-size: auto 44px;
 
@@ -238,6 +236,15 @@ button, input, textarea {
   &:hover {
     background: var(--bg-message-hover);
     &::before { opacity: 1; transform: scaleY(1); }
+  }
+
+  /* 3D Dice Animation Overrides (Modern + Legacy Fallback) */
+  &:has(.bouncing-dice),
+  &.has-active-dice {
+    z-index: var(--z-modal);
+    isolation: isolate;
+    content-visibility: visible;
+    contain-intrinsic-size: auto 140px;
   }
 }
 
@@ -292,7 +299,7 @@ button, input, textarea {
 .channel-header {
   position: sticky;
   top: 0;
-  height: var(--space-12);
+  height: var(--header-h); /* Wired to proper token */
   display: flex;
   align-items: center;
   padding-inline: var(--space-4);
@@ -313,7 +320,7 @@ button, input, textarea {
   font-size: var(--fs-base);
   color: #fff;
   background: var(--avatar-bg, linear-gradient(135deg, var(--accent), #8b5cf6));
-  box-shadow: 0 0 0 2px var(--bg-primary), var(--shadow-sm);
+  box-shadow: 0 0 0 2px var(--avatar-ring-color), var(--shadow-sm); /* Wired to token */
   position: relative;
 }
 
@@ -351,7 +358,7 @@ button, input, textarea {
   position: absolute;
   top: -4px;
   inset-inline-end: -4px;
-  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.4);
+  box-shadow: 0 0 0 2px var(--danger); /* Wired to danger token for clean ring */
 }
 
 /* Mobile Drawer */
@@ -381,7 +388,6 @@ button, input, textarea {
   }
 }
 
-/* Ensure JS strictly mounts/unmounts this during the transitionend lifecycle */
 .is-transitioning { will-change: transform; }
 
 .drawer-handle {
@@ -417,6 +423,22 @@ button, input, textarea {
   font-size: var(--fs-base);
   font-weight: 700;
   color: var(--accent);
+}
+
+/* 3D Dice Geometry Classes */
+.bouncing-dice {
+  transform-style: preserve-3d;
+  position: relative;
+}
+
+.settled-dice {
+  animation: settle-glow 1.2s var(--ease-out) forwards;
+}
+
+@keyframes settle-glow {
+  0% { box-shadow: 0 0 0 transparent; }
+  50% { box-shadow: var(--shadow-glow); }
+  100% { box-shadow: 0 0 4px color-mix(in oklch, var(--accent) 50%, transparent); }
 }
 
 @keyframes ping {

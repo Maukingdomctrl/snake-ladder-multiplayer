@@ -1,3 +1,4 @@
+import React, { useState } from "react";
 import Dice from "./Dice";
 
 type Face = 1 | 2 | 3 | 4 | 5 | 6;
@@ -23,8 +24,27 @@ export default function DiceRow({
   onImpact,
   feedback = true,
 }: DiceRowProps) {
+  // 1. Track the rolling state locally for the CSS fallback
+  const [isRolling, setIsRolling] = useState(false);
+
+  // 2. Intercept the roll to start the state
+  const handleRoll = async () => {
+    setIsRolling(true);
+    await onRoll();
+  };
+
+  // 3. Intercept the completion to clear the state
+  const handleRollComplete = () => {
+    setIsRolling(false);
+    if (onRollComplete) {
+      onRollComplete();
+    }
+  };
+
   return (
     <div
+      // 4. Apply the fallback class if rolling
+      className={`dice-row-container ${isRolling ? "has-active-dice" : ""}`}
       style={{
         display: "flex",
         alignItems: "center",
@@ -48,11 +68,11 @@ export default function DiceRow({
         }}
       >
         <Dice
-          onRoll={onRoll}
+          onRoll={handleRoll} /* Use intercepted handler */
           disabled={disabled}
           lastDice={lastDice}
           rollKey={rollKey}
-          onRollComplete={onRollComplete}
+          onRollComplete={handleRollComplete} /* Use intercepted handler */
           onImpact={onImpact}
           feedback={feedback}
         />

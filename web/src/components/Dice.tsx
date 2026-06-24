@@ -15,10 +15,13 @@ interface DiceProps {
 const ROLL_MS = 4500;
 
 // Physics impacts mapped to animation keyframes
+// FIX #9: added a 4th, very light impact matching the final 93%->100% settle-dip
+// in the throw-and-bounce keyframes, which previously had no sound/haptic/wobble.
 const IMPACTS: { at: number; strength: number }[] = [
   { at: 0.25, strength: 1.0 },
   { at: 0.58, strength: 0.5 },
   { at: 0.85, strength: 0.2 },
+  { at: 0.97, strength: 0.08 },
 ];
 
 // Right-handed Western die. Opposite faces sum to 7; 1-2-3 counterclockwise
@@ -62,7 +65,8 @@ let noiseBufferCache: AudioBuffer | null = null;
 function getAudioCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
   try {
-    if (!audioCtx) {
+    // FIX #6: a browser/OS can transition an existing AudioContext to "closed"
+    if (!audioCtx || audioCtx.state === "closed") {
       const Ctx = window.AudioContext || (window as any).webkitAudioContext;
       if (!Ctx) return null;
       audioCtx = new Ctx();
@@ -89,39 +93,44 @@ function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
 }
 
 function playClack(strength: number) {
-  const ctx = getAudioCtx();
-  if (!ctx) return; // Bypass state check, let Web Audio handle queueing
-  
-  const now = ctx.currentTime;
-  const gain = ctx.createGain();
-  const vol = 0.06 + strength * 0.22;
-  gain.gain.setValueAtTime(vol, now);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12 + strength * 0.08);
-  gain.connect(ctx.destination);
+  // FIX #7: wrap the whole thing in try/catch to handle Web Audio failures cleanly.
+  try {
+    const ctx = getAudioCtx();
+    if (!ctx) return; 
 
-  // Noise burst (the "tick")
-  const noise = ctx.createBufferSource();
-  noise.buffer = getNoiseBuffer(ctx);
-  const bp = ctx.createBiquadFilter();
-  bp.type = "bandpass";
-  bp.frequency.value = 1800 + strength * 800;
-  bp.Q.value = 0.9;
-  noise.connect(bp).connect(gain);
+    const now = ctx.currentTime;
+    const gain = ctx.createGain();
+    const vol = 0.06 + strength * 0.22;
+    gain.gain.setValueAtTime(vol, now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12 + strength * 0.08);
+    gain.connect(ctx.destination);
 
-  // Low body thud
-  const osc = ctx.createOscillator();
-  osc.type = "triangle";
-  osc.frequency.setValueAtTime(240 - strength * 80, now);
-  osc.frequency.exponentialRampToValueAtTime(80, now + 0.1);
-  const oscGain = ctx.createGain();
-  oscGain.gain.setValueAtTime(vol * 0.7, now);
-  oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
-  osc.connect(oscGain).connect(ctx.destination);
+    // Noise burst (the "tick")
+    const noise = ctx.createBufferSource();
+    noise.buffer = getNoiseBuffer(ctx);
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass";
+    bp.frequency.value = 1800 + strength * 800;
+    bp.Q.value = 0.9;
+    noise.connect(bp).connect(gain);
 
-  noise.start(now);
-  noise.stop(now + 0.06);
-  osc.start(now);
-  osc.stop(now + 0.12);
+    // Low body thud
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(240 - strength * 80, now);
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.1);
+    const oscGain = ctx.createGain();
+    oscGain.gain.setValueAtTime(vol * 0.7, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+    osc.connect(oscGain).connect(ctx.destination);
+
+    noise.start(now);
+    noise.stop(now + 0.06);
+    osc.start(now);
+    osc.stop(now + 0.12);
+  } catch {
+    // Audio is best-effort; never let it break the roll.
+  }
 }
 
 function vibrate(strength: number) {
@@ -140,7 +149,7 @@ export default function Dice({
   onRollComplete,
   onImpact,
   feedback = true,
-}: DiceProps) {
+}: DiceProps): React.JSX.Element {
   const [rotations, setRotations] = useState({ x: 0, y: 0 });
   const [rollZ, setRollZ] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
@@ -153,12 +162,12 @@ export default function Dice({
   );
 
   const processedRollKeyRef = useRef("");
-  
+
   // Refs to bypass React reconciliation during high-frequency animation updates
   const onRollCompleteRef = useRef(onRollComplete);
   const onImpactRef = useRef(onImpact);
   const feedbackRef = useRef(feedback);
-  
+
   // Bypass React state for visual physics (wobble) to prevent frame drops
   const wobbleRef = useRef<HTMLDivElement>(null);
   const shadowRef = useRef<HTMLDivElement>(null);
@@ -167,11 +176,15 @@ export default function Dice({
   const currentRotRef = useRef({ x: 0, y: 0 });
   const prevTargetX = useRef(0);
   const prevTargetY = useRef(0);
+  // FIX #1: track accumulated Z spin 
+  const currentZRef = useRef(0);
 
   const bounceRef = useRef<HTMLDivElement>(null);
   const finishTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impactTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // FIX #4: track the wobble's requestAnimationFrame id
+  const wobbleRafRef = useRef<number | null>(null);
 
   useEffect(() => {
     onRollCompleteRef.current = onRollComplete;
@@ -194,10 +207,18 @@ export default function Dice({
     if (settleTimeoutRef.current) clearTimeout(settleTimeoutRef.current);
     impactTimeoutsRef.current.forEach(clearTimeout);
     impactTimeoutsRef.current = [];
+    if (wobbleRafRef.current !== null) {
+      cancelAnimationFrame(wobbleRafRef.current);
+      wobbleRafRef.current = null;
+    }
   };
 
+  // FIX #8: force a real class toggle + prevent phantom timers on reduced-motion
   const scheduleSettle = () => {
-    setSettled(true);
+    if (reducedMotion) return; // Saves JS from scheduling state changes invisible to the user
+
+    setSettled(false);
+    requestAnimationFrame(() => setSettled(true));
     if (settleTimeoutRef.current) clearTimeout(settleTimeoutRef.current);
     settleTimeoutRef.current = setTimeout(() => setSettled(false), 1200);
   };
@@ -205,6 +226,10 @@ export default function Dice({
   const restartBounce = () => {
     const el = bounceRef.current;
     const shadow = shadowRef.current;
+    
+    // Centers row before animating to avoid body overflow: hidden clipping
+    el?.scrollIntoView({ block: "center", behavior: "instant" });
+
     if (el) {
       el.classList.remove("bouncing-dice");
       void el.offsetWidth; // Force reflow
@@ -217,29 +242,36 @@ export default function Dice({
     }
   };
 
-  // Damped Harmonic Oscillator for micro-wobble
+  // FIX #3 & #4: Damped Harmonic Oscillator for micro-wobble
   const applyDampedWobble = (strength: number) => {
     const el = wobbleRef.current;
     if (!el) return;
-    
+
+    if (wobbleRafRef.current !== null) {
+      cancelAnimationFrame(wobbleRafRef.current);
+      wobbleRafRef.current = null;
+    }
+
     const amp = 6 * strength;
     const gamma = 4; // Damping factor
     const omega = 18; // Frequency
-    
-    let t = 0;
-    const animateWobble = () => {
-      t += 16;
+
+    let start: number | null = null;
+    const animateWobble = (now: number) => {
+      if (start === null) start = now;
+      const t = now - start;
       const decay = Math.exp(-gamma * (t / 1000));
       const offset = amp * decay * Math.cos(omega * (t / 1000));
-      
+
       if (Math.abs(offset) < 0.1) {
         el.style.transform = "rotateX(0deg) rotateY(0deg)";
+        wobbleRafRef.current = null;
         return;
       }
       el.style.transform = `rotateX(${offset}deg) rotateY(${offset * 0.5}deg)`;
-      requestAnimationFrame(animateWobble);
+      wobbleRafRef.current = requestAnimationFrame(animateWobble);
     };
-    requestAnimationFrame(animateWobble);
+    wobbleRafRef.current = requestAnimationFrame(animateWobble);
   };
 
   const fireImpact = (strength: number) => {
@@ -250,7 +282,6 @@ export default function Dice({
     }
   };
 
-  // Initialize orientation if joining mid-game
   useEffect(() => {
     if (lastDice != null && currentRotRef.current.x === 0 && currentRotRef.current.y === 0) {
       const [bx, by] = BASE_ANGLES[lastDice];
@@ -262,7 +293,6 @@ export default function Dice({
     }
   }, []); // eslint-disable-line
 
-  // Handle rolling animation physics
   useEffect(() => {
     if (lastDice == null) return;
     if (!rollKey || processedRollKeyRef.current === rollKey) return;
@@ -273,13 +303,20 @@ export default function Dice({
 
     if (reducedMotion) {
       clearAllTimers();
+
+      // FIX #2: use the same "shortest physical path" math
+      const baseX = Math.round((currentRotRef.current.x - prevTargetX.current) / 360) * 360;
+      const baseY = Math.round((currentRotRef.current.y - prevTargetY.current) / 360) * 360;
+      const newX = baseX + tx;
+      const newY = baseY + ty;
+
       prevTargetX.current = tx;
       prevTargetY.current = ty;
-      currentRotRef.current = { x: tx, y: ty };
+      currentRotRef.current = { x: newX, y: newY };
+
       setIsAnimating(false);
       setRolling(false);
-      setRollZ(0);
-      setRotations({ x: tx, y: ty });
+      setRotations({ x: newX, y: newY });
       scheduleSettle();
       onRollCompleteRef.current?.();
       return;
@@ -295,13 +332,13 @@ export default function Dice({
     // Calculate shortest physical path safely outside React state updater
     const prevX = currentRotRef.current.x;
     const prevY = currentRotRef.current.y;
-    
+
     const baseX = Math.round((prevX - prevTargetX.current) / 360) * 360;
     const baseY = Math.round((prevY - prevTargetY.current) / 360) * 360;
-    
+
     const spinX = (Math.floor(Math.random() * 4) + 5) * 360 * (Math.random() < 0.5 ? -1 : 1);
     const spinY = (Math.floor(Math.random() * 5) + 6) * 360 * (Math.random() < 0.5 ? -1 : 1);
-    
+
     const newX = baseX + spinX + tx;
     const newY = baseY + spinY + ty;
 
@@ -311,10 +348,12 @@ export default function Dice({
 
     setRotations({ x: newX, y: newY });
 
+    // FIX #1: accumulate from the die's actual current Z angle
     const zSpin = (Math.floor(Math.random() * 4) + 3) * 360 * (Math.random() < 0.5 ? -1 : 1);
-    setRollZ(zSpin);
+    const newZ = currentZRef.current + zSpin;
+    currentZRef.current = newZ;
+    setRollZ(newZ);
 
-    // Schedule impact feedback at each contact frame
     impactTimeoutsRef.current = IMPACTS.map(({ at, strength }) =>
       setTimeout(() => {
         fireImpact(strength);
@@ -325,7 +364,6 @@ export default function Dice({
     finishTimeoutRef.current = setTimeout(() => {
       setRolling(false);
       setIsAnimating(false);
-      setRollZ(0);
       scheduleSettle();
       onRollCompleteRef.current?.();
     }, ROLL_MS);
@@ -351,7 +389,7 @@ export default function Dice({
   const handleClick = async () => {
     if (isBusy) return;
     setPending(true);
-    getAudioCtx(); // Unlock audio on gesture
+    getAudioCtx(); 
     try {
       await onRoll();
     } catch {
@@ -378,7 +416,7 @@ export default function Dice({
           100% { transform: translateY(0px) scale(1); }
         }
         .bouncing-dice { animation: throw-and-bounce ${ROLL_MS}ms forwards; }
-        
+
         /* Dynamic Shadow maps inverse to height */
         @keyframes physics-shadow {
           0%   { transform: scale(0.4) translateY(10px); opacity: 0.1; filter: blur(8px); }
@@ -407,7 +445,6 @@ export default function Dice({
       </span>
 
       <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-        {/* Scene Wrapper - Tilts camera 15deg for true 3D perspective depth */}
         <div
           style={{
             position: "relative",
@@ -421,9 +458,8 @@ export default function Dice({
             transition: "opacity 0.4s ease-out",
           }}
         >
-          {/* Dice Layer */}
           <div
-            className={settled ? "settled-dice" : ""}
+            className={settled && !reducedMotion ? "settled-dice" : ""}
             aria-hidden="true"
             style={{
               position: "absolute",
@@ -435,24 +471,21 @@ export default function Dice({
             }}
           >
             <div ref={bounceRef} style={{ width: "100%", height: "100%", transformStyle: "preserve-3d" }}>
-              {/* Wobble Wrapper - Direct DOM manipulation bypasses React frame drops */}
-              <div 
-                ref={wobbleRef} 
-                style={{ 
-                  width: "100%", 
-                  height: "100%", 
+              <div
+                ref={wobbleRef}
+                style={{
+                  width: "100%",
+                  height: "100%",
                   transformStyle: "preserve-3d",
-                  transition: "transform 0.05s ease-out" 
                 }}
               >
-                {/* Main Transform Inner Cube */}
                 <div
                   style={{
                     width: "100%",
                     height: "100%",
                     position: "relative",
                     transformStyle: "preserve-3d",
-                    transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${isAnimating ? rollZ : 0}deg)`,
+                    transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${rollZ}deg)`,
                     transition: isAnimating
                       ? `transform ${ROLL_MS}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
                       : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
@@ -477,7 +510,6 @@ export default function Dice({
             </div>
           </div>
 
-          {/* Physics Shadow Layer */}
           <div
             ref={shadowRef}
             style={{
