@@ -586,15 +586,18 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     const naturalEnd = Math.min(100, from + diceVal);
 
     // Safety net: if something goes wrong and this move never completes,
-    // force a clean snap to the final position after 5s so the token never
-    // gets stuck mid-board.
+    // force a clean snap to the final position so the token never gets
+    // stuck mid-board. Budget generously: 2000ms pre-pause + up to 6
+    // squares at ~870ms worst-case each (350ms transition + 400ms hold +
+    // fallback margin) + the snake/ladder slide (~1400ms) ≈ 9000ms total,
+    // so 12000ms leaves comfortable headroom without false-triggering.
     if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
     safetyTimeoutRef.current = setTimeout(() => {
       if (!isStale() && animatingPlayerRef.current === pid) {
         animatingPlayerRef.current = null;
         snapToken(pid, finalPos);
       }
-    }, 5000);
+    }, 12000);
 
     (async () => {
       // Small delay so React has committed and the dice UI has settled
@@ -607,26 +610,72 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
       // if a prior animation was interrupted before reaching its target.
       snapToken(pid, from);
 
-      // 1. INTENTIONAL PRE-MOVE PAUSE (3600ms)
-      // Gives players a moment to see the dice result before the token moves.
+      // 1. INTENTIONAL PRE-MOVE PAUSE (2000ms)
+      // Gives players a moment to see the dice result before the token
+      // starts walking, so the motion reads as deliberate rather than rushed.
       if (diceVal > 0) {
-        await delay(3600);
+        await delay(2000);
         if (isStale()) return;
       }
 
-      // 2. STACCATO MOVEMENT (1..2..3..4) — one square at a time
+      // 2. STACCATO MOVEMENT (1..2..3..4) — one square at a time.
+      //
+      // Previously this used a fixed `await delay(750)` per square, assuming
+      // the 350ms CSS transition would always finish well within that
+      // window. On a slower device/browser (frame drops, GC pause, a
+      // background tab catching up), the transition can still be mid-flight
+      // when the loop's timer fires anyway. Setting a *new* transform target
+      // while the browser is still interpolating toward the previous one
+      // makes the token visually overshoot, snap back, or stutter — which
+      // reads exactly like "goes forward then comes back."
+      //
+      // Fix: wait for the browser's own `transitionend` event before
+      // advancing to the next square, instead of guessing at a delay. A
+      // short fallback timeout covers the rare case where the event doesn't
+      // fire (e.g. the element was already at that exact pixel position, in
+      // which case no transition runs at all). A forced reflow
+      // (`el.offsetHeight`) between setting `transition` and setting
+      // `transform` guarantees the browser treats them as two separate
+      // commits and can't coalesce/skip a step under load.
+      const waitForStep = (el: HTMLDivElement, durationMs: number) =>
+        new Promise<void>((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            el.removeEventListener("transitionend", onEnd);
+            resolve();
+          };
+          const onEnd = (e: TransitionEvent) => {
+            if (e.propertyName === "transform") finish();
+          };
+          el.addEventListener("transitionend", onEnd);
+          // Fallback in case transitionend never fires (e.g. start === end).
+          setTimeout(finish, durationMs + 120);
+        });
+
+      const STEP_DURATION = 350; // ms, ease-out drop into each square
+      const STEP_HOLD = 400;     // ms, pause after landing before the next hop
+
       for (let i = from + 1; i <= naturalEnd; i++) {
         if (isStale()) return;
         const el = tokenRefs.current[pid];
         if (!el) return;
 
         const px = squareToPixel(i, pid, cellSize);
-        // ease-out gives a satisfying physical "drop" into each square
-        el.style.transition = "transform 350ms ease-out";
+
+        // Set transition first, force a reflow, THEN set transform. This
+        // prevents the browser from batching the two writes into a single
+        // commit (which is what allows a step to be silently skipped).
+        el.style.transition = `transform ${STEP_DURATION}ms ease-out`;
+        void el.offsetHeight; // force reflow / commit the transition change
         el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
 
-        // 350ms transition + 400ms pause = 750ms per square (slow & deliberate)
-        await delay(750);
+        await waitForStep(el, STEP_DURATION);
+        if (isStale()) return;
+
+        // Deliberate hold after landing on the square before hopping again.
+        await delay(STEP_HOLD);
         if (isStale()) return;
       }
 
