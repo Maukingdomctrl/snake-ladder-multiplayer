@@ -14,12 +14,14 @@ interface DiceProps {
 
 const ROLL_MS = 4500;
 
+// Physics impacts mapped to animation keyframes
 const IMPACTS: { at: number; strength: number }[] = [
   { at: 0.25, strength: 1.0 },
   { at: 0.58, strength: 0.5 },
   { at: 0.85, strength: 0.2 },
 ];
 
+// Right-handed Western die. Opposite faces sum to 7; 1-2-3 counterclockwise
 const PIPS: Record<Face, [number, number][]> = {
   1: [[2, 2]],
   2: [[1, 1], [3, 3]],
@@ -52,7 +54,7 @@ const reducedMotionQuery = () =>
     ? window.matchMedia("(prefers-reduced-motion: reduce)")
     : null;
 
-/* ---------- High-Tech Audio Engine ---------- */
+/* ---------- High-Tech Audio Engine (Cached & Synthesized) ---------- */
 
 let audioCtx: AudioContext | null = null;
 let noiseBufferCache: AudioBuffer | null = null;
@@ -74,6 +76,7 @@ function getAudioCtx(): AudioContext | null {
   }
 }
 
+// Generate noise buffer once to prevent GC spikes during animation
 function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
   if (!noiseBufferCache) {
     const len = Math.floor(ctx.sampleRate * 0.05);
@@ -87,7 +90,7 @@ function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
 
 function playClack(strength: number) {
   const ctx = getAudioCtx();
-  if (!ctx) return;
+  if (!ctx) return; // Bypass state check, let Web Audio handle queueing
   
   const now = ctx.currentTime;
   const gain = ctx.createGain();
@@ -96,6 +99,7 @@ function playClack(strength: number) {
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12 + strength * 0.08);
   gain.connect(ctx.destination);
 
+  // Noise burst (the "tick")
   const noise = ctx.createBufferSource();
   noise.buffer = getNoiseBuffer(ctx);
   const bp = ctx.createBiquadFilter();
@@ -104,6 +108,7 @@ function playClack(strength: number) {
   bp.Q.value = 0.9;
   noise.connect(bp).connect(gain);
 
+  // Low body thud
   const osc = ctx.createOscillator();
   osc.type = "triangle";
   osc.frequency.setValueAtTime(240 - strength * 80, now);
@@ -148,13 +153,17 @@ export default function Dice({
   );
 
   const processedRollKeyRef = useRef("");
+  
+  // Refs to bypass React reconciliation during high-frequency animation updates
   const onRollCompleteRef = useRef(onRollComplete);
   const onImpactRef = useRef(onImpact);
   const feedbackRef = useRef(feedback);
   
+  // Bypass React state for visual physics (wobble) to prevent frame drops
   const wobbleRef = useRef<HTMLDivElement>(null);
   const shadowRef = useRef<HTMLDivElement>(null);
 
+  // Pure math tracking for 3D rotation paths
   const currentRotRef = useRef({ x: 0, y: 0 });
   const prevTargetX = useRef(0);
   const prevTargetY = useRef(0);
@@ -198,7 +207,7 @@ export default function Dice({
     const shadow = shadowRef.current;
     if (el) {
       el.classList.remove("bouncing-dice");
-      void el.offsetWidth; 
+      void el.offsetWidth; // Force reflow
       el.classList.add("bouncing-dice");
     }
     if (shadow) {
@@ -208,13 +217,14 @@ export default function Dice({
     }
   };
 
+  // Damped Harmonic Oscillator for micro-wobble
   const applyDampedWobble = (strength: number) => {
     const el = wobbleRef.current;
     if (!el) return;
     
     const amp = 6 * strength;
-    const gamma = 4;
-    const omega = 18;
+    const gamma = 4; // Damping factor
+    const omega = 18; // Frequency
     
     let t = 0;
     const animateWobble = () => {
@@ -240,6 +250,7 @@ export default function Dice({
     }
   };
 
+  // Initialize orientation if joining mid-game
   useEffect(() => {
     if (lastDice != null && currentRotRef.current.x === 0 && currentRotRef.current.y === 0) {
       const [bx, by] = BASE_ANGLES[lastDice];
@@ -249,23 +260,15 @@ export default function Dice({
       setRotations({ x: bx, y: by });
       processedRollKeyRef.current = rollKey || "";
     }
-  }, []); 
+  }, []); // eslint-disable-line
 
+  // Handle rolling animation physics
   useEffect(() => {
     if (lastDice == null) return;
-    if (rollKey && processedRollKeyRef.current === rollKey) return;
-
-    // If there's no rollKey (state sync without animation), just snap to the face
-    if (!rollKey) {
-      const [tx, ty] = BASE_ANGLES[lastDice];
-      prevTargetX.current = tx;
-      prevTargetY.current = ty;
-      currentRotRef.current = { x: tx, y: ty };
-      setRotations({ x: tx, y: ty });
-      return;
-    }
+    if (!rollKey || processedRollKeyRef.current === rollKey) return;
 
     processedRollKeyRef.current = rollKey;
+
     const [tx, ty] = BASE_ANGLES[lastDice];
 
     if (reducedMotion) {
@@ -284,10 +287,12 @@ export default function Dice({
 
     setRolling(true);
     setSettled(false);
+
     clearAllTimers();
     setIsAnimating(true);
     restartBounce();
 
+    // Calculate shortest physical path safely outside React state updater
     const prevX = currentRotRef.current.x;
     const prevY = currentRotRef.current.y;
     
@@ -305,9 +310,11 @@ export default function Dice({
     currentRotRef.current = { x: newX, y: newY };
 
     setRotations({ x: newX, y: newY });
+
     const zSpin = (Math.floor(Math.random() * 4) + 3) * 360 * (Math.random() < 0.5 ? -1 : 1);
     setRollZ(zSpin);
 
+    // Schedule impact feedback at each contact frame
     impactTimeoutsRef.current = IMPACTS.map(({ at, strength }) =>
       setTimeout(() => {
         fireImpact(strength);
@@ -344,7 +351,7 @@ export default function Dice({
   const handleClick = async () => {
     if (isBusy) return;
     setPending(true);
-    getAudioCtx();
+    getAudioCtx(); // Unlock audio on gesture
     try {
       await onRoll();
     } catch {
@@ -361,24 +368,25 @@ export default function Dice({
     <>
       <style>{`
         @keyframes throw-and-bounce {
-          0%   { transform: translateZ(120px) scale(1.15); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
-          25%  { transform: translateZ(0px) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
-          40%  { transform: translateZ(40px) scale(1.05); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
-          58%  { transform: translateZ(0px) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
-          72%  { transform: translateZ(15px) scale(1.02); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
-          85%  { transform: translateZ(0px) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
-          93%  { transform: translateZ(5px) scale(1.01); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
-          100% { transform: translateZ(0px) scale(1); }
+          0%   { transform: translateY(-160px) scale(1.15); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          25%  { transform: translateY(0px) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+          40%  { transform: translateY(-50px) scale(1.05); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          58%  { transform: translateY(0px) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+          72%  { transform: translateY(-20px) scale(1.02); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          85%  { transform: translateY(0px) scale(1); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
+          93%  { transform: translateY(-5px) scale(1.01); animation-timing-function: cubic-bezier(0.4, 0, 1, 1); }
+          100% { transform: translateY(0px) scale(1); }
         }
         .bouncing-dice { animation: throw-and-bounce ${ROLL_MS}ms forwards; }
         
+        /* Dynamic Shadow maps inverse to height */
         @keyframes physics-shadow {
-          0%   { transform: translateZ(-1px) scale(0.4); opacity: 0.1; filter: blur(8px); }
-          25%  { transform: translateZ(-1px) scale(1.0); opacity: 0.6; filter: blur(2px); }
-          40%  { transform: translateZ(-1px) scale(0.6); opacity: 0.2; filter: blur(6px); }
-          58%  { transform: translateZ(-1px) scale(0.9); opacity: 0.5; filter: blur(3px); }
-          85%  { transform: translateZ(-1px) scale(0.98); opacity: 0.55; filter: blur(2px); }
-          100% { transform: translateZ(-1px) scale(1); opacity: 0.6; filter: blur(2px); }
+          0%   { transform: scale(0.4) translateY(10px); opacity: 0.1; filter: blur(8px); }
+          25%  { transform: scale(1.0) translateY(0); opacity: 0.6; filter: blur(2px); }
+          40%  { transform: scale(0.6) translateY(6px); opacity: 0.2; filter: blur(6px); }
+          58%  { transform: scale(0.9) translateY(2px); opacity: 0.5; filter: blur(3px); }
+          85%  { transform: scale(0.98) translateY(0); opacity: 0.55; filter: blur(2px); }
+          100% { transform: scale(1) translateY(0); opacity: 0.6; filter: blur(2px); }
         }
         .physics-shadow { animation: physics-shadow ${ROLL_MS}ms forwards; }
 
@@ -399,100 +407,94 @@ export default function Dice({
       </span>
 
       <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-        {/* 1. Pure Camera Container (NO transforms here, prevents desktop rendering bugs) */}
-        <div style={{ width: 80, height: 80, perspective: "500px" }}>
-          
-          {/* 2. 3D Stage Table Tilt */}
-          <div style={{ 
-            width: "100%", 
-            height: "100%", 
-            transformStyle: "preserve-3d", 
-            transform: "rotateX(20deg)",
-            position: "relative"
-          }}>
-            
-            {/* 3. Opacity & Settle Glow Wrapper */}
-            <div
-              className={settled ? "settled-dice" : ""}
-              style={{
-                width: "100%",
-                height: "100%",
-                transformStyle: "preserve-3d",
-                opacity: disabled && !rolling ? 0.5 : 1,
-                transition: "opacity 0.4s ease-out",
-              }}
-            >
-              {/* 4. Active/Rolling Drop Shadow Wrapper */}
-              <div
-                style={{
-                  width: "100%",
-                  height: "100%",
+        {/* Scene Wrapper - Tilts camera 15deg for true 3D perspective depth */}
+        <div
+          style={{
+            position: "relative",
+            width: 80,
+            height: 80,
+            perspective: "400px",
+            perspectiveOrigin: "50% 20%",
+            transformStyle: "preserve-3d",
+            transform: "rotateX(15deg)",
+            opacity: disabled && !rolling && !settled ? 0.5 : 1,
+            transition: "opacity 0.4s ease-out",
+          }}
+        >
+          {/* Dice Layer */}
+          <div
+            className={settled ? "settled-dice" : ""}
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              width: 56,
+              height: 56,
+              top: 12,
+              left: 12,
+              transformStyle: "preserve-3d",
+            }}
+          >
+            <div ref={bounceRef} style={{ width: "100%", height: "100%", transformStyle: "preserve-3d" }}>
+              {/* Wobble Wrapper - Direct DOM manipulation bypasses React frame drops */}
+              <div 
+                ref={wobbleRef} 
+                style={{ 
+                  width: "100%", 
+                  height: "100%", 
                   transformStyle: "preserve-3d",
-                  filter: rolling
-                    ? "drop-shadow(0 0 24px rgba(35, 165, 89, 1.0)) drop-shadow(0 0 12px rgba(35, 165, 89, 0.8))"
-                    : !disabled 
-                      ? "drop-shadow(0 0 12px rgba(35, 165, 89, 0.5))" 
-                      : "drop-shadow(0 3px 6px rgba(0,0,0,0.4))",
-                  transition: "filter 0.4s ease-out",
+                  transition: "transform 0.05s ease-out" 
                 }}
               >
-                {/* 5. Bounce Layer (Keyframes) */}
-                <div ref={bounceRef} style={{ width: "100%", height: "100%", transformStyle: "preserve-3d" }}>
-                  
-                  {/* 6. Wobble Layer */}
-                  <div ref={wobbleRef} style={{ width: "100%", height: "100%", transformStyle: "preserve-3d" }}>
-                    
-                    {/* 7. Inner Cube Faces */}
-                    <div
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        position: "relative",
-                        transformStyle: "preserve-3d",
-                        transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${isAnimating ? rollZ : 0}deg)`,
-                        transition: isAnimating
-                          ? `transform ${ROLL_MS}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
-                          : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
-                        willChange: "transform",
-                      }}
-                    >
-                      {FACE_TRANSFORMS.map(({ face, transform }) => (
-                        <div key={face} style={{ ...faceStyle, transform }}>
-                          {PIPS[face].map(([col, row], i) => (
-                            <div key={i} style={{ gridColumn: col, gridRow: row, display: "flex" }}>
-                              <div style={{
-                                width: 9, height: 9, borderRadius: "50%", margin: "auto",
-                                backgroundColor: face === 1 ? "#e74c3c" : "#2b1d10",
-                                boxShadow: "inset 0 1px 2px rgba(0,0,0,0.6)"
-                              }} />
-                            </div>
-                          ))}
+                {/* Main Transform Inner Cube */}
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    position: "relative",
+                    transformStyle: "preserve-3d",
+                    transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${isAnimating ? rollZ : 0}deg)`,
+                    transition: isAnimating
+                      ? `transform ${ROLL_MS}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
+                      : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
+                    willChange: "transform",
+                  }}
+                >
+                  {FACE_TRANSFORMS.map(({ face, transform }) => (
+                    <div key={face} style={{ ...faceStyle, transform }}>
+                      {PIPS[face].map(([col, row], i) => (
+                        <div key={i} style={{ gridColumn: col, gridRow: row, display: "flex" }}>
+                          <div style={{
+                            width: 9, height: 9, borderRadius: "50%", margin: "auto",
+                            backgroundColor: face === 1 ? "#e74c3c" : "#2b1d10",
+                            boxShadow: "inset 0 1px 2px rgba(0,0,0,0.6)"
+                          }} />
                         </div>
                       ))}
                     </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             </div>
-
-            {/* Physics Shadow (Lays flat on the 3D stage floor) */}
-            <div
-              ref={shadowRef}
-              style={{
-                position: "absolute",
-                bottom: 10,
-                left: "50%",
-                width: 56,
-                height: 16,
-                marginLeft: -28,
-                backgroundColor: "rgba(0,0,0,0.6)",
-                borderRadius: "50%",
-                transform: "translateZ(-1px) scale(1)",
-                opacity: 0.6,
-                filter: "blur(2px)",
-              }}
-            />
           </div>
+
+          {/* Physics Shadow Layer */}
+          <div
+            ref={shadowRef}
+            style={{
+              position: "absolute",
+              bottom: 0,
+              left: "50%",
+              width: 56,
+              height: 16,
+              marginLeft: -28,
+              backgroundColor: "rgba(0,0,0,0.6)",
+              borderRadius: "50%",
+              transform: "scale(1) translateY(0)",
+              opacity: 0.6,
+              filter: "blur(2px)",
+              zIndex: -1,
+            }}
+          />
         </div>
 
         <button
