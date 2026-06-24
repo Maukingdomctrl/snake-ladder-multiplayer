@@ -75,7 +75,6 @@ export const LOBBY_COLORS = [
 ];
 
 // 📍 Keeps tokens from completely stacking on top of each other
-// FIX: Changed from absolute pixels to fractional multipliers
 export const CLUSTER_OFFSETS = [
   { x:  0,    y:  0    },
   { x: -0.12, y: -0.12 },
@@ -91,3 +90,15 @@ export const MAX_PLAYERS          = 8;
 export const BOARD_SIZE           = 100;
 export const WIN_SQUARE           = 100;
 export const MIN_PLAYERS_TO_START = 2;
+
+/**
+ * Helper function to safely apply cluster offsets to a token based on the 
+ * current size of the board cells. 
+ */
+export const getScaledClusterOffset = (playerIndex: number, cellSize: number) => {
+  const offset = CLUSTER_OFFSETS[playerIndex % CLUSTER_OFFSETS.length];
+  return {
+    x: offset.x * cellSize,
+    y: offset.y * cellSize,
+  };
+};

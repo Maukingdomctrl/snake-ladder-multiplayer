@@ -165,10 +165,11 @@ export default function Dice({
   const [isAnimating, setIsAnimating] = useState(false);
   const [rolling, setRolling] = useState(false);
   const [settled, setSettled] = useState(false);
+  const [rollNonce, setRollNonce] = useState(0);
 
   const processedRollKeyRef = useRef("");
-  const isFirstLoad = useRef(true);
-  const isHistoricalLoadRef = useRef(lastDice !== null);
+  const didInitRef = useRef(false);
+  
   const onRollCompleteRef = useRef(onRollComplete);
   const onImpactRef = useRef(onImpact);
   const feedbackRef = useRef(feedback);
@@ -176,7 +177,6 @@ export default function Dice({
   const prevTargetX = useRef(0);
   const prevTargetY = useRef(0);
 
-  const animatingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impactTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -189,7 +189,6 @@ export default function Dice({
   const isBusy = disabled || rolling;
 
   const clearAllTimers = () => {
-    if (animatingTimeoutRef.current) clearTimeout(animatingTimeoutRef.current);
     if (finishTimeoutRef.current) clearTimeout(finishTimeoutRef.current);
     impactTimeoutsRef.current.forEach(clearTimeout);
     impactTimeoutsRef.current = [];
@@ -203,27 +202,25 @@ export default function Dice({
     }
   };
 
+  // Run once on mount: only snap + mark processed if we joined MID-GAME.
   useEffect(() => {
-    if (!lastDice) return;
-
-    if (isFirstLoad.current) {
-      isFirstLoad.current = false;
-      
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+    
+    if (lastDice != null) {
       const [bx, by] = BASE_ANGLES[lastDice];
       prevTargetX.current = bx;
       prevTargetY.current = by;
       setRotations({ x: bx, y: by });
-
-      // FIX: Only mark as processed immediately if they joined mid-game (historical).
-      // Do NOT set processedRollKeyRef.current if this is the very first roll of a new game.
-      if (isHistoricalLoadRef.current) {
-        processedRollKeyRef.current = rollKey || "";
-        return;
-      }
+      processedRollKeyRef.current = rollKey || "";
     }
+  }, []); // eslint-disable-line
 
-    // Check if this specific roll has already animated
+  // Handle rolling animation
+  useEffect(() => {
+    if (lastDice == null) return;
     if (!rollKey || processedRollKeyRef.current === rollKey) return;
+    
     processedRollKeyRef.current = rollKey;
 
     const [tx, ty] = BASE_ANGLES[lastDice];
@@ -245,9 +242,9 @@ export default function Dice({
     setSettled(false);
     setWobble({ x: 0, y: 0 });
 
-    setIsAnimating(false);
     clearAllTimers();
-    animatingTimeoutRef.current = setTimeout(() => setIsAnimating(true), 20);
+    setRollNonce((n) => n + 1);
+    setIsAnimating(true);
 
     setRotations((prev) => {
       const baseX = Math.round((prev.x - prevTargetX.current) / 360) * 360;
@@ -352,35 +349,45 @@ export default function Dice({
             width: 56,
             height: 56,
             perspective: 300,
-            opacity: disabled && !rolling ? 0.5 : 1,
-            transition: "opacity 0.2s",
+            opacity: disabled && !rolling && !settled ? 0.5 : 1,
+            transition: "opacity 0.4s ease-out, filter 0.4s ease-out",
             filter: rolling
               ? "drop-shadow(0 0 24px rgba(35, 165, 89, 1.0)) drop-shadow(0 0 12px rgba(35, 165, 89, 0.8)) drop-shadow(0 0 4px rgba(255,255,255,0.6))"
-              : settled
-              ? "none"
               : "drop-shadow(0 3px 6px rgba(0,0,0,0.6)) drop-shadow(0 0 12px rgba(245, 158, 11, 0.25))",
           }}
         >
-          <div className={isAnimating ? "bouncing-dice" : ""} style={{ width: "100%", height: "100%" }}>
+          <div key={rollNonce} className={isAnimating ? "bouncing-dice" : ""} style={{ width: "100%", height: "100%" }}>
             <div className={isAnimating ? "dice-tilt" : ""} style={{ width: "100%", height: "100%" }}>
+              {/* Wobble Wrapper */}
               <div
                 style={{
-                  width: "100%",
+                  width: "100%", 
                   height: "100%",
-                  position: "relative",
                   transformStyle: "preserve-3d",
-                  transform: `translateZ(-28px) rotateX(${rotations.x + wobble.x}deg) rotateY(${rotations.y + wobble.y}deg) rotateZ(${isAnimating ? rollZ : 0}deg)`,
-                  transition: isAnimating
-                    ? `transform ${ROLL_MS}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
-                    : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
-                  willChange: "transform",
+                  transform: `rotateX(${wobble.x}deg) rotateY(${wobble.y}deg)`,
+                  transition: "transform 0.15s ease-out",
                 }}
               >
-                {FACE_TRANSFORMS.map(({ face, transform }) => (
-                  <div key={face} style={{ ...faceStyle, transform }}>
-                    <FaceGrid face={face} />
-                  </div>
-                ))}
+                {/* Main Transform Inner Cube */}
+                <div
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    position: "relative",
+                    transformStyle: "preserve-3d",
+                    transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${isAnimating ? rollZ : 0}deg)`,
+                    transition: isAnimating
+                      ? `transform ${ROLL_MS}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
+                      : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
+                    willChange: "transform",
+                  }}
+                >
+                  {FACE_TRANSFORMS.map(({ face, transform }) => (
+                    <div key={face} style={{ ...faceStyle, transform }}>
+                      <FaceGrid face={face} />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
