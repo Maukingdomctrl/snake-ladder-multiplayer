@@ -472,6 +472,26 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
 });
 
 // ── Dynamic Token Layer (Async Engine) ────────────────────────────────────────
+//
+// This layer previously used a manual task-queue with a boolean
+// `cancelQueueRef` flag to interrupt in-flight animations when a new move
+// arrived. That design had a race condition: the flag gets reset to `false`
+// as part of *starting* the new move, but the *old* animation's in-flight
+// `await delay(...)` can still be sleeping at that exact moment. When it
+// wakes up it reads the now-reset flag, assumes it was never cancelled, and
+// keeps draining the queue — except the queue now contains the *new* move's
+// steps. That's what produced the skips/reversals: two animations were
+// effectively interleaved on the same token.
+//
+// Fix: replace the boolean flag with a monotonically increasing "generation"
+// counter. Every new move increments it and captures its own value. Every
+// step of the async animation checks "is my generation still current?"
+// before touching the DOM or continuing — if not, it simply stops, no
+// matter when it wakes up relative to a newer move starting. This makes
+// stale animations self-terminating instead of relying on a shared flag
+// that can be reset out from under them. We also force-snap the token to
+// its true starting square before each move begins, so even a worst-case
+// interruption never leaves the token starting from the wrong spot.
 
 interface TokenLayerProps {
   playerIds: string[];
@@ -484,13 +504,17 @@ interface TokenLayerProps {
 
 const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, tokenSize }: TokenLayerProps) => {
   const tokenRefs = useRef<Record<string, HTMLDivElement>>({});
-  const queueRef = useRef<Array<() => Promise<void>>>([]);
-  const isProcessingRef = useRef(false);
-  const cancelQueueRef = useRef(false);
   const lastMoveKeyRef = useRef<string>("");
-  
-  // FIX: Track who is currently animating to prevent position snaps
+
+  // Tracks which player currently "owns" an in-flight animation, so the
+  // position-sync effect below doesn't snap them mid-animation.
   const animatingPlayerRef = useRef<string | null>(null);
+
+  // Bumped every time a new move begins. Any async animation loop captures
+  // the value at its start and compares against the live ref on every step;
+  // if they no longer match, that loop is stale and stops itself.
+  const moveGenRef = useRef(0);
+
   const safetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const halfToken = tokenSize / 2;
@@ -502,7 +526,8 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
 
   useEffect(() => {
     return () => {
-      cancelQueueRef.current = true;
+      // Invalidate any animation still running when this component unmounts.
+      moveGenRef.current++;
       if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
     };
   }, []);
@@ -515,33 +540,16 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
   }, [cellSize]);
 
+  // Keep every non-animating player's token glued to its authoritative
+  // position (e.g. on resize, or when another player's positions update).
   useEffect(() => {
-    playerIds.forEach(pid => {
-      // FIX: Do not snap the player who is currently mid-animation!
+    playerIds.forEach((pid) => {
       if (pid === animatingPlayerRef.current) return;
       snapToken(pid, positions[pid] ?? 1);
     });
   }, [cellSize, positions, playerIds, snapToken]);
 
-  const processQueue = async () => {
-    if (isProcessingRef.current) return;
-    isProcessingRef.current = true;
-    cancelQueueRef.current = false;
-
-    while (queueRef.current.length > 0) {
-      if (cancelQueueRef.current) {
-        queueRef.current = [];
-        break;
-      }
-      const task = queueRef.current.shift();
-      if (task) await task();
-    }
-    
-    isProcessingRef.current = false;
-    animatingPlayerRef.current = null; // Clear lock when queue is empty
-  };
-
-  const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+  const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
   useEffect(() => {
     if (!roomData) return;
@@ -550,7 +558,6 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     const isInitialLoad = lastMoveKeyRef.current === "";
 
     if (moveKey === lastMoveKeyRef.current) return;
-    
     if (!isInitialLoad && !diceComplete) return;
 
     lastMoveKeyRef.current = moveKey;
@@ -558,7 +565,19 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     const pid = roomData.lastRolledBy;
     if (!pid) return;
 
-    // FIX: Lock the player so position snaps are ignored
+    // Skip animation entirely on initial load — let the snapToken effect
+    // above place everyone instantly.
+    if (isInitialLoad) {
+      animatingPlayerRef.current = null;
+      return;
+    }
+
+    // New move: claim a fresh generation. Whatever animation was running
+    // for a previous move (for this player or otherwise) will notice the
+    // mismatch the next time it checks and stop itself.
+    const myGen = ++moveGenRef.current;
+    const isStale = () => moveGenRef.current !== myGen;
+
     animatingPlayerRef.current = pid;
 
     const from = roomData.lastFrom ?? 1;
@@ -566,52 +585,58 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     const diceVal = roomData.lastDice ?? 0;
     const naturalEnd = Math.min(100, from + diceVal);
 
-    cancelQueueRef.current = true;
-    queueRef.current = [];
-
-    // FIX: Safety timeout in case diceComplete never fires
+    // Safety net: if something goes wrong and this move never completes,
+    // force a clean snap to the final position after 5s so the token never
+    // gets stuck mid-board.
     if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
     safetyTimeoutRef.current = setTimeout(() => {
-      if (animatingPlayerRef.current === pid && queueRef.current.length === 0) {
-        // Force trigger animation if stuck
+      if (!isStale() && animatingPlayerRef.current === pid) {
+        animatingPlayerRef.current = null;
+        snapToken(pid, finalPos);
       }
     }, 5000);
 
-    setTimeout(() => {
-      cancelQueueRef.current = false;
+    (async () => {
+      // Small delay so React has committed and the dice UI has settled
+      // before the token starts moving.
+      await delay(50);
+      if (isStale()) return;
+
+      // Force the token to its true starting square before animating.
+      // This guarantees the walk always starts from the right place, even
+      // if a prior animation was interrupted before reaching its target.
+      snapToken(pid, from);
 
       // 1. INTENTIONAL PRE-MOVE PAUSE (3600ms)
-      // Allows humans to visually verify the dice and prepare to count
-      if (!isInitialLoad && diceVal > 0) {
-        queueRef.current.push(async () => {
-          if (!cancelQueueRef.current) await delay(3600);
-        });
+      // Gives players a moment to see the dice result before the token moves.
+      if (diceVal > 0) {
+        await delay(3600);
+        if (isStale()) return;
       }
 
-      // 2. STACCATO MOVEMENT (1..2..3..4)
+      // 2. STACCATO MOVEMENT (1..2..3..4) — one square at a time
       for (let i = from + 1; i <= naturalEnd; i++) {
-        queueRef.current.push(async () => {
-          if (cancelQueueRef.current) return;
-          const el = tokenRefs.current[pid];
-          if (!el) return;
-          const px = squareToPixel(i, pid, cellSize);
-          
-          // ease-out gives a satisfying physical "drop" into each square
-          el.style.transition = "transform 350ms ease-out";
-          el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
-          
-          // 400ms transition + 350ms pause = 750ms per square (Slow & Deliberate)
-          await delay(750); 
-        });
+        if (isStale()) return;
+        const el = tokenRefs.current[pid];
+        if (!el) return;
+
+        const px = squareToPixel(i, pid, cellSize);
+        // ease-out gives a satisfying physical "drop" into each square
+        el.style.transition = "transform 350ms ease-out";
+        el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
+
+        // 350ms transition + 400ms pause = 750ms per square (slow & deliberate)
+        await delay(750);
+        if (isStale()) return;
       }
 
       // 3. SNAKE/LADDER PATH INTERPOLATION
-      if (finalPos !== naturalEnd) {
-        queueRef.current.push(async () => {
-          if (cancelQueueRef.current) return;
-          const jumpEl = tokenRefs.current[pid];
-          if (!jumpEl) return;
-
+      // Only trigger when the player actually landed on a snake/ladder head
+      // (finalPos differs from both the natural roll-end and the start —
+      // this guards against a false "snake" on an exact-roll overshoot).
+      if (finalPos !== naturalEnd && finalPos !== from) {
+        const jumpEl = tokenRefs.current[pid];
+        if (jumpEl) {
           const isSnake = finalPos < naturalEnd;
           const aCenter = cellCenter(naturalEnd, cellSize);
           const bCenter = cellCenter(finalPos, cellSize);
@@ -619,7 +644,7 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
           const aPixel = { x: aCenter.x + offset.x, y: aCenter.y + offset.y };
           const bPixel = { x: bCenter.x + offset.x, y: bCenter.y + offset.y };
 
-          const steps = 40; 
+          const steps = 40;
           let waveDir = 1;
           let curveFactor = 0.15;
           if (isSnake) {
@@ -633,60 +658,97 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
             ? getPointsAlongCurve(aPixel, bPixel, waveDir, steps, curveFactor)
             : getPointsAlongLine(aPixel, bPixel, steps);
 
-          // Slower slide speed for snake/ladders
-          const frameDelay = isSnake ? 35 : 30; 
+          // Slower slide speed for snakes than ladders
+          const frameDelay = isSnake ? 35 : 30;
 
           for (let i = 0; i <= steps; i++) {
-            if (cancelQueueRef.current) break;
+            if (isStale()) return;
             const pt = points[i];
-            
             jumpEl.style.transition = `transform ${frameDelay}ms linear`;
             jumpEl.style.transform = `translate3d(${pt.x - halfTokenRef.current}px, ${pt.y - halfTokenRef.current}px, 0)`;
             await delay(frameDelay);
           }
-        });
+        }
       }
 
-      processQueue();
-    }, 50);
+      // Move finished cleanly — release the lock and clear the safety net.
+      if (!isStale() && animatingPlayerRef.current === pid) {
+        animatingPlayerRef.current = null;
+        if (safetyTimeoutRef.current) {
+          clearTimeout(safetyTimeoutRef.current);
+          safetyTimeoutRef.current = null;
+        }
+      }
+    })();
+  }, [diceComplete, roomData, cellSize, snapToken]);
 
-  }, [diceComplete, roomData, cellSize]);
-
+  // IMPORTANT: `transform` and `transition` must never appear in the React
+  // `style={{...}}` object below. If they do, every re-render of TokenLayer
+  // (which happens whenever `positions` changes — e.g. exactly when a move
+  // lands and the parent pushes the new DB position down) causes React to
+  // recompute those two properties from current props and reassign them via
+  // the DOM `style` API, stomping whatever the imperative async engine just
+  // set a moment earlier.
+  //
+  // The ref below is an inline arrow function, which means it is a *new*
+  // function identity on every render. React identity-compares the `ref`
+  // prop like any other prop, so on every render it detaches (calls the old
+  // ref with `null`) and reattaches (calls the new ref with the element) —
+  // it does NOT only fire on mount/unmount. A naive "seed once" check (e.g.
+  // an in-memory flag, or checking whether `el.style.transform` is already
+  // set) would therefore re-run on every render too, stomping the
+  // imperative engine right back.
+  //
+  // The fix: stamp a flag directly onto the DOM node via `dataset`. That
+  // flag is a property of the actual element, not of React's render cycle
+  // or this closure, so it survives any number of detach/reattach cycles
+  // and guarantees the seed logic runs exactly once per node's lifetime —
+  // regardless of how many times TokenLayer re-renders.
+  //
+  // After that one-time seed, only `snapToken` (on resize/position changes
+  // while not animating) and the async move engine (via moveGenRef) ever
+  // write `el.style.transform` / `el.style.transition` again. React never
+  // touches them for the lifetime of the node.
   return (
     <>
-      {playerIds.map((pid) => {
-        const initialCell = positions[pid] ?? 1;
-        const px = squareToPixel(initialCell, pid, cellSize);
+      {playerIds.map((pid) => (
+        <div
+          key={pid}
+          ref={(el) => {
+            if (el) {
+              tokenRefs.current[pid] = el;
 
-        return (
-          <div
-            key={pid}
-            ref={(el) => {
-              if (el) {
-                tokenRefs.current[pid] = el;
-              } else {
-                delete tokenRefs.current[pid]; 
+              // Dataset flag lives on the DOM node itself — immune to the
+              // inline ref function being re-created (and thus re-invoked)
+              // on every render.
+              if (!el.dataset.seeded) {
+                const initialCell = positions[pid] ?? 1;
+                const px = squareToPixel(initialCell, pid, cellSize);
+                el.style.transition = "none";
+                el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
+                el.dataset.seeded = "true";
               }
-            }}
-            style={{
-              position: "absolute",
-              width: tokenSize,
-              height: tokenSize,
-              borderRadius: "50%",
-              background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
-              border: `${Math.max(1.5, tokenSize * 0.1)}px solid #fff`,
-              boxShadow: `0 2px 6px rgba(0,0,0,0.6), 0 0 ${tokenSize * 0.4}px rgba(0,0,0,0.2)`,
-              top: 0,
-              left: 0,
-              willChange: "transform",
-              zIndex: 20,
-              pointerEvents: "none",
-              transform: `translate3d(${px.x - halfToken}px, ${px.y - halfToken}px, 0)`,
-              transition: "none",
-            }}
-          />
-        );
-      })}
+            } else {
+              delete tokenRefs.current[pid];
+            }
+          }}
+          style={{
+            position: "absolute",
+            width: tokenSize,
+            height: tokenSize,
+            borderRadius: "50%",
+            background: roomData?.playerColors?.[pid] || getPlayerColor(pid),
+            border: `${Math.max(1.5, tokenSize * 0.1)}px solid #fff`,
+            boxShadow: `0 2px 6px rgba(0,0,0,0.6), 0 0 ${tokenSize * 0.4}px rgba(0,0,0,0.2)`,
+            top: 0,
+            left: 0,
+            willChange: "transform",
+            zIndex: 20,
+            pointerEvents: "none",
+            // transform/transition intentionally omitted — see note above.
+          }}
+        />
+      ))}
     </>
   );
 };
@@ -701,7 +763,7 @@ export default function Board({
   diceComplete = false,
   dimensions,
 }: BoardProps) {
-  
+
   const [boardDims, setBoardDims] = useState(() => ({
     w: typeof window !== "undefined" ? window.innerWidth : 800,
     h: typeof window !== "undefined" ? window.innerHeight : 800,
@@ -732,7 +794,7 @@ export default function Board({
   }, [dimensions, boardDims]);
 
   const boardSize = cellSize * 10;
-  const playerIds = Object.keys(positions);
+  const playerIds = useMemo(() => Object.keys(positions), [positions]);
   const tokenSize = Math.max(10, Math.min(22, cellSize * 0.38));
 
   return (
@@ -754,8 +816,8 @@ export default function Board({
           <StaticBoardGraphics cellSize={cellSize} boardSize={boardSize} />
 
           {/* Dynamic token rendering - async engine */}
-          <TokenLayer 
-            playerIds={playerIds} positions={positions} roomData={roomData} 
+          <TokenLayer
+            playerIds={playerIds} positions={positions} roomData={roomData}
             cellSize={cellSize} diceComplete={diceComplete} tokenSize={tokenSize}
           />
         </div>
@@ -765,7 +827,7 @@ export default function Board({
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 20, justifyContent: "center" }}>
           {playerIds.map((pid) => (
             <div key={`legend-${pid}`} style={{
-                display: "flex", alignItems: "center", gap: 8, background: "var(--bg-tertiary)", 
+                display: "flex", alignItems: "center", gap: 8, background: "var(--bg-tertiary)",
                 borderRadius: 24, padding: "6px 14px", fontSize: 14, fontWeight: 600, border: "1px solid var(--border)",
             }}>
               <div style={{ width: 14, height: 14, borderRadius: "50%", background: roomData?.playerColors?.[pid] || getPlayerColor(pid) }} />
