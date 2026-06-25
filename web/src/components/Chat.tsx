@@ -61,16 +61,22 @@ const getEmojiFontSize = (rawText: unknown) => {
   } else {
     count = [...cleaned].length;
   }
-  // VISUAL FIX: previous sizes (56/46/36/28) rendered noticeably larger and
-  // blurrier than native emoji rendering on desktop, especially since
-  // system emoji fonts are designed around specific size steps. Tuned down
-  // and given one more step so a single emoji doesn't look oversized next
-  // to short text-based reactions.
-  if (count <= 1) return 48;
-  if (count <= 3) return 40;
-  if (count <= 6) return 32;
-  if (count <= 10) return 26;
-  return 22;
+  // VISUAL FIX: sizes were previously pushed up to 56px (then 48px in an
+  // earlier pass). Both are large enough to expose a real rendering
+  // problem on desktop: several platforms' color-emoji fonts are
+  // bitmap-backed at fixed resolutions rather than vector-scalable (most
+  // notably Windows' "Segoe UI Emoji"), so requesting a font-size well
+  // above their native bitmap resolution makes the browser upscale a
+  // raster image — producing visibly soft/pixelated or oddly-cropped
+  // glyphs. That's what showed up as emoji "looking out of shape" on a
+  // laptop. Capping at 32px keeps every step within a size these fonts
+  // render natively/cleanly, while still reading clearly larger than
+  // normal message text.
+  if (count <= 1) return 32;
+  if (count <= 3) return 28;
+  if (count <= 6) return 24;
+  if (count <= 10) return 20;
+  return 18;
 };
 
 // Deterministic per-player gradient for sender names — premium look,
@@ -824,51 +830,98 @@ export default function Chat({
 
       <div style={{ position: "relative", flexShrink: 0 }}>
         {/*
-          BUG FIX: previously this whole block (including <EmojiPicker/>)
-          only existed in the DOM while showEmojiPicker was true, so every
-          close+reopen cycle remounted the picker and re-triggered its
-          internal data/sprite load — the source of the inconsistent
-          "white blank" flash. Now the picker mounts once (on first open,
-          via pickerMounted) and stays mounted; only its visibility is
-          toggled afterwards, so reopening is instant with no refetch.
+          BUG FIX (emoji picker still not showing correctly / "What's Your
+          Mood?" panel instead of the app's picker):
+          The previous approach called textareaRef.current.blur() on open,
+          assuming that would dismiss the OS keyboard and free up the
+          screen space for the in-app picker. In practice several Android
+          keyboards (confirmed here: Samsung Keyboard) don't fully close on
+          blur if they were already showing their OWN emoji panel — they
+          just stay open in emoji mode. The in-app picker WAS mounting and
+          WAS set to visible (confirmed by the in-app emoji button showing
+          its active/blue state), but the OS keyboard's emoji surface was
+          painting on top of/instead of it in the same screen region,
+          because blur() only removes focus — it doesn't force-close a
+          keyboard that's decided to stay up in its own emoji mode.
 
-          VISUAL FIX: width was a hardcoded 308px on desktop regardless of
-          the available chat column width (320px in App.tsx's tablet
-          layout, with little side padding) — right at the edge of
-          clipping. Now uses a responsive cap via minmax-style sizing so it
-          comfortably fits the column instead of nearly overflowing it.
+          Fix: stop trying to coordinate with the OS keyboard's dismissal
+          timing entirely. The in-app picker is now a `position: fixed`
+          overlay with a very high z-index in BOTH drawer and non-drawer
+          modes, anchored to the bottom of the viewport. This means it
+          visually wins regardless of whether the OS keyboard considers
+          itself open, closed, or stuck in emoji mode — there's no longer
+          a layout region the OS keyboard can paint over instead of it.
+          We still attempt the blur (harmless, helps on keyboards that DO
+          behave) but no longer depend on it for correctness.
+
+          BUG FIX (emoji button stops responding after closing the
+          picker once): a fixed, full-width, high-z-index overlay that's
+          only hidden via opacity/visibility can — depending on browser
+          and exact paint timing — still intercept the very next tap
+          aimed at the emoji or send button sitting underneath it, since
+          all three occupy the same bottom strip of the viewport. Moving
+          the closed picker fully off-screen (`bottom: -100vh`, with
+          `transition` only applied to bottom when OPENING, not closing)
+          guarantees it can never sit in the hit-testing path of the
+          buttons below it while closed, instead of relying solely on
+          pointer-events/opacity timing.
         */}
         {pickerMounted && (
           <div
             ref={pickerRef}
-            style={
-              inDrawer
-                ? {
-                    height: 260,
-                    overflow: "hidden",
-                    borderRadius: 8,
-                    marginBottom: 8,
-                    background: "var(--bg-secondary)",
-                    boxShadow: "var(--shadow-md)",
-                    display: showEmojiPicker ? "block" : "none",
-                  }
-                : {
-                    position: "absolute",
-                    bottom: "calc(100% + 8px)",
-                    right: 0,
-                    zIndex: 999,
-                    width: "min(308px, calc(100% - 16px))",
-                    background: "var(--bg-secondary)",
-                    borderRadius: 8,
-                    boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-                    overflow: "hidden",
-                    visibility: showEmojiPicker ? "visible" : "hidden",
-                    opacity: showEmojiPicker ? 1 : 0,
-                    pointerEvents: showEmojiPicker ? "auto" : "none",
-                    transition: "opacity 0.12s ease-out",
-                  }
-            }
+            style={{
+              position: "fixed",
+              left: 0,
+              right: 0,
+              bottom: showEmojiPicker ? 0 : "-100vh",
+              zIndex: 2147483000,
+              maxWidth: inDrawer ? "100%" : 340,
+              marginLeft: inDrawer ? 0 : "auto",
+              marginRight: inDrawer ? 0 : 16,
+              height: inDrawer ? "min(45vh, 320px)" : 350,
+              background: "var(--bg-secondary)",
+              borderRadius: inDrawer ? "12px 12px 0 0" : 8,
+              boxShadow: "0 -4px 24px rgba(0,0,0,0.5)",
+              overflow: "hidden",
+              visibility: showEmojiPicker ? "visible" : "hidden",
+              opacity: showEmojiPicker ? 1 : 0,
+              pointerEvents: showEmojiPicker ? "auto" : "none",
+              transition: showEmojiPicker
+                ? "opacity 0.12s ease-out"
+                : "opacity 0.12s ease-out, bottom 0s, visibility 0s",
+            }}
           >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 12px",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>
+                Emoji
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowEmojiPicker(false)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  padding: 4,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+                aria-label="Close emoji picker"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </svg>
+              </button>
+            </div>
             <EmojiPicker
               theme={Theme.DARK}
               onEmojiClick={(emojiData: EmojiClickData) => {
@@ -891,7 +944,7 @@ export default function Chat({
               }}
               style={{
                 width: "100%",
-                height: inDrawer ? 260 : 350,
+                height: inDrawer ? "calc(min(45vh, 320px) - 37px)" : "calc(350px - 37px)",
                 border: "none",
               }}
             />
