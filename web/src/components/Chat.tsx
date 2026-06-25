@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback, memo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
 import {
   sendMessage,
@@ -22,7 +23,7 @@ const isSameDay = (d1: Date, d2: Date) =>
   d1.getMonth() === d2.getMonth() &&
   d1.getDate() === d2.getDate();
 
-const getDateString = (ms: number) => {
+function getDateString(ms: number) {
   const date = new Date(ms);
   const today = new Date();
   const yesterday = new Date();
@@ -34,7 +35,65 @@ const getDateString = (ms: number) => {
     month: "long",
     day: "numeric",
   });
-};
+}
+
+/**
+ * FEATURE (flawless scroll anchoring, fallback path):
+ * CSS `overflow-anchor: auto` (set on the scroll container below) already
+ * gives Chromium and Firefox native, free scroll anchoring — when content
+ * above the viewport changes size, the browser keeps whatever's currently
+ * visible pinned in place automatically. Safari does not implement
+ * `overflow-anchor` as of this writing, so this hook is a manual fallback
+ * ONLY for that gap: it watches a message element for height changes (e.g.
+ * a reply preview rendering late, an emoji-only message re-measuring) and,
+ * if the user isn't anchored to the bottom, nudges the scroll container by
+ * the exact pixel delta so the content the user was looking at doesn't
+ * visibly jump. It intentionally does nothing when isNearBottom is true,
+ * since the existing scrollToBottom effect already owns that case.
+ */
+function useResizeObserver(
+  ref: React.RefObject<HTMLElement | null>,
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>,
+  isNearBottom: React.RefObject<boolean>
+) {
+  const prevHeightRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const supportsNativeAnchoring =
+      typeof CSS !== "undefined" && CSS.supports?.("overflow-anchor: auto");
+    if (supportsNativeAnchoring) return; // native anchoring already handles it
+
+    const el = ref.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const newHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
+
+      if (prevHeightRef.current !== null && !isNearBottom.current) {
+        const diff = newHeight - prevHeightRef.current;
+        if (diff !== 0) {
+          const container = scrollContainerRef.current;
+if (container) {
+  // Only compensate if the resized element is ABOVE the current
+  // scroll position's visible area, otherwise a change below the
+  // viewport shouldn't move the scroll offset at all.
+  const elTop = (el as HTMLElement).getBoundingClientRect().top;
+  const containerTop = container.getBoundingClientRect().top;
+  if (elTop < containerTop) {
+    container.scrollTop += diff;
+  }
+}
+        }
+      }
+      prevHeightRef.current = newHeight;
+    });
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref, scrollContainerRef, isNearBottom]);
+}
 
 const emojiOnlyRegex =
   /^(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u20E3|\uFE0F\u20E3)*)+$/u;
@@ -79,19 +138,6 @@ const getEmojiFontSize = (rawText: unknown) => {
   return 18;
 };
 
-// Deterministic per-player gradient for sender names — premium look,
-// without needing a server-side color scheme. Hashes the player id into a
-// hue so each person gets a stable two-stop gradient across sessions.
-function getNameGradient(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
-  }
-  const hue1 = hash % 360;
-  const hue2 = (hue1 + 46) % 360;
-  return `linear-gradient(90deg, hsl(${hue1} 85% 68%), hsl(${hue2} 85% 62%))`;
-}
-
 // ─── ★★★ MEMOIZED MESSAGE ITEM ★★★ ───
 
 interface MessageItemProps {
@@ -108,6 +154,8 @@ interface MessageItemProps {
   onScrollToReply: (id: string) => void;
   messageRef: (el: HTMLDivElement | null) => void;
   inDrawer: boolean;
+  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
+  isNearBottom: React.RefObject<boolean>;
 }
 
 const MessageItem = memo(function MessageItem({
@@ -122,6 +170,8 @@ const MessageItem = memo(function MessageItem({
   onReply,
   onScrollToReply,
   messageRef,
+  scrollContainerRef,
+  isNearBottom,
 }: MessageItemProps) {
   const safeText = typeof m.text === "string" ? m.text : "";
   const safeName =
@@ -130,7 +180,25 @@ const MessageItem = memo(function MessageItem({
       : m.playerId || "Player";
 
   const [isRolling] = useState(false);
-  const nameGradient = useMemo(() => getNameGradient(m.playerId || safeName), [m.playerId, safeName]);
+  // Defensive fallback: color-mix()/linear-gradient() need a real color
+  // value. playerColor should always be set by the parent, but guard
+  // against an empty string reaching the gradient/glow calculations below.
+  const safeColor = playerColor && playerColor.trim() ? playerColor : "var(--text-primary)";
+
+  // FEATURE (flawless scroll anchoring): tracks this message's own root
+  // element so useResizeObserver can detect height changes (e.g. a reply
+  // preview, late-loading content, or font/emoji re-measurement) and
+  // compensate scroll position when the user isn't anchored to the bottom.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useResizeObserver(rootRef, scrollContainerRef, isNearBottom);
+
+  const setRefs = useCallback(
+    (el: HTMLDivElement | null) => {
+      rootRef.current = el;
+      messageRef(el);
+    },
+    [messageRef]
+  );
 
   return (
     <>
@@ -155,8 +223,12 @@ const MessageItem = memo(function MessageItem({
         </div>
       )}
 
-      <div
-        ref={messageRef}
+      <motion.div
+        ref={setRefs}
+        layout="position"
+        initial={{ opacity: 0, y: 8, scale: 0.96, filter: "blur(4px)" }}
+        animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+        transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.6 }}
         onClick={() => {
           const sel = window.getSelection()?.toString();
           if (!sel) onReply(m);
@@ -254,32 +326,44 @@ const MessageItem = memo(function MessageItem({
               <div
                 className="avatar"
                 style={{
-                  backgroundColor: playerColor,
-                  backgroundImage: `linear-gradient(160deg, rgba(255,255,255,0.35), rgba(255,255,255,0) 60%)`,
+                  background: `linear-gradient(165deg, color-mix(in oklch, ${safeColor} 88%, white) 0%, ${safeColor} 55%, color-mix(in oklch, ${safeColor} 80%, black) 100%)`,
                   marginRight: isMe ? 0 : 12,
                   marginLeft: isMe ? 12 : 0,
                   width: 30,
                   height: 30,
                   fontSize: 13,
-                  boxShadow: `0 0 0 2px var(--bg-primary), 0 2px 6px rgba(0,0,0,0.35)`,
+                  border: "1px solid rgba(255,255,255,0.45)",
+                  boxShadow: [
+                    // angled top-left highlight, like light hitting a glass orb
+                    "inset 2px 3px 4px rgba(255,255,255,0.55)",
+                    // inner shadow on the opposite edge for roundness/depth
+                    "inset -2px -3px 5px rgba(0,0,0,0.35)",
+                    // thin ring separating the avatar from the message background
+                    "0 0 0 2px var(--bg-primary)",
+                    // outer glow in the player's own color
+                    `0 3px 10px -1px ${safeColor}`,
+                  ].join(", "),
                 }}
               >
                 {[...safeName][0]?.toUpperCase() ?? "?"}
               </div>
-              {/* VISUAL FIX: flat solid-color sender names looked dull on
-                  dark backgrounds. Each sender now gets a stable,
-                  deterministic two-tone gradient (background-clip: text)
-                  instead of a single flat color — same information, more
-                  premium presentation, no per-message randomness (it's
-                  seeded from playerId so it's stable across reloads). */}
+              {/* VISUAL FIX: sender names now use the player's actual
+                  playerColor directly (no faked per-message hash color).
+                  A vertical gradient — white at the top fading to their
+                  color at the bottom — combined with a matching
+                  drop-shadow filter gives a glowing, neon-ambient-light
+                  look anchored to a color that's actually theirs
+                  (matches their avatar/token color everywhere else in
+                  the app), instead of an arbitrary hashed hue. */}
               <span
                 className="chat-sender"
                 style={{
-                  backgroundImage: nameGradient,
+                  backgroundImage: `linear-gradient(180deg, #ffffff 0%, ${safeColor} 100%)`,
                   WebkitBackgroundClip: "text",
                   backgroundClip: "text",
                   color: "transparent",
                   WebkitTextFillColor: "transparent",
+                  filter: `drop-shadow(0 0 6px ${safeColor})`,
                 }}
               >
                 {safeName}
@@ -331,7 +415,7 @@ const MessageItem = memo(function MessageItem({
             {safeText}
           </div>
         </div>
-      </div>
+      </motion.div>
     </>
   );
 });
@@ -451,24 +535,30 @@ export default function Chat({
     }
   }, [processedMessages.length, scrollToBottom]);
 
-  // BUG FIX (text shows twice then collapses to clean while typing on
-  // mobile): this effect previously ran two synchronous DOM writes on
-  // every keystroke — reset height to "auto", then immediately measure
-  // scrollHeight and set a new pixel height. Doing this synchronously on
-  // the exact <textarea> that's currently receiving IME composition input
-  // (which is how most Android keyboards, including Gboard, handle
-  // multi-character input and emoji) can interrupt the IME's composition
-  // buffer mid-keystroke — the browser briefly shows the stale/duplicated
-  // composition text before the IME recovers and shows the clean result.
-  // Deferring the resize to the next animation frame lets the keystroke's
-  // own DOM update settle first, so the height adjustment never lands in
-  // the same synchronous window as an in-progress IME composition.
+  // FEATURE/BUG FIX (shadow-element height measurement):
+  // The previous version still wrote `el.style.height = "auto"` directly
+  // on the live <textarea> before remeasuring — even deferred to a RAF,
+  // that's still a layout-affecting write on the exact element an IME may
+  // be mid-composition on. This version never touches the real textarea's
+  // height via a reset step at all: a hidden, identically-styled shadow
+  // div mirrors the current text, the browser measures ITS scrollHeight,
+  // and only the resulting pixel value is written to the textarea, once,
+  // as a single height assignment. The textarea's own box never goes
+  // through an intermediate "auto" state.
+  const shadowRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const el = textareaRef.current;
-    if (!el) return;
+    const shadow = shadowRef.current;
+    if (!el || !shadow) return;
     const raf = requestAnimationFrame(() => {
-      el.style.height = "auto";
-      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+      const measured = Math.min(shadow.scrollHeight, 120);
+      const current = parseFloat(el.style.height || "0");
+      // Only write if the value actually changed, to avoid any unnecessary
+      // layout write on keystrokes that don't change line count.
+      if (Math.abs(current - measured) > 0.5) {
+        el.style.height = `${measured}px`;
+      }
     });
     return () => cancelAnimationFrame(raf);
   }, [chatInput]);
@@ -691,6 +781,12 @@ export default function Chat({
           borderRadius: 8,
           overscrollBehaviorY: "contain",
           WebkitOverflowScrolling: "touch",
+          // FEATURE (flawless scroll anchoring): native browser support
+          // (Chromium, Firefox) for keeping the user's visible content
+          // pinned in place when something above it changes size. Safari
+          // doesn't implement this yet — useResizeObserver above is the
+          // manual fallback specifically for that gap.
+          overflowAnchor: "auto",
         }}
       >
         {processedMessages.length === 0 && (
@@ -731,6 +827,8 @@ export default function Chat({
             onScrollToReply={scrollToMessage}
             messageRef={handleMessageRef(m.id || "")}
             inDrawer={inDrawer}
+            scrollContainerRef={scrollContainerRef}
+            isNearBottom={isNearBottom}
           />
         ))}
 
@@ -758,75 +856,86 @@ export default function Chat({
         </div>
       )}
 
-      {replyingTo && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "8px 16px",
-            backgroundColor: "var(--bg-tertiary)",
-            borderRadius: "8px 8px 0 0",
-            marginBottom: "-8px",
-            borderLeft: `3px solid ${
-              roomData?.playerColors?.[replyingTo.playerId] || "var(--accent)"
-            }`,
-            zIndex: 10,
-          }}
-        >
-          <div
-            style={{
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-            }}
+      <AnimatePresence initial={false}>
+        {replyingTo && (
+          <motion.div
+            key="reply-preview"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 500, damping: 40, mass: 0.7 }}
+            style={{ overflow: "hidden" }}
           >
-            <span
+            <div
               style={{
-                color: "var(--accent)",
-                fontWeight: 600,
-                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 16px",
+                backgroundColor: "var(--bg-tertiary)",
+                borderRadius: "8px 8px 0 0",
+                marginBottom: "-8px",
+                borderLeft: `3px solid ${
+                  roomData?.playerColors?.[replyingTo.playerId] || "var(--accent)"
+                }`,
+                zIndex: 10,
               }}
             >
-              Replying to {replyingTo.playerName}
-            </span>
-            <p
-              style={{
-                margin: 0,
-                color: "var(--text-muted)",
-                fontSize: 12,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {replyingTo.text}
-            </p>
-          </div>
-          <button
-            onClick={() => setReplyingTo(null)}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              padding: 4,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-            </svg>
-          </button>
-        </div>
-      )}
+              <div
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                }}
+              >
+                <span
+                  style={{
+                    color: "var(--accent)",
+                    fontWeight: 600,
+                    fontSize: 12,
+                  }}
+                >
+                  Replying to {replyingTo.playerName}
+                </span>
+                <p
+                  style={{
+                    margin: 0,
+                    color: "var(--text-muted)",
+                    fontSize: 12,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {replyingTo.text}
+                </p>
+              </div>
+              <button
+                onClick={() => setReplyingTo(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  padding: 4,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+                </svg>
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div style={{ position: "relative", flexShrink: 0 }}>
         {/*
@@ -860,20 +969,32 @@ export default function Chat({
           and exact paint timing — still intercept the very next tap
           aimed at the emoji or send button sitting underneath it, since
           all three occupy the same bottom strip of the viewport. Moving
-          the closed picker fully off-screen (`bottom: -100vh`, with
-          `transition` only applied to bottom when OPENING, not closing)
-          guarantees it can never sit in the hit-testing path of the
-          buttons below it while closed, instead of relying solely on
-          pointer-events/opacity timing.
+          the closed picker fully off-screen guarantees it can never sit
+          in the hit-testing path of the buttons below it while closed.
+
+          NOTE on framer-motion usage here: this element intentionally
+          stays mounted at all times once opened once (pickerMounted) and
+          is positioned off-screen rather than unmounted when closed — do
+          NOT wrap it in AnimatePresence/exit animations, since exit
+          would unmount it, which reintroduces the white-flash bug fixed
+          earlier (emoji-picker-react re-fetching its data on every
+          reopen). Instead we drive `animate` directly off showEmojiPicker
+          so framer-motion springs the position/opacity without ever
+          removing the element from the DOM.
         */}
         {pickerMounted && (
-          <div
+          <motion.div
             ref={pickerRef}
+            initial={false}
+            animate={{
+              bottom: showEmojiPicker ? 0 : "-100vh",
+              opacity: showEmojiPicker ? 1 : 0,
+            }}
+            transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
             style={{
               position: "fixed",
               left: 0,
               right: 0,
-              bottom: showEmojiPicker ? 0 : "-100vh",
               zIndex: 2147483000,
               maxWidth: inDrawer ? "100%" : 340,
               marginLeft: inDrawer ? 0 : "auto",
@@ -884,11 +1005,7 @@ export default function Chat({
               boxShadow: "0 -4px 24px rgba(0,0,0,0.5)",
               overflow: "hidden",
               visibility: showEmojiPicker ? "visible" : "hidden",
-              opacity: showEmojiPicker ? 1 : 0,
               pointerEvents: showEmojiPicker ? "auto" : "none",
-              transition: showEmojiPicker
-                ? "opacity 0.12s ease-out"
-                : "opacity 0.12s ease-out, bottom 0s, visibility 0s",
             }}
           >
             <div
@@ -948,7 +1065,7 @@ export default function Chat({
                 border: "none",
               }}
             />
-          </div>
+          </motion.div>
         )}
 
         <form
@@ -991,56 +1108,90 @@ export default function Chat({
             +
           </button>
 
-          <textarea
-            ref={textareaRef}
-            className="chat-input"
-            value={chatInput}
-            enterKeyHint="send"
-            autoCapitalize="sentences"
-            onChange={(e) => setChatInput(e.target.value)}
-            onCompositionStart={() => setIsComposing(true)}
-            onCompositionEnd={() => setIsComposing(false)}
-            onKeyDown={(e) => {
-              if (isComposing) return;
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                onSendMessage();
-                return;
-              }
-              // BUG FIX (backspace closes the chat box / feels slow to
-              // reopen): on some mobile browsers and PWA-style webviews,
-              // pressing backspace while a text field is already empty
-              // can be interpreted as a back-navigation gesture if the
-              // keystroke isn't explicitly captured here. That reads as
-              // "backspace closes the box." Stopping propagation in that
-              // specific case (empty field + backspace) prevents the
-              // event from reaching any such fallback handling, without
-              // changing normal backspace behavior while there's text to
-              // delete.
-              if (e.key === "Backspace" && chatInput.length === 0) {
-                e.stopPropagation();
-              }
-            }}
-            onFocus={handleInputFocus}
-            rows={1}
-            placeholder="Message #game-room"
-            autoComplete="off"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: "6px 0",
-              lineHeight: "20px",
-              maxHeight: "120px",
-              overflowY: "auto",
-              background: "transparent",
-              resize: "none",
-              border: "none",
-              outline: "none",
-              color: "inherit",
-              fontFamily: "'Inter', sans-serif",
-              fontSize: 16,
-            }}
-          />
+          <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+            <textarea
+              ref={textareaRef}
+              className="chat-input"
+              value={chatInput}
+              enterKeyHint="send"
+              autoCapitalize="sentences"
+              onChange={(e) => setChatInput(e.target.value)}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
+              onKeyDown={(e) => {
+                if (isComposing) return;
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  onSendMessage();
+                  return;
+                }
+                // BUG FIX (backspace closes the chat box / feels slow to
+                // reopen): on some mobile browsers and PWA-style webviews,
+                // pressing backspace while a text field is already empty
+                // can be interpreted as a back-navigation gesture if the
+                // keystroke isn't explicitly captured here. That reads as
+                // "backspace closes the box." Stopping propagation in that
+                // specific case (empty field + backspace) prevents the
+                // event from reaching any such fallback handling, without
+                // changing normal backspace behavior while there's text to
+                // delete.
+                if (e.key === "Backspace" && chatInput.length === 0) {
+                  e.stopPropagation();
+                }
+              }}
+              onFocus={handleInputFocus}
+              rows={1}
+              placeholder="Message #game-room"
+              autoComplete="off"
+              style={{
+                width: "100%",
+                padding: "6px 0",
+                lineHeight: "20px",
+                maxHeight: "120px",
+                overflowY: "auto",
+                background: "transparent",
+                resize: "none",
+                border: "none",
+                outline: "none",
+                color: "inherit",
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 16,
+                display: "block",
+              }}
+            />
+
+            {/*
+              FEATURE (shadow DOM measurement for textarea auto-resize):
+              Mirrors the textarea's exact font/padding/line-height/width
+              so its scrollHeight gives an accurate target height — without
+              ever writing a layout-affecting "auto" reset onto the real
+              textarea, which is the element an IME may be mid-composition
+              on. visibility: hidden keeps it out of sight but still
+              participates in layout sizing; position: absolute keeps it
+              out of normal flow so it doesn't add visible space.
+            */}
+            <div
+              ref={shadowRef}
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                padding: "6px 0",
+                lineHeight: "20px",
+                border: "none",
+                fontFamily: "'Inter', sans-serif",
+                fontSize: 16,
+                visibility: "hidden",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                pointerEvents: "none",
+              }}
+            >
+              {(chatInput.length > 0 ? chatInput : "\u200B") + "\n"}
+            </div>
+          </div>
 
           <button
             type="button"
