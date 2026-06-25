@@ -445,12 +445,26 @@ export default function Chat({
     }
   }, [processedMessages.length, scrollToBottom]);
 
+  // BUG FIX (text shows twice then collapses to clean while typing on
+  // mobile): this effect previously ran two synchronous DOM writes on
+  // every keystroke — reset height to "auto", then immediately measure
+  // scrollHeight and set a new pixel height. Doing this synchronously on
+  // the exact <textarea> that's currently receiving IME composition input
+  // (which is how most Android keyboards, including Gboard, handle
+  // multi-character input and emoji) can interrupt the IME's composition
+  // buffer mid-keystroke — the browser briefly shows the stale/duplicated
+  // composition text before the IME recovers and shows the clean result.
+  // Deferring the resize to the next animation frame lets the keystroke's
+  // own DOM update settle first, so the height adjustment never lands in
+  // the same synchronous window as an in-progress IME composition.
   useEffect(() => {
     const el = textareaRef.current;
-    if (el) {
+    if (!el) return;
+    const raf = requestAnimationFrame(() => {
       el.style.height = "auto";
       el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-    }
+    });
+    return () => cancelAnimationFrame(raf);
   }, [chatInput]);
 
   useEffect(() => {
@@ -609,7 +623,21 @@ export default function Chat({
 
   const toggleEmojiPicker = useCallback(() => {
     setPickerMounted(true);
-    setShowEmojiPicker((p) => !p);
+    setShowEmojiPicker((p) => {
+      const next = !p;
+      // BUG FIX: opening the in-app emoji picker while the OS keyboard
+      // is still up caused the two to visually fight for the same screen
+      // space — the picker would render squeezed underneath or beside
+      // the still-open system keyboard (including its own native emoji
+      // panel), which is what showed up as a broken/cramped emoji grid.
+      // Explicitly blurring the textarea before showing the picker tells
+      // the OS to dismiss its keyboard first, so the in-app picker gets
+      // the full space the system keyboard was occupying.
+      if (next) {
+        textareaRef.current?.blur();
+      }
+      return next;
+    });
   }, []);
 
   // BUG FIX (sway on mobile): the textarea's onFocus handler used to fire
@@ -924,6 +952,20 @@ export default function Chat({
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 onSendMessage();
+                return;
+              }
+              // BUG FIX (backspace closes the chat box / feels slow to
+              // reopen): on some mobile browsers and PWA-style webviews,
+              // pressing backspace while a text field is already empty
+              // can be interpreted as a back-navigation gesture if the
+              // keystroke isn't explicitly captured here. That reads as
+              // "backspace closes the box." Stopping propagation in that
+              // specific case (empty field + backspace) prevents the
+              // event from reaching any such fallback handling, without
+              // changing normal backspace behavior while there's text to
+              // delete.
+              if (e.key === "Backspace" && chatInput.length === 0) {
+                e.stopPropagation();
               }
             }}
             onFocus={handleInputFocus}

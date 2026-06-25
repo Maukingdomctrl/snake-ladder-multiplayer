@@ -24,16 +24,13 @@ export default function DiceRow({
   onImpact,
   feedback = true,
 }: DiceRowProps) {
-  // 1. Track the rolling state locally for the CSS fallback
   const [isRolling, setIsRolling] = useState(false);
 
-  // 2. Intercept the roll to start the state
   const handleRoll = async () => {
     setIsRolling(true);
     await onRoll();
   };
 
-  // 3. Intercept the completion to clear the state
   const handleRollComplete = () => {
     setIsRolling(false);
     if (onRollComplete) {
@@ -43,7 +40,6 @@ export default function DiceRow({
 
   return (
     <div
-      // 4. Apply the fallback class if rolling
       className={`dice-row-container ${isRolling ? "has-active-dice" : ""}`}
       style={{
         display: "flex",
@@ -55,7 +51,6 @@ export default function DiceRow({
       }}
     >
       <div style={{ flex: 1 }} />
-
       <div
         style={{
           background: "var(--bg-tertiary)",
@@ -68,11 +63,11 @@ export default function DiceRow({
         }}
       >
         <Dice
-          onRoll={handleRoll} /* Use intercepted handler */
+          onRoll={handleRoll}
           disabled={disabled}
           lastDice={lastDice}
           rollKey={rollKey}
-          onRollComplete={handleRollComplete} /* Use intercepted handler */
+          onRollComplete={handleRollComplete}
           onImpact={onImpact}
           feedback={feedback}
         />
@@ -84,21 +79,24 @@ export default function DiceRow({
           display: "flex",
           justifyContent: "flex-start",
           paddingLeft: 20,
+          minWidth: 0,
         }}
       >
         {jumpMessage && (
           <div
             role="status"
             aria-live="polite"
+            className="jump-message-pill"
             style={{
               background: "var(--accent)",
               boxShadow: "var(--shadow-sm)",
               borderRadius: 20,
               padding: "8px 16px",
-              fontSize: 14,
+              fontSize: 13,
               fontWeight: 700,
               color: "#fff",
-              whiteSpace: "nowrap",
+              whiteSpace: "normal",
+              textAlign: "center",
               border: "1px solid rgba(255,255,255,0.2)",
               pointerEvents: "none",
             }}
@@ -107,6 +105,41 @@ export default function DiceRow({
           </div>
         )}
       </div>
+
+      <style>{`
+  /*
+    BUG FIX (snake/ladder popup not showing correctly on mobile):
+    previously the pill lived in a "flex: 1" side spacer with
+    whiteSpace: "nowrap". On a narrow phone, that spacer is only
+    (screenWidth - diceWidth) / 2 wide — often under ~100-120px —
+    so a message like "🪜 Ladder! 47 → 96" had nowhere near enough
+    room and clipped/overflowed. Desktop keeps the original
+    side-by-side look (capped width so it can't outgrow the row);
+    narrow screens drop the pill to its own centered, full-width
+    row below the dice instead of squeezing it into a sliver.
+  */
+  .jump-message-pill {
+    max-width: min(60vw, 320px);
+  }
+  @media (max-width: 480px) {
+    .dice-row-container {
+      flex-wrap: wrap;
+      justify-content: center;
+      row-gap: 6px;
+    }
+    .dice-row-container > div:first-child {
+      display: none;
+    }
+    .dice-row-container > div:last-of-type {
+      flex: 1 1 100%;
+      justify-content: center;
+      padding-left: 0;
+    }
+    .jump-message-pill {
+      max-width: 92vw;
+    }
+  }
+`}</style>
     </div>
   );
 }

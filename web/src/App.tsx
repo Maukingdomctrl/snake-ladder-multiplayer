@@ -662,7 +662,23 @@ export default function App() {
                       {roomData.positions && (
                         <Scoreboard
                           players={roomData.players}
-                          positions={roomData.positions}
+                          /*
+                            BUG FIX: this previously read roomData.positions
+                            directly — the raw, immediate Firestore value —
+                            while Board reads displayPositions (buffered,
+                            only updates once the dice animation actually
+                            finishes). That mismatch meant the scoreboard's
+                            "Sq. N" number and "rolling..." label could
+                            visually update to the FINAL position the
+                            instant Firestore pushed the roll, while the
+                            token on the board was still mid-walk toward
+                            that square — making it look like "the piece
+                            already moved" even though the board itself was
+                            animating correctly. Using the same
+                            displayPositions the board uses keeps both
+                            views in lockstep.
+                          */
+                          positions={displayPositions}
                           playerColors={roomData.playerColors || {}}
                           playerNames={roomData.playerNames || {}}
                           currentTurn={roomData.currentTurn}
@@ -671,6 +687,13 @@ export default function App() {
                           playerId={playerId}
                           lastDice={roomData.lastDice ?? null}
                           lastRolledBy={roomData.lastRolledBy ?? null}
+                          // The "rolling..." label should track the same
+                          // diceComplete gate the board uses, not just
+                          // currentTurn/status, so the label can't say
+                          // "rolling..." after the token has actually
+                          // finished walking, or stop saying it before the
+                          // token has finished.
+                          diceComplete={diceComplete}
                         />
                       )}
                     </div>

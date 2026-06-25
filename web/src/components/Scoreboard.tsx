@@ -11,6 +11,15 @@ interface ScoreboardProps {
   playerId: string;
   lastDice?: number | null;
   lastRolledBy?: string | null;
+  // BUG FIX: previously the "rolling..." label was driven only by
+  // `currentTurn === pid && status === "playing"`, with no awareness of
+  // whether the dice animation / token walk was actually still in
+  // progress. That let the label (and, before the App.tsx fix, the
+  // position number) flip to its final state the instant Firestore pushed
+  // the roll, while the token on the board was still visibly walking.
+  // Passing diceComplete lets this component show "rolling..." for
+  // exactly as long as the board is actually animating.
+  diceComplete?: boolean;
 }
 
 export default function Scoreboard({
@@ -24,6 +33,7 @@ export default function Scoreboard({
   playerId,
   lastDice,
   lastRolledBy,
+  diceComplete = true,
 }: ScoreboardProps) {
   return (
     <div style={{ width: "100%", marginBottom: 4, display: "flex", gap: 5, overflowX: "auto", paddingBottom: 2 }}>
@@ -31,6 +41,11 @@ export default function Scoreboard({
         .sort((a, b) => (positions[b] ?? 1) - (positions[a] ?? 1))
         .map((pid, rank) => {
           const isActive = currentTurn === pid && status === "playing";
+          // A player only reads as "currently rolling/moving" while it's
+          // their active turn AND the board hasn't finished animating
+          // their move yet. Once diceComplete is true again, the label
+          // clears — matching exactly when the token actually stops.
+          const isCurrentlyMoving = isActive && !diceComplete;
           return (
             <div
               key={pid}
@@ -69,8 +84,8 @@ export default function Scoreboard({
                 </p>
                 <p style={{ margin: 0, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.15, whiteSpace: "nowrap" }}>
                   Sq. {positions[pid] ?? 1}
-                  {pid === currentTurn && status === "playing" && <span style={{ color: "#c9a84c" }}> · rolling...</span>}
-                  {pid === lastRolledBy && lastDice ? <span> · rolled {lastDice}</span> : null}
+                  {isCurrentlyMoving && <span style={{ color: "#c9a84c" }}> · rolling...</span>}
+                  {pid === lastRolledBy && lastDice && diceComplete ? <span> · rolled {lastDice}</span> : null}
                 </p>
               </div>
             </div>
