@@ -8,7 +8,6 @@ import {
   toMillis,
 } from "../firebase/rooms";
 
-// 1. STRICT TYPE: Removed 'any'. Using a generic unknown or specific Firebase Timestamp type
 function formatTime(at: Parameters<typeof toMillis>[0]): string {
   const ms = toMillis(at);
   if (!ms) return "";
@@ -45,10 +44,15 @@ const isEmojiOnly = (text: string) => {
   return t ? emojiOnlyRegex.test(t.replace(/\s+/g, "")) : false;
 };
 
-const getEmojiFontSize = (text: string) => {
-  const cleaned = (text || "").trim();
+// BUG FIX: the original called getEmojiFontSize(m.text as string) directly
+// from the parent without going through the same string-safety guard
+// MessageItem uses internally (`safeText`). Any non-string `m.text` (e.g.
+// a malformed/legacy message doc) would throw inside the grapheme
+// segmenter. getEmojiFontSize now defends itself instead of trusting the
+// caller, so the unsafe cast at the call site can never crash render.
+const getEmojiFontSize = (rawText: unknown) => {
+  const cleaned = (typeof rawText === "string" ? rawText : "").trim();
   let count = 0;
-  // Intl.Segmenter is not fully typed in all TS DOM libs yet, so casting the constructor is acceptable here
   const Segmenter = (Intl as any).Segmenter;
   if (typeof Segmenter !== "undefined") {
     count = [
@@ -57,16 +61,35 @@ const getEmojiFontSize = (text: string) => {
   } else {
     count = [...cleaned].length;
   }
-  if (count <= 1) return 56;
-  if (count <= 3) return 46;
-  if (count <= 6) return 36;
-  return 28;
+  // VISUAL FIX: previous sizes (56/46/36/28) rendered noticeably larger and
+  // blurrier than native emoji rendering on desktop, especially since
+  // system emoji fonts are designed around specific size steps. Tuned down
+  // and given one more step so a single emoji doesn't look oversized next
+  // to short text-based reactions.
+  if (count <= 1) return 48;
+  if (count <= 3) return 40;
+  if (count <= 6) return 32;
+  if (count <= 10) return 26;
+  return 22;
 };
+
+// Deterministic per-player gradient for sender names — premium look,
+// without needing a server-side color scheme. Hashes the player id into a
+// hue so each person gets a stable two-stop gradient across sessions.
+function getNameGradient(seed: string): string {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  const hue1 = hash % 360;
+  const hue2 = (hue1 + 46) % 360;
+  return `linear-gradient(90deg, hsl(${hue1} 85% 68%), hsl(${hue2} 85% 62%))`;
+}
 
 // ─── ★★★ MEMOIZED MESSAGE ITEM ★★★ ───
 
 interface MessageItemProps {
-  m: RoomMessage & { isFirstInGroup: boolean; showDateSeparator: boolean; isDiceRoll?: boolean }; // Added hypothetical isDiceRoll flag
+  m: RoomMessage & { isFirstInGroup: boolean; showDateSeparator: boolean; isDiceRoll?: boolean };
   isMe: boolean;
   playerId: string;
   playerColor: string;
@@ -75,7 +98,7 @@ interface MessageItemProps {
   emojiSize: number;
   messageTime: number;
   highlightedId: string | null;
-  onReply: (m: RoomMessage) => void; // 1. STRICT TYPE: Replaced 'any' with RoomMessage
+  onReply: (m: RoomMessage) => void;
   onScrollToReply: (id: string) => void;
   messageRef: (el: HTMLDivElement | null) => void;
   inDrawer: boolean;
@@ -100,8 +123,8 @@ const MessageItem = memo(function MessageItem({
       ? m.playerName
       : m.playerId || "Player";
 
-  // 2. CSS FALLBACK: Local state to track if a dice inside this specific message is animating
-  const [isRolling, setIsRolling] = useState(false);
+  const [isRolling] = useState(false);
+  const nameGradient = useMemo(() => getNameGradient(m.playerId || safeName), [m.playerId, safeName]);
 
   return (
     <>
@@ -110,14 +133,16 @@ const MessageItem = memo(function MessageItem({
           style={{
             display: "flex",
             alignItems: "center",
-            margin: "16px 16px",
+            margin: "20px 16px 16px",
             color: "var(--text-muted)",
-            fontSize: 12,
-            fontWeight: 600,
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
           }}
         >
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-          <span style={{ padding: "0 8px" }}>
+          <span style={{ padding: "0 10px" }}>
             {getDateString(messageTime)}
           </span>
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
@@ -135,8 +160,14 @@ const MessageItem = memo(function MessageItem({
           display: "flex",
           flexDirection: "column",
           alignItems: isMe ? "flex-end" : "flex-start",
-          marginTop: m.isFirstInGroup ? 12 : 2,
-          marginBottom: 2,
+          // VISUAL FIX: previous values (12 / 2) made every message in a
+          // run sit almost flush against the next, and gave very little
+          // breathing room between different senders. Discord-style chat
+          // gives clearly more vertical air between *groups* (different
+          // senders, or a time gap) than between consecutive messages from
+          // the same sender, so the rhythm reads cleanly at a glance.
+          marginTop: m.isFirstInGroup ? 18 : 3,
+          marginBottom: 1,
           width: "100%",
           cursor: "pointer",
           transition: "background-color 0.3s ease",
@@ -195,7 +226,6 @@ const MessageItem = memo(function MessageItem({
           </div>
         )}
 
-        {/* 2. CSS FALLBACK: Dynamically append the fallback class if the dice is actively rolling */}
         <div
           className={`chat-row ${!m.isFirstInGroup ? 'chat-grouped' : ''} ${isRolling ? 'has-active-dice' : ''}`}
           style={{
@@ -211,7 +241,7 @@ const MessageItem = memo(function MessageItem({
                 display: "flex",
                 flexDirection: isMe ? "row-reverse" : "row",
                 alignItems: "center",
-                marginBottom: 4,
+                marginBottom: 6,
                 padding: "0 16px",
               }}
             >
@@ -219,16 +249,33 @@ const MessageItem = memo(function MessageItem({
                 className="avatar"
                 style={{
                   backgroundColor: playerColor,
+                  backgroundImage: `linear-gradient(160deg, rgba(255,255,255,0.35), rgba(255,255,255,0) 60%)`,
                   marginRight: isMe ? 0 : 12,
                   marginLeft: isMe ? 12 : 0,
-                  width: 28,
-                  height: 28,
-                  fontSize: 12,
+                  width: 30,
+                  height: 30,
+                  fontSize: 13,
+                  boxShadow: `0 0 0 2px var(--bg-primary), 0 2px 6px rgba(0,0,0,0.35)`,
                 }}
               >
                 {[...safeName][0]?.toUpperCase() ?? "?"}
               </div>
-              <span className="chat-sender" style={{ color: playerColor }}>
+              {/* VISUAL FIX: flat solid-color sender names looked dull on
+                  dark backgrounds. Each sender now gets a stable,
+                  deterministic two-tone gradient (background-clip: text)
+                  instead of a single flat color — same information, more
+                  premium presentation, no per-message randomness (it's
+                  seeded from playerId so it's stable across reloads). */}
+              <span
+                className="chat-sender"
+                style={{
+                  backgroundImage: nameGradient,
+                  WebkitBackgroundClip: "text",
+                  backgroundClip: "text",
+                  color: "transparent",
+                  WebkitTextFillColor: "transparent",
+                }}
+              >
                 {safeName}
               </span>
               <span className="chat-timestamp">{timeString}</span>
@@ -256,30 +303,26 @@ const MessageItem = memo(function MessageItem({
               maxWidth: "78%",
               wordBreak: "break-word",
               whiteSpace: "pre-wrap",
+              // VISUAL FIX: emoji rendered via a plain text fontFamily
+              // fallback list looked inconsistent across desktop browsers
+              // (some render emoji as flat monochrome glyphs from a
+              // system serif/sans font instead of the color emoji font).
+              // Pinning "Apple Color Emoji"/"Segoe UI Emoji"/"Noto Color
+              // Emoji" first — and ALSO applying that stack even for mixed
+              // text+emoji messages, not just emoji-only ones — makes
+              // emoji render as their native color glyphs everywhere
+              // instead of falling back to whatever the body font does
+              // with the codepoint.
               fontFamily: emojiOnly
-                ? '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif'
-                : "'Inter', sans-serif",
-              lineHeight: emojiOnly ? 1.1 : 1.375,
+                ? '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Inter",sans-serif'
+                : '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
+              lineHeight: emojiOnly ? 1.15 : 1.375,
               margin: "0 16px",
               border: emojiOnly ? "none" : "1px solid rgba(255,255,255,0.06)",
               boxShadow: emojiOnly ? "none" : "0 2px 8px rgba(0,0,0,0.18)",
             }}
           >
             {safeText}
-            
-            {/* ─── INJECTION ZONE: Here is where you drop the DiceRow ─── */}
-            {/* {m.isDiceRoll && (
-                <DiceRow 
-                  onRoll={async () => {
-                    setIsRolling(true);
-                    // trigger standard roll logic
-                  }}
-                  onRollComplete={() => setIsRolling(false)}
-                  // ... rest of props
-                />
-              )}
-            */}
-            
           </div>
         </div>
       </div>
@@ -308,6 +351,16 @@ export default function Chat({
 }: ChatProps) {
   const [chatInput, setChatInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  // BUG FIX: emoji-picker-react was being fully unmounted on every close
+  // (`{showEmojiPicker && <EmojiPicker .../>}`), which tears down its
+  // internal emoji-sheet/data fetch each time. Reopening then re-fetches
+  // from scratch, which on a slow connection shows as a blank/white box
+  // for a beat — the inconsistent "white blank" symptom. Fix: mount the
+  // picker once on first open and keep it mounted, just toggling
+  // visibility via display/visibility instead of remounting the
+  // component. hasOpenedPickerRef ensures we don't pay the (heavier)
+  // mount cost until the user actually wants the picker the first time.
+  const [pickerMounted, setPickerMounted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<RoomMessage | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -380,7 +433,6 @@ export default function Chat({
     };
   }, []);
 
-  // 1. STRICT TYPE: Corrected UIEvent type
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement, UIEvent>) => {
     const t = e.currentTarget;
     isNearBottom.current = t.scrollHeight - t.scrollTop - t.clientHeight < 150;
@@ -477,7 +529,7 @@ export default function Chat({
         playerId,
         playerName,
         text,
-        at: null as any, // Null satisfies the optimistic state before server response
+        at: null as any,
         clientAt,
         replyTo: replyPayload,
         isPending: true,
@@ -555,6 +607,33 @@ export default function Chat({
     []
   );
 
+  const toggleEmojiPicker = useCallback(() => {
+    setPickerMounted(true);
+    setShowEmojiPicker((p) => !p);
+  }, []);
+
+  // BUG FIX (sway on mobile): the textarea's onFocus handler used to fire
+  // an immediate `requestAnimationFrame(() => scrollToBottom("smooth"))`
+  // the instant focus landed — which on mobile is the exact same moment
+  // the keyboard starts opening and App.tsx's visualViewport handler
+  // begins resizing the drawer via direct style writes. Three independent
+  // motions (keyboard opening, drawer resizing, message list smooth
+  // scrolling) had no sequencing between them, which is what produced the
+  // visible "sway." Deferring the scroll slightly lets the keyboard/drawer
+  // resize settle first, so the scroll happens against a layout that's
+  // already stable instead of one that's still actively resizing under it.
+  const handleInputFocus = useCallback(() => {
+    isNearBottom.current = true;
+    const delay = inDrawer ? 220 : 0;
+    if (delay === 0) {
+      requestAnimationFrame(() => scrollToBottom("smooth"));
+    } else {
+      setTimeout(() => {
+        requestAnimationFrame(() => scrollToBottom("smooth"));
+      }, delay);
+    }
+  }, [inDrawer, scrollToBottom]);
+
   return (
     <div
       style={{
@@ -609,7 +688,7 @@ export default function Chat({
             emojiOnly={isEmojiOnly(typeof m.text === "string" ? m.text : "")}
             emojiSize={
               isEmojiOnly(typeof m.text === "string" ? m.text : "")
-                ? getEmojiFontSize(m.text as string)
+                ? getEmojiFontSize(m.text)
                 : 14
             }
             messageTime={toMillis(m.at) || m.clientAt}
@@ -716,7 +795,22 @@ export default function Chat({
       )}
 
       <div style={{ position: "relative", flexShrink: 0 }}>
-        {showEmojiPicker && (
+        {/*
+          BUG FIX: previously this whole block (including <EmojiPicker/>)
+          only existed in the DOM while showEmojiPicker was true, so every
+          close+reopen cycle remounted the picker and re-triggered its
+          internal data/sprite load — the source of the inconsistent
+          "white blank" flash. Now the picker mounts once (on first open,
+          via pickerMounted) and stays mounted; only its visibility is
+          toggled afterwards, so reopening is instant with no refetch.
+
+          VISUAL FIX: width was a hardcoded 308px on desktop regardless of
+          the available chat column width (320px in App.tsx's tablet
+          layout, with little side padding) — right at the edge of
+          clipping. Now uses a responsive cap via minmax-style sizing so it
+          comfortably fits the column instead of nearly overflowing it.
+        */}
+        {pickerMounted && (
           <div
             ref={pickerRef}
             style={
@@ -728,23 +822,27 @@ export default function Chat({
                     marginBottom: 8,
                     background: "var(--bg-secondary)",
                     boxShadow: "var(--shadow-md)",
+                    display: showEmojiPicker ? "block" : "none",
                   }
                 : {
                     position: "absolute",
                     bottom: "calc(100% + 8px)",
                     right: 0,
                     zIndex: 999,
-                    width: 308,
+                    width: "min(308px, calc(100% - 16px))",
                     background: "var(--bg-secondary)",
                     borderRadius: 8,
                     boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
                     overflow: "hidden",
+                    visibility: showEmojiPicker ? "visible" : "hidden",
+                    opacity: showEmojiPicker ? 1 : 0,
+                    pointerEvents: showEmojiPicker ? "auto" : "none",
+                    transition: "opacity 0.12s ease-out",
                   }
             }
           >
             <EmojiPicker
               theme={Theme.DARK}
-              /* 1. STRICT TYPE: Replaced 'any' with EmojiClickData */
               onEmojiClick={(emojiData: EmojiClickData) => {
                 const emoji = emojiData?.emoji || "";
                 const el = textareaRef.current;
@@ -764,7 +862,7 @@ export default function Chat({
                 });
               }}
               style={{
-                width: inDrawer ? "100%" : 308,
+                width: "100%",
                 height: inDrawer ? 260 : 350,
                 border: "none",
               }}
@@ -828,10 +926,7 @@ export default function Chat({
                 onSendMessage();
               }
             }}
-            onFocus={() => {
-              isNearBottom.current = true;
-              requestAnimationFrame(() => scrollToBottom("smooth"));
-            }}
+            onFocus={handleInputFocus}
             rows={1}
             placeholder="Message #game-room"
             autoComplete="off"
@@ -855,7 +950,7 @@ export default function Chat({
           <button
             type="button"
             ref={buttonRef}
-            onClick={() => setShowEmojiPicker((p) => !p)}
+            onClick={toggleEmojiPicker}
             onMouseDown={e => e.preventDefault()}
             style={{
               minHeight: 28,

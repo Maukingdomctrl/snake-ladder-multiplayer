@@ -14,6 +14,17 @@ interface DiceProps {
 
 const ROLL_MS = 4500;
 
+// BUG FIX (pieces appear to move while the dice is still visually settling):
+// `onRollComplete` previously fired in the exact same tick the CSS roll
+// animation's *duration* elapsed. A cubic-bezier-eased animation's final
+// frames are its slowest and most visually prominent — the dice is still
+// perceptibly settling for a beat after the animation's clock technically
+// finishes. SETTLE_BUFFER_MS adds a small, deliberate cushion between "the
+// roll animation's timer fired" and "tell the rest of the app it's safe to
+// start moving pieces," so the token never starts walking while the dice
+// still visually reads as in motion.
+const SETTLE_BUFFER_MS = 250;
+
 // Physics impacts mapped to animation keyframes
 const IMPACTS: { at: number; strength: number }[] = [
   { at: 0.25, strength: 1.0 },
@@ -169,6 +180,7 @@ export default function Dice({
 
   const bounceRef = useRef<HTMLDivElement>(null);
   const finishTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleBufferTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const impactTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const wobbleRafRef = useRef<number | null>(null);
@@ -191,6 +203,7 @@ export default function Dice({
 
   const clearAllTimers = () => {
     if (finishTimeoutRef.current) clearTimeout(finishTimeoutRef.current);
+    if (settleBufferTimeoutRef.current) clearTimeout(settleBufferTimeoutRef.current);
     if (settleTimeoutRef.current) clearTimeout(settleTimeoutRef.current);
     impactTimeoutsRef.current.forEach(clearTimeout);
     impactTimeoutsRef.current = [];
@@ -304,7 +317,11 @@ export default function Dice({
       setRolling(false);
       setRotations({ x: newX, y: newY });
       scheduleSettle();
-      onRollCompleteRef.current?.();
+      // Reduced motion still gets a (much smaller) buffer for consistency,
+      // even though there's effectively no animation to wait out.
+      settleBufferTimeoutRef.current = setTimeout(() => {
+        onRollCompleteRef.current?.();
+      }, 50);
       return;
     }
 
@@ -345,11 +362,22 @@ export default function Dice({
       }, ROLL_MS * at)
     );
 
+    // BUG FIX: `onRollComplete` no longer fires in the same tick the roll
+    // animation's clock elapses. We wait ROLL_MS for the animation itself,
+    // then an additional SETTLE_BUFFER_MS before telling the rest of the
+    // app it's safe to act on the result (e.g. start moving a token). This
+    // closes the gap where a token could start walking during the dice's
+    // final, slowest (eased-out) bounce frames — the part of the motion
+    // most likely to still read as "rolling" to the human eye even though
+    // the animation's timer has technically finished.
     finishTimeoutRef.current = setTimeout(() => {
       setRolling(false);
       setIsAnimating(false);
       scheduleSettle();
-      onRollCompleteRef.current?.();
+
+      settleBufferTimeoutRef.current = setTimeout(() => {
+        onRollCompleteRef.current?.();
+      }, SETTLE_BUFFER_MS);
     }, ROLL_MS);
   }, [rollKey, lastDice, reducedMotion]);
 

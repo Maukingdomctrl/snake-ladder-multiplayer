@@ -52,13 +52,24 @@ function getPlayerColor(pid: string) {
   return PLAYER_COLORS[getPidHash(pid) % PLAYER_COLORS.length];
 }
 
-function getClusterOffset(pid: string) {
-  return CLUSTER_OFFSETS[getPidHash(pid) % CLUSTER_OFFSETS.length];
+// BUG FIX: CLUSTER_OFFSETS in constants.ts stores FRACTIONS of a cell (e.g.
+// 0.12 means "12% of one cell's width/height"), exactly as documented by
+// constants.ts's own getScaledClusterOffset helper, which multiplies by
+// cellSize before returning. This local getClusterOffset was returning the
+// raw fractional value directly, which callers then added straight into a
+// pixel calculation — e.g. `col * cellSize + cellSize / 2 + offset.x` where
+// offset.x was ~0.12 instead of ~0.12 * cellSize. On a typical 50-80px
+// cell, that's a sub-pixel nudge instead of the intended 6-10px separation,
+// so stacked tokens rendered essentially on top of each other regardless
+// of CLUSTER_OFFSETS. Now takes cellSize and scales correctly.
+function getClusterOffset(pid: string, cellSize: number) {
+  const offset = CLUSTER_OFFSETS[getPidHash(pid) % CLUSTER_OFFSETS.length];
+  return { x: offset.x * cellSize, y: offset.y * cellSize };
 }
 
 function squareToPixel(squareNum: number, pid: string, cellSize: number) {
   const { row, col } = cellToPos(squareNum);
-  const offset = getClusterOffset(pid);
+  const offset = getClusterOffset(pid, cellSize);
   return {
     x: col * cellSize + cellSize / 2 + offset.x,
     y: row * cellSize + cellSize / 2 + offset.y,
@@ -524,6 +535,29 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     halfTokenRef.current = halfToken;
   }, [halfToken]);
 
+  // BUG FIX (animation breaks when a snake/ladder popup appears):
+  // The move effect's async IIFE closes over `cellSize` as it was at the
+  // moment the move started. If a snake/ladder result causes the parent to
+  // mount a popup/modal that changes the board's available layout space
+  // (e.g. shrinking it to make room for the popup), `Board`'s `cellSize`
+  // memo recomputes and `TokenLayer` re-renders with a NEW `cellSize` — but
+  // the in-flight animation loop keeps computing pixel targets from the
+  // OLD `cellSize` it captured at start. Meanwhile the `snapToken` effect
+  // (which runs on every `cellSize` change) uses the NEW `cellSize` for any
+  // non-animating token. Two different scales being used for the same
+  // token at the same time is exactly what breaks/jumps the animation when
+  // a popup opens.
+  //
+  // Fix: keep a ref that always holds the latest `cellSize`, and have the
+  // animation loop read from the ref on every step instead of the value it
+  // captured when the move started. This guarantees the in-flight
+  // animation always targets the current layout, even if it changes
+  // mid-flight.
+  const cellSizeRef = useRef(cellSize);
+  useEffect(() => {
+    cellSizeRef.current = cellSize;
+  }, [cellSize]);
+
   useEffect(() => {
     return () => {
       // Invalidate any animation still running when this component unmounts.
@@ -535,10 +569,10 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
   const snapToken = useCallback((pid: string, cell: number) => {
     const el = tokenRefs.current[pid];
     if (!el) return;
-    const px = squareToPixel(cell, pid, cellSize);
+    const px = squareToPixel(cell, pid, cellSizeRef.current);
     el.style.transition = "none";
     el.style.transform = `translate3d(${px.x - halfTokenRef.current}px, ${px.y - halfTokenRef.current}px, 0)`;
-  }, [cellSize]);
+  }, []);
 
   // Keep every non-animating player's token glued to its authoritative
   // position (e.g. on resize, or when another player's positions update).
@@ -600,9 +634,13 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
     }, 12000);
 
     (async () => {
-      // Small delay so React has committed and the dice UI has settled
-      // before the token starts moving.
-      await delay(50);
+      // Small delay so React has committed and the dice's visual settle
+      // (including its glow/scale keyframe) has unmistakably finished
+      // before the token starts moving. Paired with the Dice.tsx settle
+      // buffer and App.tsx's fallback-timeout margin, this closes the gap
+      // that let tokens appear to move while the dice was still visibly
+      // settling.
+      await delay(150);
       if (isStale()) return;
 
       // Force the token to its true starting square before animating.
@@ -662,7 +700,7 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
         const el = tokenRefs.current[pid];
         if (!el) return;
 
-        const px = squareToPixel(i, pid, cellSize);
+        const px = squareToPixel(i, pid, cellSizeRef.current);
 
         // Set transition first, force a reflow, THEN set transform. This
         // prevents the browser from batching the two writes into a single
@@ -686,10 +724,15 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
       if (finalPos !== naturalEnd && finalPos !== from) {
         const jumpEl = tokenRefs.current[pid];
         if (jumpEl) {
+          // Use the CURRENT cellSize, not whatever was captured when the
+          // move started — if a popup opened during the staccato phase and
+          // shrank/grew the board, this phase must still land the token in
+          // the right place on the present-day layout.
+          const liveCellSize = cellSizeRef.current;
           const isSnake = finalPos < naturalEnd;
-          const aCenter = cellCenter(naturalEnd, cellSize);
-          const bCenter = cellCenter(finalPos, cellSize);
-          const offset = getClusterOffset(pid);
+          const aCenter = cellCenter(naturalEnd, liveCellSize);
+          const bCenter = cellCenter(finalPos, liveCellSize);
+          const offset = getClusterOffset(pid, liveCellSize);
           const aPixel = { x: aCenter.x + offset.x, y: aCenter.y + offset.y };
           const bPixel = { x: bCenter.x + offset.x, y: bCenter.y + offset.y };
 
@@ -729,7 +772,15 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
         }
       }
     })();
-  }, [diceComplete, roomData, cellSize, snapToken]);
+    // Note: `cellSize` is intentionally NOT a dependency here. The
+    // animation reads the always-current value via `cellSizeRef.current`,
+    // so this effect only needs to re-run when an actual new move arrives
+    // (`roomData`/`diceComplete`), not whenever the board's layout changes
+    // (e.g. because a snake/ladder popup resized the available space).
+    // Re-running this effect on every layout change would be at best
+    // wasteful and at worst risk interrupting an in-flight move for a
+    // reason that has nothing to do with the move itself.
+  }, [diceComplete, roomData, snapToken]);
 
   // IMPORTANT: `transform` and `transition` must never appear in the React
   // `style={{...}}` object below. If they do, every re-render of TokenLayer
@@ -813,66 +864,105 @@ export default function Board({
   dimensions,
 }: BoardProps) {
 
-  const [boardDims, setBoardDims] = useState(() => ({
-    w: typeof window !== "undefined" ? window.innerWidth : 800,
-    h: typeof window !== "undefined" ? window.innerHeight : 800,
-  }));
+  // BUG FIX (board "zooms in" on load then snaps to normal size):
+  // The previous initial state defaulted to `window.innerWidth/innerHeight`
+  // — the entire viewport — as a fallback before any real measurement was
+  // available. If the parent measures its actual container size via
+  // useRef/ResizeObserver (common pattern), there's a render or two before
+  // `dimensions` is populated. During that window, cellSize was being
+  // computed from the *full browser viewport* instead of the actual board
+  // container, producing a way-oversized board that then visibly snapped
+  // down to the correct size the instant real `dimensions` arrived — i.e.
+  // exactly the "zooms in then returns to normal" symptom.
+  //
+  // Fix: don't fabricate a viewport-sized fallback at all. Track whether we
+  // have ANY real measurement yet (from `dimensions` or from our own
+  // ResizeObserver against the actual wrapper element) and don't compute a
+  // board size — render nothing visually sized yet — until we do. This
+  // trades "board renders one frame later" for "board never renders at the
+  // wrong size," which is the correct trade for this visual symptom.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [measuredDims, setMeasuredDims] = useState<{ w: number; h: number } | null>(null);
 
   useEffect(() => {
+    // If the parent already supplies real dimensions, we don't need our own
+    // ResizeObserver fallback.
     if (dimensions && dimensions.width > 0 && dimensions.height > 0) return;
+    const node = wrapperRef.current;
+    if (!node) return;
 
-    let timeoutId: ReturnType<typeof setTimeout>;
-    const handler = () => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        setBoardDims({ w: window.innerWidth, h: window.innerHeight });
-      }, 100);
-    };
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
+        setMeasuredDims({ w: width, h: height });
+      }
+    });
+    observer.observe(node);
 
-    window.addEventListener("resize", handler);
-    return () => {
-      window.removeEventListener("resize", handler);
-      clearTimeout(timeoutId);
-    };
+    // Seed an immediate measurement too, in case ResizeObserver's first
+    // callback is delayed by a frame.
+    const rect = node.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      setMeasuredDims({ w: rect.width, h: rect.height });
+    }
+
+    return () => observer.disconnect();
   }, [dimensions]);
 
-  const { cellSize, borderPadding } = useMemo(() => {
-    const w = dimensions?.width || boardDims.w;
-    const h = dimensions?.height || boardDims.h;
-    return calculateBoardMetrics(w, h);
-  }, [dimensions, boardDims]);
+  const effectiveDims = useMemo(() => {
+    if (dimensions && dimensions.width > 0 && dimensions.height > 0) {
+      return { w: dimensions.width, h: dimensions.height };
+    }
+    return measuredDims;
+  }, [dimensions, measuredDims]);
+
+  const metrics = useMemo(() => {
+    if (!effectiveDims) return null;
+    return calculateBoardMetrics(effectiveDims.w, effectiveDims.h);
+  }, [effectiveDims]);
+
+  const cellSize = metrics?.cellSize ?? 0;
+  const borderPadding = metrics?.borderPadding ?? 0;
 
   const boardSize = cellSize * 10;
   const playerIds = useMemo(() => Object.keys(positions), [positions]);
   const tokenSize = Math.max(10, Math.min(22, cellSize * 0.38));
+  const hasMeasurement = metrics !== null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "inherit" }}>
-      <div style={{
-          padding: borderPadding,
-          background: "linear-gradient(145deg, #F5C800 0%, #D4A600 50%, #F5C800 100%)",
-          borderRadius: Math.max(6, borderPadding * 0.7),
-          boxShadow: `0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(245,200,0,0.3), 0 0 24px rgba(245,200,0,0.08)`,
-      }}>
+    <div
+      ref={wrapperRef}
+      style={{ display: "flex", flexDirection: "column", alignItems: "center", fontFamily: "inherit", width: "100%", height: "100%" }}
+    >
+      {hasMeasurement && (
         <div style={{
-            position: "relative", width: boardSize, height: boardSize, borderRadius: 4, background: "#FFF",
-            boxShadow: "inset 0 0 10px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.08)",
-            outline: `${Math.max(2, Math.round(cellSize * 0.04))}px solid #5C2A00`,
-            outlineOffset: `-${Math.max(1, Math.round(cellSize * 0.02))}px`,
-            overflow: "hidden", userSelect: "none", WebkitUserSelect: "none", touchAction: "none",
+            padding: borderPadding,
+            background: "linear-gradient(145deg, #F5C800 0%, #D4A600 50%, #F5C800 100%)",
+            borderRadius: Math.max(6, borderPadding * 0.7),
+            boxShadow: `0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(245,200,0,0.3), 0 0 24px rgba(245,200,0,0.08)`,
         }}>
-          {/* Static rendering - completely locked */}
-          <StaticBoardGraphics cellSize={cellSize} boardSize={boardSize} />
+          <div style={{
+              position: "relative", width: boardSize, height: boardSize, borderRadius: 4, background: "#FFF",
+              boxShadow: "inset 0 0 10px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.08)",
+              outline: `${Math.max(2, Math.round(cellSize * 0.04))}px solid #5C2A00`,
+              outlineOffset: `-${Math.max(1, Math.round(cellSize * 0.02))}px`,
+              overflow: "hidden", userSelect: "none", WebkitUserSelect: "none", touchAction: "none",
+          }}>
+            {/* Static rendering - completely locked */}
+            <StaticBoardGraphics cellSize={cellSize} boardSize={boardSize} />
 
-          {/* Dynamic token rendering - async engine */}
-          <TokenLayer
-            playerIds={playerIds} positions={positions} roomData={roomData}
-            cellSize={cellSize} diceComplete={diceComplete} tokenSize={tokenSize}
-          />
+            {/* Dynamic token rendering - async engine */}
+            <TokenLayer
+              playerIds={playerIds} positions={positions} roomData={roomData}
+              cellSize={cellSize} diceComplete={diceComplete} tokenSize={tokenSize}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
-      {!hideLegend && playerIds.length > 0 && (
+      {!hideLegend && hasMeasurement && playerIds.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 20, justifyContent: "center" }}>
           {playerIds.map((pid) => (
             <div key={`legend-${pid}`} style={{
@@ -885,6 +975,7 @@ export default function Board({
                 (Pos: {positions[pid] ?? 1})
               </span>
             </div>
+
           ))}
         </div>
       )}

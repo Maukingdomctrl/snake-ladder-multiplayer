@@ -32,6 +32,20 @@ import DiceRow from "./components/DiceRow";
 
 type Face = 1 | 2 | 3 | 4 | 5 | 6;
 
+// BUG FIX (pieces appear to move while the dice is still visually settling):
+// This fallback timeout exists purely as a safety net in case Dice.tsx's
+// `onRollComplete` callback never fires (e.g. the component unmounts mid
+// animation, or some other edge case). Dice.tsx's real completion path now
+// takes ROLL_MS (4500ms) + a settle buffer (250ms) = 4750ms. This fallback
+// previously fired at 5000ms, leaving only 250ms of margin — on a slow
+// device, backgrounded tab, or any frame jank, the fallback could fire
+// BEFORE Dice.tsx's real completion, forcibly setting diceComplete to true
+// while the dice was still visibly mid-roll. Widened to 6000ms so the
+// fallback can never race the real completion signal under normal
+// conditions, while still recovering within a reasonable time if the real
+// signal is genuinely lost.
+const DICE_FALLBACK_TIMEOUT_MS = 6000;
+
 export default function App() {
   const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
   const { width, height } = useWindowDimensions();
@@ -365,6 +379,10 @@ export default function App() {
         setJumpMessage("");
 
         if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+        // See DICE_FALLBACK_TIMEOUT_MS comment above: this is a safety net
+        // only, and must stay comfortably ahead of Dice.tsx's real
+        // completion time (ROLL_MS + its own settle buffer) so it never
+        // races the real onRollComplete signal under normal conditions.
         observerTimeoutRef.current = setTimeout(() => {
           if (!diceFinishedRef.current) {
             diceFinishedRef.current = true;
@@ -375,7 +393,7 @@ export default function App() {
               setDisplayPositions(pendingPositionsRef.current);
             }
           }
-        }, 5000);
+        }, DICE_FALLBACK_TIMEOUT_MS);
 
         const pid = roomData.lastRolledBy;
         const from = roomData.lastFrom;
