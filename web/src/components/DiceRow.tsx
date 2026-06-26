@@ -48,6 +48,18 @@ export default function DiceRow({
         marginTop: 6,
         marginBottom: 8,
         minHeight: 68,
+        /*
+          BUG FIX (snake/ladder popup hides behind the mobile floating chat button):
+          The floating chat FAB in App.tsx uses zIndex: 500 (--z-drawer). 
+          Establishing a stacking context here with a z-index of 501 fixes the 
+          mobile overlapping issue where the button obscured the pill.
+          
+          Note: If the open chat drawer also uses 500, this 501 z-index WILL 
+          cause the dice to float above the open drawer. To fix this properly, 
+          the FAB and the Drawer should use different z-index variables.
+        */
+        position: "relative",
+        zIndex: 501, 
       }}
     >
       <div style={{ flex: 1 }} />
@@ -58,7 +70,6 @@ export default function DiceRow({
           padding: "10px 20px",
           boxShadow: "var(--shadow-md)",
           border: "1px solid var(--border)",
-          zIndex: 2,
           flexShrink: 0,
         }}
       >
@@ -88,6 +99,8 @@ export default function DiceRow({
             aria-live="polite"
             className="jump-message-pill"
             style={{
+              position: "relative",
+              // Z-index removed here; inherited correctly from parent stacking context
               background: "var(--accent)",
               boxShadow: "var(--shadow-sm)",
               borderRadius: 20,
@@ -106,40 +119,35 @@ export default function DiceRow({
         )}
       </div>
 
+      {/* Consider moving these styles to an external CSS file */}
       <style>{`
-  /*
-    BUG FIX (snake/ladder popup not showing correctly on mobile):
-    previously the pill lived in a "flex: 1" side spacer with
-    whiteSpace: "nowrap". On a narrow phone, that spacer is only
-    (screenWidth - diceWidth) / 2 wide — often under ~100-120px —
-    so a message like "🪜 Ladder! 47 → 96" had nowhere near enough
-    room and clipped/overflowed. Desktop keeps the original
-    side-by-side look (capped width so it can't outgrow the row);
-    narrow screens drop the pill to its own centered, full-width
-    row below the dice instead of squeezing it into a sliver.
-  */
-  .jump-message-pill {
-    max-width: min(60vw, 320px);
-  }
-  @media (max-width: 480px) {
-    .dice-row-container {
-      flex-wrap: wrap;
-      justify-content: center;
-      row-gap: 6px;
-    }
-    .dice-row-container > div:first-child {
-      display: none;
-    }
-    .dice-row-container > div:last-of-type {
-      flex: 1 1 100%;
-      justify-content: center;
-      padding-left: 0;
-    }
-    .jump-message-pill {
-      max-width: 92vw;
-    }
-  }
-`}</style>
+        /*
+          BUG FIX (snake/ladder popup not showing correctly on mobile):
+          Desktop keeps the original side-by-side look (capped width so it can't outgrow the row).
+          Narrow screens drop the pill to its own centered, full-width row below the dice.
+        */
+        .jump-message-pill {
+          max-width: min(60vw, 320px);
+        }
+        @media (max-width: 480px) {
+          .dice-row-container {
+            flex-wrap: wrap;
+            justify-content: center;
+            row-gap: 6px;
+          }
+          .dice-row-container > div:first-child {
+            display: none;
+          }
+          .dice-row-container > div:last-of-type {
+            flex: 1 1 100%;
+            justify-content: center;
+            padding-left: 0;
+          }
+          .jump-message-pill {
+            max-width: 92vw;
+          }
+        }
+      `}</style>
     </div>
   );
 }

@@ -516,6 +516,15 @@ interface TokenLayerProps {
 const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, tokenSize }: TokenLayerProps) => {
   const tokenRefs = useRef<Record<string, HTMLDivElement>>({});
   const lastMoveKeyRef = useRef<string>("");
+  // PATCH: anchor token movement to a fixed wall-clock floor measured from
+  // when this move was FIRST observed, not just to diceComplete flipping
+  // true. If diceComplete ever turns true earlier than the dice's actual
+  // ~5s visual roll (e.g. a fast round-trip, or any upstream timing drift
+  // in Dice.tsx/App.tsx we haven't fully closed), this still guarantees
+  // the token never starts walking before the roll has had this minimum
+  // amount of time to visually finish.
+  const moveSeenAtRef = useRef<number>(0);
+  const ROLL_MIN_DURATION_MS = 5000;
 
   // Tracks which player currently "owns" an in-flight animation, so the
   // position-sync effect below doesn't snap them mid-animation.
@@ -590,9 +599,25 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
 
     const moveKey = String(roomData.moveCount ?? 0);
     const isInitialLoad = lastMoveKeyRef.current === "";
+    const isNewMoveKey = moveKey !== lastMoveKeyRef.current;
+
+    // Stamp the very first time we see this moveKey, BEFORE the
+    // diceComplete gate below — this is what lets us measure "time since
+    // roll started" instead of just reacting to diceComplete.
+    if (isNewMoveKey && moveSeenAtRef.current === 0) {
+      moveSeenAtRef.current = Date.now();
+    }
 
     if (moveKey === lastMoveKeyRef.current) return;
     if (!isInitialLoad && !diceComplete) return;
+
+    // Compute elapsed time since this move was FIRST observed (which may
+    // have been several effect re-runs ago, while waiting on
+    // diceComplete). This is what the 5s floor is measured against.
+    const elapsedSinceMoveSeen = moveSeenAtRef.current
+      ? Date.now() - moveSeenAtRef.current
+      : 0;
+    moveSeenAtRef.current = 0; // reset so the next move gets its own stamp
 
     lastMoveKeyRef.current = moveKey;
 
@@ -621,19 +646,34 @@ const TokenLayer = ({ playerIds, positions, roomData, cellSize, diceComplete, to
 
     // Safety net: if something goes wrong and this move never completes,
     // force a clean snap to the final position so the token never gets
-    // stuck mid-board. Budget generously: 2000ms pre-pause + up to 6
-    // squares at ~870ms worst-case each (350ms transition + 400ms hold +
-    // fallback margin) + the snake/ladder slide (~1400ms) ≈ 9000ms total,
-    // so 12000ms leaves comfortable headroom without false-triggering.
+    // stuck mid-board. Budget generously: up to 5000ms floor wait + 2000ms
+    // pre-pause + up to 6 squares at ~870ms worst-case each (350ms
+    // transition + 400ms hold + fallback margin) + the snake/ladder slide
+    // (~1400ms) ≈ 14000ms total, so 17000ms leaves comfortable headroom
+    // without false-triggering.
     if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
     safetyTimeoutRef.current = setTimeout(() => {
       if (!isStale() && animatingPlayerRef.current === pid) {
         animatingPlayerRef.current = null;
         snapToken(pid, finalPos);
       }
-    }, 12000);
+    }, 17000);
 
     (async () => {
+      // PATCH: hold here until at least ROLL_MIN_DURATION_MS (5000ms) has
+      // passed since this move was first observed — regardless of how
+      // quickly diceComplete flipped true. This is the fix for "pieces
+      // still move before the dice visually stops": diceComplete alone
+      // was being trusted as "the dice finished," but if it ever fires
+      // early relative to the dice's real ~5s spin, nothing previously
+      // stopped the token from starting anyway. This wait is independent
+      // of and in addition to every other timing fix already in place.
+      const remainingFloor = Math.max(0, ROLL_MIN_DURATION_MS - elapsedSinceMoveSeen);
+      if (remainingFloor > 0) {
+        await delay(remainingFloor);
+        if (isStale()) return;
+      }
+
       // Small delay so React has committed and the dice's visual settle
       // (including its glow/scale keyframe) has unmistakably finished
       // before the token starts moving. Paired with the Dice.tsx settle
