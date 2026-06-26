@@ -37,64 +37,6 @@ function getDateString(ms: number) {
   });
 }
 
-/**
- * FEATURE (flawless scroll anchoring, fallback path):
- * CSS `overflow-anchor: auto` (set on the scroll container below) already
- * gives Chromium and Firefox native, free scroll anchoring — when content
- * above the viewport changes size, the browser keeps whatever's currently
- * visible pinned in place automatically. Safari does not implement
- * `overflow-anchor` as of this writing, so this hook is a manual fallback
- * ONLY for that gap: it watches a message element for height changes (e.g.
- * a reply preview rendering late, an emoji-only message re-measuring) and,
- * if the user isn't anchored to the bottom, nudges the scroll container by
- * the exact pixel delta so the content the user was looking at doesn't
- * visibly jump. It intentionally does nothing when isNearBottom is true,
- * since the existing scrollToBottom effect already owns that case.
- */
-function useResizeObserver(
-  ref: React.RefObject<HTMLElement | null>,
-  scrollContainerRef: React.RefObject<HTMLDivElement | null>,
-  isNearBottom: React.RefObject<boolean>
-) {
-  const prevHeightRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const supportsNativeAnchoring =
-      typeof CSS !== "undefined" && CSS.supports?.("overflow-anchor: auto");
-    if (supportsNativeAnchoring) return; // native anchoring already handles it
-
-    const el = ref.current;
-    if (!el) return;
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const newHeight = entry.borderBoxSize?.[0]?.blockSize ?? entry.contentRect.height;
-
-      if (prevHeightRef.current !== null && !isNearBottom.current) {
-        const diff = newHeight - prevHeightRef.current;
-        if (diff !== 0) {
-          const container = scrollContainerRef.current;
-if (container) {
-  // Only compensate if the resized element is ABOVE the current
-  // scroll position's visible area, otherwise a change below the
-  // viewport shouldn't move the scroll offset at all.
-  const elTop = (el as HTMLElement).getBoundingClientRect().top;
-  const containerTop = container.getBoundingClientRect().top;
-  if (elTop < containerTop) {
-    container.scrollTop += diff;
-  }
-}
-        }
-      }
-      prevHeightRef.current = newHeight;
-    });
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [ref, scrollContainerRef, isNearBottom]);
-}
-
 const emojiOnlyRegex =
   /^(?:\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic}|\p{Emoji_Modifier}|\u20E3|\uFE0F\u20E3)*)+$/u;
 
@@ -103,34 +45,21 @@ const isEmojiOnly = (text: string) => {
   return t ? emojiOnlyRegex.test(t.replace(/\s+/g, "")) : false;
 };
 
-// BUG FIX: the original called getEmojiFontSize(m.text as string) directly
-// from the parent without going through the same string-safety guard
-// MessageItem uses internally (`safeText`). Any non-string `m.text` (e.g.
-// a malformed/legacy message doc) would throw inside the grapheme
-// segmenter. getEmojiFontSize now defends itself instead of trusting the
-// caller, so the unsafe cast at the call site can never crash render.
+// Hoisted segmenter to avoid re-instantiating on every message mount.
+const graphemeSeg = typeof (Intl as any)?.Segmenter !== "undefined"
+  ? new (Intl as any).Segmenter(undefined, { granularity: "grapheme" })
+  : null;
+
 const getEmojiFontSize = (rawText: unknown) => {
   const cleaned = (typeof rawText === "string" ? rawText : "").trim();
   let count = 0;
-  const Segmenter = (Intl as any).Segmenter;
-  if (typeof Segmenter !== "undefined") {
-    count = [
-      ...new Segmenter(undefined, { granularity: "grapheme" }).segment(cleaned),
-    ].length;
+  
+  if (graphemeSeg) {
+    count = [...graphemeSeg.segment(cleaned)].length;
   } else {
     count = [...cleaned].length;
   }
-  // VISUAL FIX: sizes were previously pushed up to 56px (then 48px in an
-  // earlier pass). Both are large enough to expose a real rendering
-  // problem on desktop: several platforms' color-emoji fonts are
-  // bitmap-backed at fixed resolutions rather than vector-scalable (most
-  // notably Windows' "Segoe UI Emoji"), so requesting a font-size well
-  // above their native bitmap resolution makes the browser upscale a
-  // raster image — producing visibly soft/pixelated or oddly-cropped
-  // glyphs. That's what showed up as emoji "looking out of shape" on a
-  // laptop. Capping at 32px keeps every step within a size these fonts
-  // render natively/cleanly, while still reading clearly larger than
-  // normal message text.
+  
   if (count <= 1) return 32;
   if (count <= 3) return 28;
   if (count <= 6) return 24;
@@ -153,9 +82,6 @@ interface MessageItemProps {
   onReply: (m: RoomMessage) => void;
   onScrollToReply: (id: string) => void;
   messageRef: (el: HTMLDivElement | null) => void;
-  inDrawer: boolean;
-  scrollContainerRef: React.RefObject<HTMLDivElement | null>;
-  isNearBottom: React.RefObject<boolean>;
 }
 
 const MessageItem = memo(function MessageItem({
@@ -170,8 +96,6 @@ const MessageItem = memo(function MessageItem({
   onReply,
   onScrollToReply,
   messageRef,
-  scrollContainerRef,
-  isNearBottom,
 }: MessageItemProps) {
   const safeText = typeof m.text === "string" ? m.text : "";
   const safeName =
@@ -180,25 +104,9 @@ const MessageItem = memo(function MessageItem({
       : m.playerId || "Player";
 
   const [isRolling] = useState(false);
-  // Defensive fallback: color-mix()/linear-gradient() need a real color
-  // value. playerColor should always be set by the parent, but guard
-  // against an empty string reaching the gradient/glow calculations below.
+  const [isHovered, setIsHovered] = useState(false);
   const safeColor = playerColor && playerColor.trim() ? playerColor : "var(--text-primary)";
-
-  // FEATURE (flawless scroll anchoring): tracks this message's own root
-  // element so useResizeObserver can detect height changes (e.g. a reply
-  // preview, late-loading content, or font/emoji re-measurement) and
-  // compensate scroll position when the user isn't anchored to the bottom.
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  useResizeObserver(rootRef, scrollContainerRef, isNearBottom);
-
-  const setRefs = useCallback(
-    (el: HTMLDivElement | null) => {
-      rootRef.current = el;
-      messageRef(el);
-    },
-    [messageRef]
-  );
+  const nameColor = `color-mix(in oklch, ${safeColor} 75%, var(--text-primary))`;
 
   return (
     <>
@@ -224,34 +132,22 @@ const MessageItem = memo(function MessageItem({
       )}
 
       <motion.div
-        ref={setRefs}
-        layout="position"
-        initial={{ opacity: 0, y: 8, scale: 0.96, filter: "blur(4px)" }}
-        animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+        ref={messageRef}
+        initial={{ opacity: 0, y: 8, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.6 }}
-        onClick={() => {
-          const sel = window.getSelection()?.toString();
-          if (!sel) onReply(m);
-        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         style={{
           position: "relative",
           display: "flex",
           flexDirection: "column",
           alignItems: isMe ? "flex-end" : "flex-start",
-          // VISUAL FIX: previous values (12 / 2) made every message in a
-          // run sit almost flush against the next, and gave very little
-          // breathing room between different senders. Discord-style chat
-          // gives clearly more vertical air between *groups* (different
-          // senders, or a time gap) than between consecutive messages from
-          // the same sender, so the rhythm reads cleanly at a glance.
           marginTop: m.isFirstInGroup ? 18 : 3,
           marginBottom: 1,
           width: "100%",
-          cursor: "pointer",
           transition: "background-color 0.3s ease",
-          backgroundColor:
-            highlightedId === m.id ? "rgba(245, 158, 11, 0.1)" : "transparent",
-          animation: "msg-in 0.2s ease-out",
+          backgroundColor: highlightedId === m.id ? "rgba(245, 158, 11, 0.1)" : "transparent",
           opacity: m.isPending ? 0.6 : 1,
         }}
       >
@@ -311,6 +207,7 @@ const MessageItem = memo(function MessageItem({
             flexDirection: "column",
             alignItems: isMe ? "flex-end" : "flex-start",
             width: "100%",
+            position: "relative",
           }}
         >
           {m.isFirstInGroup && (
@@ -334,36 +231,21 @@ const MessageItem = memo(function MessageItem({
                   fontSize: 13,
                   border: "1px solid rgba(255,255,255,0.45)",
                   boxShadow: [
-                    // angled top-left highlight, like light hitting a glass orb
                     "inset 2px 3px 4px rgba(255,255,255,0.55)",
-                    // inner shadow on the opposite edge for roundness/depth
                     "inset -2px -3px 5px rgba(0,0,0,0.35)",
-                    // thin ring separating the avatar from the message background
                     "0 0 0 2px var(--bg-primary)",
-                    // outer glow in the player's own color
-                    `0 3px 10px -1px ${safeColor}`,
                   ].join(", "),
                 }}
               >
                 {[...safeName][0]?.toUpperCase() ?? "?"}
               </div>
-              {/* VISUAL FIX: sender names now use the player's actual
-                  playerColor directly (no faked per-message hash color).
-                  A vertical gradient — white at the top fading to their
-                  color at the bottom — combined with a matching
-                  drop-shadow filter gives a glowing, neon-ambient-light
-                  look anchored to a color that's actually theirs
-                  (matches their avatar/token color everywhere else in
-                  the app), instead of an arbitrary hashed hue. */}
               <span
                 className="chat-sender"
                 style={{
-                  backgroundImage: `linear-gradient(180deg, #ffffff 0%, ${safeColor} 100%)`,
-                  WebkitBackgroundClip: "text",
-                  backgroundClip: "text",
-                  color: "transparent",
-                  WebkitTextFillColor: "transparent",
-                  filter: `drop-shadow(0 0 6px ${safeColor})`,
+                  color: nameColor,
+                  fontWeight: 600,
+                  fontSize: 13,
+                  letterSpacing: 0.1,
                 }}
               >
                 {safeName}
@@ -393,19 +275,7 @@ const MessageItem = memo(function MessageItem({
               maxWidth: "78%",
               wordBreak: "break-word",
               whiteSpace: "pre-wrap",
-              // VISUAL FIX: emoji rendered via a plain text fontFamily
-              // fallback list looked inconsistent across desktop browsers
-              // (some render emoji as flat monochrome glyphs from a
-              // system serif/sans font instead of the color emoji font).
-              // Pinning "Apple Color Emoji"/"Segoe UI Emoji"/"Noto Color
-              // Emoji" first — and ALSO applying that stack even for mixed
-              // text+emoji messages, not just emoji-only ones — makes
-              // emoji render as their native color glyphs everywhere
-              // instead of falling back to whatever the body font does
-              // with the codepoint.
-              fontFamily: emojiOnly
-                ? '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Inter",sans-serif'
-                : '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
+              fontFamily: '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
               lineHeight: emojiOnly ? 1.15 : 1.375,
               margin: "0 16px",
               border: emojiOnly ? "none" : "1px solid rgba(255,255,255,0.06)",
@@ -414,6 +284,46 @@ const MessageItem = memo(function MessageItem({
           >
             {safeText}
           </div>
+
+          <AnimatePresence>
+            {isHovered && !m.isPending && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                style={{
+                  position: "absolute",
+                  top: m.isFirstInGroup ? 28 : -8,
+                  right: isMe ? "auto" : 24,
+                  left: isMe ? 24 : "auto",
+                  zIndex: 10,
+                }}
+              >
+                <button
+                  onClick={() => onReply(m)}
+                  title="Reply"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "50%",
+                    width: 28,
+                    height: 28,
+                    cursor: "pointer",
+                    color: "var(--text-secondary)",
+                    boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+                  </svg>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </motion.div>
     </>
@@ -441,15 +351,6 @@ export default function Chat({
 }: ChatProps) {
   const [chatInput, setChatInput] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  // BUG FIX: emoji-picker-react was being fully unmounted on every close
-  // (`{showEmojiPicker && <EmojiPicker .../>}`), which tears down its
-  // internal emoji-sheet/data fetch each time. Reopening then re-fetches
-  // from scratch, which on a slow connection shows as a blank/white box
-  // for a beat — the inconsistent "white blank" symptom. Fix: mount the
-  // picker once on first open and keep it mounted, just toggling
-  // visibility via display/visibility instead of remounting the
-  // component. hasOpenedPickerRef ensures we don't pay the (heavier)
-  // mount cost until the user actually wants the picker the first time.
   const [pickerMounted, setPickerMounted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<RoomMessage | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
@@ -468,6 +369,7 @@ export default function Chat({
   const isNearBottom = useRef(true);
   const hasMountedRef = useRef(false);
   const sendAttemptRef = useRef(0);
+  const shadowRef = useRef<HTMLDivElement>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -494,6 +396,7 @@ export default function Chat({
     let lastSid: string | null = null,
       lastTime = 0,
       lastDate = new Date(0);
+      
     return all.map((m) => {
       const mt = toMillis(m.at) || m.clientAt;
       const md = new Date(mt);
@@ -535,18 +438,6 @@ export default function Chat({
     }
   }, [processedMessages.length, scrollToBottom]);
 
-  // FEATURE/BUG FIX (shadow-element height measurement):
-  // The previous version still wrote `el.style.height = "auto"` directly
-  // on the live <textarea> before remeasuring — even deferred to a RAF,
-  // that's still a layout-affecting write on the exact element an IME may
-  // be mid-composition on. This version never touches the real textarea's
-  // height via a reset step at all: a hidden, identically-styled shadow
-  // div mirrors the current text, the browser measures ITS scrollHeight,
-  // and only the resulting pixel value is written to the textarea, once,
-  // as a single height assignment. The textarea's own box never goes
-  // through an intermediate "auto" state.
-  const shadowRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const el = textareaRef.current;
     const shadow = shadowRef.current;
@@ -554,8 +445,6 @@ export default function Chat({
     const raf = requestAnimationFrame(() => {
       const measured = Math.min(shadow.scrollHeight, 120);
       const current = parseFloat(el.style.height || "0");
-      // Only write if the value actually changed, to avoid any unnecessary
-      // layout write on keystrokes that don't change line count.
       if (Math.abs(current - measured) > 0.5) {
         el.style.height = `${measured}px`;
       }
@@ -721,14 +610,6 @@ export default function Chat({
     setPickerMounted(true);
     setShowEmojiPicker((p) => {
       const next = !p;
-      // BUG FIX: opening the in-app emoji picker while the OS keyboard
-      // is still up caused the two to visually fight for the same screen
-      // space — the picker would render squeezed underneath or beside
-      // the still-open system keyboard (including its own native emoji
-      // panel), which is what showed up as a broken/cramped emoji grid.
-      // Explicitly blurring the textarea before showing the picker tells
-      // the OS to dismiss its keyboard first, so the in-app picker gets
-      // the full space the system keyboard was occupying.
       if (next) {
         textareaRef.current?.blur();
       }
@@ -736,16 +617,6 @@ export default function Chat({
     });
   }, []);
 
-  // BUG FIX (sway on mobile): the textarea's onFocus handler used to fire
-  // an immediate `requestAnimationFrame(() => scrollToBottom("smooth"))`
-  // the instant focus landed — which on mobile is the exact same moment
-  // the keyboard starts opening and App.tsx's visualViewport handler
-  // begins resizing the drawer via direct style writes. Three independent
-  // motions (keyboard opening, drawer resizing, message list smooth
-  // scrolling) had no sequencing between them, which is what produced the
-  // visible "sway." Deferring the scroll slightly lets the keyboard/drawer
-  // resize settle first, so the scroll happens against a layout that's
-  // already stable instead of one that's still actively resizing under it.
   const handleInputFocus = useCallback(() => {
     isNearBottom.current = true;
     const delay = inDrawer ? 220 : 0;
@@ -781,11 +652,6 @@ export default function Chat({
           borderRadius: 8,
           overscrollBehaviorY: "contain",
           WebkitOverflowScrolling: "touch",
-          // FEATURE (flawless scroll anchoring): native browser support
-          // (Chromium, Firefox) for keeping the user's visible content
-          // pinned in place when something above it changes size. Safari
-          // doesn't implement this yet — useResizeObserver above is the
-          // manual fallback specifically for that gap.
           overflowAnchor: "auto",
         }}
       >
@@ -805,32 +671,31 @@ export default function Chat({
           </div>
         )}
 
-        {processedMessages.map((m) => (
-          <MessageItem
-            key={m.id || `opt-${m.clientAt}`}
-            m={m}
-            isMe={m.playerId === playerId}
-            playerId={playerId}
-            playerColor={
-              roomData?.playerColors?.[m.playerId] || "var(--text-primary)"
-            }
-            timeString={formatTime(m.at)}
-            emojiOnly={isEmojiOnly(typeof m.text === "string" ? m.text : "")}
-            emojiSize={
-              isEmojiOnly(typeof m.text === "string" ? m.text : "")
-                ? getEmojiFontSize(m.text)
-                : 14
-            }
-            messageTime={toMillis(m.at) || m.clientAt}
-            highlightedId={highlightedId}
-            onReply={handleReply}
-            onScrollToReply={scrollToMessage}
-            messageRef={handleMessageRef(m.id || "")}
-            inDrawer={inDrawer}
-            scrollContainerRef={scrollContainerRef}
-            isNearBottom={isNearBottom}
-          />
-        ))}
+        {processedMessages.map((m) => {
+          const textStr = typeof m.text === "string" ? m.text : "";
+          const isEmoji = isEmojiOnly(textStr);
+          const emojiSize = isEmoji ? getEmojiFontSize(textStr) : 14;
+
+          return (
+            <MessageItem
+              key={m.id || `opt-${m.clientAt}`}
+              m={m}
+              isMe={m.playerId === playerId}
+              playerId={playerId}
+              playerColor={
+                roomData?.playerColors?.[m.playerId] || "var(--text-primary)"
+              }
+              timeString={formatTime(m.at)}
+              emojiOnly={isEmoji}
+              emojiSize={emojiSize}
+              messageTime={toMillis(m.at) || m.clientAt}
+              highlightedId={highlightedId}
+              onReply={handleReply}
+              onScrollToReply={scrollToMessage}
+              messageRef={handleMessageRef(m.id || "")}
+            />
+          );
+        })}
 
         <div style={{ height: 12 }} />
       </div>
@@ -938,67 +803,24 @@ export default function Chat({
       </AnimatePresence>
 
       <div style={{ position: "relative", flexShrink: 0 }}>
-        {/*
-          BUG FIX (emoji picker still not showing correctly / "What's Your
-          Mood?" panel instead of the app's picker):
-          The previous approach called textareaRef.current.blur() on open,
-          assuming that would dismiss the OS keyboard and free up the
-          screen space for the in-app picker. In practice several Android
-          keyboards (confirmed here: Samsung Keyboard) don't fully close on
-          blur if they were already showing their OWN emoji panel — they
-          just stay open in emoji mode. The in-app picker WAS mounting and
-          WAS set to visible (confirmed by the in-app emoji button showing
-          its active/blue state), but the OS keyboard's emoji surface was
-          painting on top of/instead of it in the same screen region,
-          because blur() only removes focus — it doesn't force-close a
-          keyboard that's decided to stay up in its own emoji mode.
-
-          Fix: stop trying to coordinate with the OS keyboard's dismissal
-          timing entirely. The in-app picker is now a `position: fixed`
-          overlay with a very high z-index in BOTH drawer and non-drawer
-          modes, anchored to the bottom of the viewport. This means it
-          visually wins regardless of whether the OS keyboard considers
-          itself open, closed, or stuck in emoji mode — there's no longer
-          a layout region the OS keyboard can paint over instead of it.
-          We still attempt the blur (harmless, helps on keyboards that DO
-          behave) but no longer depend on it for correctness.
-
-          BUG FIX (emoji button stops responding after closing the
-          picker once): a fixed, full-width, high-z-index overlay that's
-          only hidden via opacity/visibility can — depending on browser
-          and exact paint timing — still intercept the very next tap
-          aimed at the emoji or send button sitting underneath it, since
-          all three occupy the same bottom strip of the viewport. Moving
-          the closed picker fully off-screen guarantees it can never sit
-          in the hit-testing path of the buttons below it while closed.
-
-          NOTE on framer-motion usage here: this element intentionally
-          stays mounted at all times once opened once (pickerMounted) and
-          is positioned off-screen rather than unmounted when closed — do
-          NOT wrap it in AnimatePresence/exit animations, since exit
-          would unmount it, which reintroduces the white-flash bug fixed
-          earlier (emoji-picker-react re-fetching its data on every
-          reopen). Instead we drive `animate` directly off showEmojiPicker
-          so framer-motion springs the position/opacity without ever
-          removing the element from the DOM.
-        */}
         {pickerMounted && (
           <motion.div
             ref={pickerRef}
             initial={false}
             animate={{
-              bottom: showEmojiPicker ? 0 : "-100vh",
+              y: showEmojiPicker ? 0 : (inDrawer ? "100%" : 10),
               opacity: showEmojiPicker ? 1 : 0,
+              scale: showEmojiPicker ? 1 : (inDrawer ? 1 : 0.95),
             }}
             transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
             style={{
-              position: "fixed",
-              left: 0,
-              right: 0,
+              position: inDrawer ? "fixed" : "absolute",
+              bottom: inDrawer ? 0 : "100%",
+              right: inDrawer ? 0 : 0,
+              left: inDrawer ? 0 : "auto",
+              marginBottom: inDrawer ? 0 : 8,
               zIndex: 2147483000,
               maxWidth: inDrawer ? "100%" : 340,
-              marginLeft: inDrawer ? 0 : "auto",
-              marginRight: inDrawer ? 0 : 16,
               height: inDrawer ? "min(45vh, 320px)" : 350,
               background: "var(--bg-secondary)",
               borderRadius: inDrawer ? "12px 12px 0 0" : 8,
@@ -1006,6 +828,8 @@ export default function Chat({
               overflow: "hidden",
               visibility: showEmojiPicker ? "visible" : "hidden",
               pointerEvents: showEmojiPicker ? "auto" : "none",
+              willChange: "transform",
+              transformOrigin: "bottom right",
             }}
           >
             <div
@@ -1125,16 +949,6 @@ export default function Chat({
                   onSendMessage();
                   return;
                 }
-                // BUG FIX (backspace closes the chat box / feels slow to
-                // reopen): on some mobile browsers and PWA-style webviews,
-                // pressing backspace while a text field is already empty
-                // can be interpreted as a back-navigation gesture if the
-                // keystroke isn't explicitly captured here. That reads as
-                // "backspace closes the box." Stopping propagation in that
-                // specific case (empty field + backspace) prevents the
-                // event from reaching any such fallback handling, without
-                // changing normal backspace behavior while there's text to
-                // delete.
                 if (e.key === "Backspace" && chatInput.length === 0) {
                   e.stopPropagation();
                 }
@@ -1147,6 +961,7 @@ export default function Chat({
                 width: "100%",
                 padding: "6px 0",
                 lineHeight: "20px",
+                minHeight: "32px",
                 maxHeight: "120px",
                 overflowY: "auto",
                 background: "transparent",
@@ -1154,22 +969,12 @@ export default function Chat({
                 border: "none",
                 outline: "none",
                 color: "inherit",
-                fontFamily: "'Inter', sans-serif",
+                fontFamily: '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
                 fontSize: 16,
                 display: "block",
               }}
             />
 
-            {/*
-              FEATURE (shadow DOM measurement for textarea auto-resize):
-              Mirrors the textarea's exact font/padding/line-height/width
-              so its scrollHeight gives an accurate target height — without
-              ever writing a layout-affecting "auto" reset onto the real
-              textarea, which is the element an IME may be mid-composition
-              on. visibility: hidden keeps it out of sight but still
-              participates in layout sizing; position: absolute keeps it
-              out of normal flow so it doesn't add visible space.
-            */}
             <div
               ref={shadowRef}
               aria-hidden="true"
@@ -1181,7 +986,7 @@ export default function Chat({
                 padding: "6px 0",
                 lineHeight: "20px",
                 border: "none",
-                fontFamily: "'Inter', sans-serif",
+                fontFamily: '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
                 fontSize: 16,
                 visibility: "hidden",
                 whiteSpace: "pre-wrap",
@@ -1189,7 +994,7 @@ export default function Chat({
                 pointerEvents: "none",
               }}
             >
-              {(chatInput.length > 0 ? chatInput : "\u200B") + "\n"}
+              {chatInput.endsWith("\n") || chatInput === "" ? chatInput + "\u200B" : chatInput}
             </div>
           </div>
 
@@ -1253,10 +1058,6 @@ export default function Chat({
       </div>
 
       <style>{`
-        @keyframes msg-in { 
-            from { opacity: 0; transform: translateY(8px); } 
-            to { opacity: 1; transform: translateY(0); } 
-        }
         @keyframes toast-in { 
             from { opacity: 0; transform: translate(-50%, 10px); } 
             to { opacity: 1; transform: translate(-50%, 0); } 
