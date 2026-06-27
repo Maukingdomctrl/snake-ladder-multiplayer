@@ -1,4 +1,3 @@
-// web/src/App.tsx
 import { useEffect, useRef, useState, useCallback } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
@@ -13,7 +12,7 @@ import {
   rollDice,
   subscribeMessages,
   Room,
-  RoomMessage, // ★ STRICT TS: Imported RoomMessage
+  RoomMessage,
 } from "./firebase/rooms";
 
 import { usePlayerStorage } from "./hooks/usePlayerStorage";
@@ -65,7 +64,6 @@ export default function App() {
   const [diceComplete, setDiceComplete] = useState<boolean>(true);
   const { countdown } = useGameSync(roomData, playerId);
 
-  // ★ STRICT TS: Removed any[]
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [chatOpen, setChatOpen] = useState<boolean>(isTablet);
   const [unreadCount, setUnreadCount] = useState<number>(0);
@@ -520,7 +518,7 @@ export default function App() {
                   color: "#fff",
                   padding: "8px 16px",
                   borderRadius: 6,
-                  zIndex: "var(--z-modal)", // ★ DESIGN TOKEN
+                  zIndex: "var(--z-modal)",
                   fontSize: 14,
                   fontWeight: 600,
                   display: "flex",
@@ -662,22 +660,6 @@ export default function App() {
                       {roomData.positions && (
                         <Scoreboard
                           players={roomData.players}
-                          /*
-                            BUG FIX: this previously read roomData.positions
-                            directly — the raw, immediate Firestore value —
-                            while Board reads displayPositions (buffered,
-                            only updates once the dice animation actually
-                            finishes). That mismatch meant the scoreboard's
-                            "Sq. N" number and "rolling..." label could
-                            visually update to the FINAL position the
-                            instant Firestore pushed the roll, while the
-                            token on the board was still mid-walk toward
-                            that square — making it look like "the piece
-                            already moved" even though the board itself was
-                            animating correctly. Using the same
-                            displayPositions the board uses keeps both
-                            views in lockstep.
-                          */
                           positions={displayPositions}
                           playerColors={roomData.playerColors || {}}
                           playerNames={roomData.playerNames || {}}
@@ -687,12 +669,6 @@ export default function App() {
                           playerId={playerId}
                           lastDice={roomData.lastDice ?? null}
                           lastRolledBy={roomData.lastRolledBy ?? null}
-                          // The "rolling..." label should track the same
-                          // diceComplete gate the board uses, not just
-                          // currentTurn/status, so the label can't say
-                          // "rolling..." after the token has actually
-                          // finished walking, or stop saying it before the
-                          // token has finished.
                           diceComplete={diceComplete}
                         />
                       )}
@@ -724,7 +700,7 @@ export default function App() {
                     </div>
 
                     {/* BOTTOM BAR */}
-                    <div style={{ flexShrink: 0, padding: "0 8px" }}>
+                    <div style={{ flexShrink: 0, padding: "0 8px", marginTop: "12px" }}>
                       {roomData.status === "finished" &&
                         roomData.winnerId &&
                         diceComplete && (
@@ -756,6 +732,9 @@ export default function App() {
                         />
                       )}
                     </div>
+
+                    {/* MOBILE ONLY SPACER: Pushes the DiceRow up toward the board, leaving the bottom clear for the chat FAB. Ignored on laptops! */}
+                    {!isTablet && <div style={{ flex: 1.5, minHeight: "90px" }} />}
                   </div>
                 )}
               </div>
@@ -830,7 +809,7 @@ export default function App() {
               backgroundColor: "var(--accent)",
               color: "white",
               fontSize: 24,
-              zIndex: "var(--z-drawer)", // ★ DESIGN TOKEN
+              zIndex: "var(--z-drawer)",
               boxShadow: "var(--shadow-lg)",
               display: "flex",
               alignItems: "center",
