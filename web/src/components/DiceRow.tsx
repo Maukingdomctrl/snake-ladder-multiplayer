@@ -48,18 +48,35 @@ export default function DiceRow({
         marginTop: 6,
         marginBottom: 8,
         minHeight: 68,
-        /*
-          BUG FIX (snake/ladder popup hides behind the mobile floating chat button):
-          The floating chat FAB in App.tsx uses zIndex: 500 (--z-drawer). 
-          Establishing a stacking context here with a z-index of 501 fixes the 
-          mobile overlapping issue where the button obscured the pill.
-          
-          Note: If the open chat drawer also uses 500, this 501 z-index WILL 
-          cause the dice to float above the open drawer. To fix this properly, 
-          the FAB and the Drawer should use different z-index variables.
-        */
+        // NOTE on z-index: a previous pass tried to fix the
+        // pill-vs-floating-chat-button overlap purely via z-index, which
+        // only flips which element COVERS the other — it doesn't solve
+        // two elements occupying the same screen region. The real fix is
+        // now in App.tsx: the floating chat button shrinks and slides
+        // up-and-right whenever jumpMessage is set, so it no longer
+        // overlaps this row at all. This z-index is kept only as a small
+        // safety margin against other low-z-index page content, not as
+        // the mechanism that resolves the FAB conflict.
         position: "relative",
-        zIndex: 501, 
+        zIndex: 501,
+        // BUG FIX (floating chat button dead during gameplay, works fine
+        // in the lobby): this row is full-width and sits at z-index 501
+        // — above the chat FAB's z-index 500 (var(--z-drawer)). The FAB
+        // is position: fixed at bottom-right; this row's right-hand
+        // empty flex spacer (below, present whenever jumpMessage is NOT
+        // showing — i.e. almost all the time) physically overlaps that
+        // same screen region on narrow viewports. Because the spacer had
+        // no pointer-events override, its empty, invisible area was
+        // still capturing taps and silently swallowing clicks meant for
+        // the FAB underneath it. The button only appeared "dead" during
+        // gameplay because that's the only app state where DiceRow (and
+        // this overlap) exists at all — the lobby has no dice row, so
+        // the FAB worked fine there. Setting pointerEvents: "none" on
+        // the container itself, then explicitly re-enabling it only on
+        // the actual visible/interactive content (the dice card and the
+        // jump-message pill) below, lets clicks pass through the empty
+        // space to whatever is actually underneath it.
+        pointerEvents: "none",
       }}
     >
       <div style={{ flex: 1 }} />
@@ -71,6 +88,7 @@ export default function DiceRow({
           boxShadow: "var(--shadow-md)",
           border: "1px solid var(--border)",
           flexShrink: 0,
+          pointerEvents: "auto",
         }}
       >
         <Dice
@@ -91,6 +109,11 @@ export default function DiceRow({
           justifyContent: "flex-start",
           paddingLeft: 20,
           minWidth: 0,
+          // Stays non-interactive even when empty — only the pill inside
+          // it (when present) would need pointer events, and the pill is
+          // purely a status announcement with no click behavior anyway
+          // (it already has pointerEvents: "none" below).
+          pointerEvents: "none",
         }}
       >
         {jumpMessage && (
@@ -100,7 +123,7 @@ export default function DiceRow({
             className="jump-message-pill"
             style={{
               position: "relative",
-              // Z-index removed here; inherited correctly from parent stacking context
+              zIndex: 501,
               background: "var(--accent)",
               boxShadow: "var(--shadow-sm)",
               borderRadius: 20,
@@ -119,12 +142,17 @@ export default function DiceRow({
         )}
       </div>
 
-      {/* Consider moving these styles to an external CSS file */}
       <style>{`
         /*
           BUG FIX (snake/ladder popup not showing correctly on mobile):
-          Desktop keeps the original side-by-side look (capped width so it can't outgrow the row).
-          Narrow screens drop the pill to its own centered, full-width row below the dice.
+          previously the pill lived in a 'flex: 1' side spacer with
+          whiteSpace: "nowrap". On a narrow phone, that spacer is only
+          (screenWidth - diceWidth) / 2 wide — often under ~100-120px —
+          so a message like "🪜 Ladder! 47 → 96" had nowhere near enough
+          room and clipped/overflowed. Desktop keeps the original
+          side-by-side look (capped width so it can't outgrow the row);
+          narrow screens drop the pill to its own centered, full-width
+          row below the dice instead of squeezing it into a sliver.
         */
         .jump-message-pill {
           max-width: min(60vw, 320px);

@@ -189,9 +189,10 @@ interface MessageItemProps {
   emojiOnly: boolean;
   emojiSize: number;
   messageTime: number;
-  highlightedId: string | null;
+  isHighlighted: boolean;
   onReply: (m: RoomMessage) => void;
   onScrollToReply: (id: string) => void;
+  inDrawer: boolean;
 }
 
 const MessageItem = memo(function MessageItem({
@@ -202,9 +203,10 @@ const MessageItem = memo(function MessageItem({
   emojiOnly,
   emojiSize,
   messageTime,
-  highlightedId,
+  isHighlighted,
   onReply,
   onScrollToReply,
+  inDrawer,
 }: MessageItemProps) {
   const safeText = typeof m.text === "string" ? m.text : "";
   const safeName =
@@ -248,7 +250,7 @@ const MessageItem = memo(function MessageItem({
         width: "100%",
         cursor: "pointer",
         transition: "background-color 0.3s ease",
-        backgroundColor: highlightedId === m.id ? "rgba(245, 158, 11, 0.1)" : "transparent",
+        backgroundColor: isHighlighted ? "rgba(245, 158, 11, 0.1)" : "transparent",
         opacity: m.isPending ? 0.6 : 1,
       }}
     >
@@ -400,7 +402,7 @@ const MessageItem = memo(function MessageItem({
         </div>
 
         <AnimatePresence>
-          {isHovered && !m.isPending && (
+          {!inDrawer && isHovered && !m.isPending && (
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -725,43 +727,32 @@ export default function Chat({
   // actually committed inputMode="none" to the textarea, which is the
   // correct order for the blur to reliably take effect.
   //
-  // On close, refocus the textarea so the user can resume typing
-  // immediately — by then inputMode has reverted to "text" (it's derived
-  // from showEmojiPicker), so this brings back the normal keyboard rather
-  // than re-triggering any emoji mode.
+  // Steps 3 & 4: blurring/refocusing only matters on mobile, where an OS
+  // virtual keyboard exists to fight with the picker for screen space.
+  // Desktop has no virtual keyboard, so forcing a blur/focus cycle there
+  // only adds unnecessary focus churn for no benefit — keeping desktop's
+  // editing session undisturbed while mobile still gets the keyboard
+  // coordination it actually needs.
   useEffect(() => {
     if (showEmojiPicker) {
-      textareaRef.current?.blur();
+      if (inDrawer) textareaRef.current?.blur();
     } else if (pickerMounted) {
       // Only refocus on the close transition, not on first mount (when
       // pickerMounted just became true but the picker was never actually
-      // shown yet — e.g. nothing has opened it this session).
-      textareaRef.current?.focus();
+      // shown yet — e.g. nothing has opened it this session). And only
+      // on desktop: on mobile, closing the picker should leave the
+      // keyboard dismissed (matching Discord mobile) rather than
+      // immediately popping it back up.
+      if (!inDrawer) textareaRef.current?.focus();
     }
-  }, [showEmojiPicker, pickerMounted]);
-
-  // BUG FIX (Step 4, scroll compensation): opening the picker in drawer
-  // mode adds bottom padding to the scroll container (see paddingBottom
-  // above) so the picker's absolute-positioned overlay doesn't cover the
-  // last message. That padding increases scrollHeight, which — without
-  // compensation — would make the view look like it scrolled away from
-  // the bottom even though the user didn't move. If the user was already
-  // near the bottom when they opened the picker, re-pin to the bottom
-  // after the padding change commits so nothing visually jumps.
-  useEffect(() => {
-    if (showEmojiPicker && inDrawer && isNearBottom.current && processedMessages.length > 0) {
-      requestAnimationFrame(() => {
-        rowVirtualizer.scrollToIndex(processedMessages.length - 1, { align: "end" });
-      });
-    }
-  }, [showEmojiPicker, inDrawer, processedMessages.length, rowVirtualizer]);
+  }, [showEmojiPicker, pickerMounted, inDrawer]);
 
   // Deferred scroll-to-bottom on input focus, so it happens after the
   // mobile keyboard/drawer resize settles instead of fighting it mid-
   // animation (previously the source of a visible "sway" on mobile).
   const handleInputFocus = useCallback(() => {
     isNearBottom.current = true;
-    const delay = inDrawer ? 220 : 0;
+    const delay = inDrawer ? 320 : 0;
     setTimeout(() => {
       requestAnimationFrame(() => {
         if (processedMessages.length > 0) {
@@ -795,16 +786,6 @@ export default function Chat({
           overscrollBehaviorY: "contain",
           WebkitOverflowScrolling: "touch",
           overflowAnchor: "auto",
-          // BUG FIX (Step 4): the emoji picker is position: "absolute"
-          // relative to the input wrapper, so it no longer participates
-          // in normal flex flow — opening it doesn't shrink this scroll
-          // container the way a normal-flow sibling would. Without this,
-          // the picker (now correctly anchored above the input instead of
-          // over it) would still visually cover the last message(s) in
-          // the list. Reserving matching bottom padding while it's open
-          // keeps the most recent messages visible above the picker.
-          paddingBottom: showEmojiPicker && inDrawer ? "min(60vh, 440px)" : undefined,
-          transition: "padding-bottom 0.2s ease",
         }}
       >
         {processedMessages.length === 0 && (
@@ -857,9 +838,10 @@ export default function Chat({
                   emojiOnly={isEmoji}
                   emojiSize={isEmoji ? getEmojiFontSize(textStr) : 14}
                   messageTime={toMillis(m.at) || m.clientAt}
-                  highlightedId={highlightedId}
+                  isHighlighted={highlightedId === m.id}
                   onReply={handleReply}
                   onScrollToReply={scrollToMessage}
+                  inDrawer={inDrawer}
                 />
               </div>
             );
@@ -1060,11 +1042,22 @@ export default function Chat({
                 const start = el.selectionStart ?? chatInput.length;
                 const end = el.selectionEnd ?? chatInput.length;
                 setChatInput((p) => p.slice(0, start) + emoji + p.slice(end));
-                requestAnimationFrame(() => {
-                  const pos = start + emoji.length;
-                  el.focus();
-                  el.setSelectionRange(pos, pos);
-                });
+                // Step 5: only restore focus/cursor position on desktop.
+                // On mobile, calling focus() here would re-summon the OS
+                // keyboard immediately after we just dismissed it to show
+                // the picker — exactly the "keyboard fights the picker"
+                // behavior this whole pass is trying to eliminate. The
+                // text is inserted correctly either way (setChatInput
+                // above doesn't depend on focus); mobile just skips
+                // restoring the visual cursor position until the user
+                // taps the textarea again themselves.
+                if (!inDrawer) {
+                  requestAnimationFrame(() => {
+                    const pos = start + emoji.length;
+                    el.focus();
+                    el.setSelectionRange(pos, pos);
+                  });
+                }
               }}
               style={{
                 width: "100%",
