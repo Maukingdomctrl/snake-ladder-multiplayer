@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect, useMemo, useCallback, memo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, memo, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
+import { useVirtualizer, VirtualItem } from "@tanstack/react-virtual";
 import {
   sendMessage,
   Room,
@@ -45,21 +46,29 @@ const isEmojiOnly = (text: string) => {
   return t ? emojiOnlyRegex.test(t.replace(/\s+/g, "")) : false;
 };
 
-// Hoisted segmenter to avoid re-instantiating on every message mount.
-const graphemeSeg = typeof (Intl as any)?.Segmenter !== "undefined"
-  ? new (Intl as any).Segmenter(undefined, { granularity: "grapheme" })
-  : null;
+// Hoisted once — building a new Intl.Segmenter per message/keystroke was
+// unnecessary allocation churn now that messages render far more often
+// per scroll session thanks to virtualization re-mounting rows.
+const graphemeSeg =
+  typeof (Intl as any)?.Segmenter !== "undefined"
+    ? new (Intl as any).Segmenter(undefined, { granularity: "grapheme" })
+    : null;
 
 const getEmojiFontSize = (rawText: unknown) => {
   const cleaned = (typeof rawText === "string" ? rawText : "").trim();
   let count = 0;
-  
   if (graphemeSeg) {
     count = [...graphemeSeg.segment(cleaned)].length;
   } else {
     count = [...cleaned].length;
   }
-  
+  // VISUAL FIX: sizes capped at 32px max. Bitmap-backed system emoji fonts
+  // (notably Windows' Segoe UI Emoji) render poorly when asked for a
+  // font-size well above their native resolution — visible pixelation or
+  // cropped glyphs. Twemoji SVGs (below) make this less of a concern than
+  // it used to be, since SVGs scale cleanly at any size, but the size
+  // steps are kept conservative for visual consistency with the rest of
+  // the chat's type scale.
   if (count <= 1) return 32;
   if (count <= 3) return 28;
   if (count <= 6) return 24;
@@ -67,7 +76,109 @@ const getEmojiFontSize = (rawText: unknown) => {
   return 18;
 };
 
+// ─── ★★★ TWEMOJI RENDERING ★★★ ───
+//
+// FEATURE: native emoji rendering varies wildly across platforms — flat
+// monochrome glyphs on some Linux setups, soft/pixelated bitmap upscaling
+// on Windows (Segoe UI Emoji), inconsistent sizing across iOS/Android/
+// desktop. Rendering emoji as Twemoji SVGs instead guarantees every
+// player sees the exact same glyph at the exact same crispness, regardless
+// of OS. Images fall back to the raw character if the CDN request fails,
+// so a network hiccup degrades gracefully instead of showing a broken
+// image icon.
+
+const CDN = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/svg";
+
+function emojiToFilename(grapheme: string): string {
+  const points = [...grapheme].map((c) => c.codePointAt(0)!);
+  const hasKeycap = points.includes(0x20e3);
+  // Keycap sequences (e.g. 1️⃣) need the FE0F variation selector kept in
+  // the filename; every other sequence strips it, matching Twemoji's
+  // asset naming convention.
+  const filtered = hasKeycap ? points : points.filter((p) => p !== 0xfe0f);
+  return filtered.map((p) => p.toString(16)).join("-");
+}
+
+// Expanded to also catch flags (regional indicator pairs) and keycap
+// sequences, which \p{Extended_Pictographic} alone does not cover.
+const emojiTest = /[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{20E3}]/u;
+
+const SafeEmojiImage = memo(({ grapheme, size }: { grapheme: string; size?: number | string }) => {
+  const [hasError, setHasError] = useState(false);
+
+  // BUG FIX: if the CDN is unreachable or a given codepoint sequence has
+  // no matching Twemoji asset, fall back to rendering the raw character
+  // instead of a broken-image icon — keeps the message readable either
+  // way instead of visually breaking.
+  if (hasError) return <span>{grapheme}</span>;
+
+  const file = emojiToFilename(grapheme);
+
+  return (
+    <img
+      src={`${CDN}/${file}.svg`}
+      alt={grapheme}
+      draggable={false}
+      style={{
+        display: "inline-block",
+        width: size ? size : "1.25em",
+        height: size ? size : "1.25em",
+        margin: "0 0.05em 0 0.1em",
+        verticalAlign: "-0.2em",
+      }}
+      onError={() => setHasError(true)}
+    />
+  );
+});
+
+interface TwemojiTextProps {
+  text: string;
+  size?: number | string;
+}
+
+const TwemojiText = memo(function TwemojiText({ text, size }: TwemojiTextProps) {
+  if (!text) return null;
+
+  const graphemes: string[] = graphemeSeg
+    ? [...graphemeSeg.segment(text)].map((s: any) => s.segment)
+    : [...text];
+
+  const out: ReactNode[] = [];
+  let buffer = "";
+
+  const flush = (key: number) => {
+    if (buffer) {
+      out.push(<span key={`text-${key}`}>{buffer}</span>);
+      buffer = "";
+    }
+  };
+
+  graphemes.forEach((g, i) => {
+    if (emojiTest.test(g)) {
+      flush(i);
+      out.push(<SafeEmojiImage key={`emoji-${i}`} grapheme={g} size={size} />);
+    } else {
+      buffer += g;
+    }
+  });
+
+  flush(graphemes.length);
+  return <>{out}</>;
+});
+
 // ─── ★★★ MEMOIZED MESSAGE ITEM ★★★ ───
+//
+// NOTE on animation: this no longer wraps its root in a framer-motion
+// entrance animation. With list virtualization, a row's DOM node is
+// recycled/repositioned by the virtualizer as the user scrolls — React
+// treats a recycled row as a fresh mount, so a per-mount entrance
+// animation would replay every single time a message scrolls back into
+// view, not just the first time it appears. That's a real conflict
+// between "animate on mount" and "the virtualizer remounts rows
+// constantly by design," so the entrance animation is intentionally
+// removed here. The hover-reveal reply button below still uses
+// AnimatePresence safely, since it mounts/unmounts based on user
+// interaction, not on virtualizer recycling.
 
 interface MessageItemProps {
   m: RoomMessage & { isFirstInGroup: boolean; showDateSeparator: boolean; isDiceRoll?: boolean };
@@ -81,7 +192,6 @@ interface MessageItemProps {
   highlightedId: string | null;
   onReply: (m: RoomMessage) => void;
   onScrollToReply: (id: string) => void;
-  messageRef: (el: HTMLDivElement | null) => void;
 }
 
 const MessageItem = memo(function MessageItem({
@@ -95,7 +205,6 @@ const MessageItem = memo(function MessageItem({
   highlightedId,
   onReply,
   onScrollToReply,
-  messageRef,
 }: MessageItemProps) {
   const safeText = typeof m.text === "string" ? m.text : "";
   const safeName =
@@ -105,228 +214,235 @@ const MessageItem = memo(function MessageItem({
 
   const [isRolling] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+
+  // Defensive fallback: color-mix()/gradient strings need a real color
+  // value. playerColor should always be set by the parent, but guard
+  // against an empty string reaching the calculations below.
   const safeColor = playerColor && playerColor.trim() ? playerColor : "var(--text-primary)";
   const nameColor = `color-mix(in oklch, ${safeColor} 75%, var(--text-primary))`;
 
+  // BUG FIX (tap-to-reply lost on mobile): the hover-reveal reply button
+  // only appears on pointer hover, which doesn't exist as a concept on
+  // touch devices — a phone user would have no way to trigger a reply at
+  // all if that were the only path. Restoring tap/click-to-reply on the
+  // row itself (guarded against firing when the tap was actually a text
+  // selection/copy gesture) keeps mobile usable while the hover button
+  // remains a faster shortcut on desktop.
+  const handleRowClick = useCallback(() => {
+    const sel = window.getSelection()?.toString();
+    if (!sel) onReply(m);
+  }, [m, onReply]);
+
   return (
-    <>
+    <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={handleRowClick}
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: isMe ? "flex-end" : "flex-start",
+        marginTop: m.isFirstInGroup ? 18 : 3,
+        marginBottom: 1,
+        width: "100%",
+        cursor: "pointer",
+        transition: "background-color 0.3s ease",
+        backgroundColor: highlightedId === m.id ? "rgba(245, 158, 11, 0.1)" : "transparent",
+        opacity: m.isPending ? 0.6 : 1,
+      }}
+    >
       {m.showDateSeparator && (
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            margin: "20px 16px 16px",
+            margin: "0 16px 16px",
             color: "var(--text-muted)",
             fontSize: 11,
             fontWeight: 700,
             letterSpacing: 0.4,
             textTransform: "uppercase",
+            width: "calc(100% - 32px)",
           }}
         >
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-          <span style={{ padding: "0 10px" }}>
-            {getDateString(messageTime)}
-          </span>
+          <span style={{ padding: "0 10px" }}>{getDateString(messageTime)}</span>
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
         </div>
       )}
 
-      <motion.div
-        ref={messageRef}
-        initial={{ opacity: 0, y: 8, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ type: "spring", stiffness: 500, damping: 35, mass: 0.6 }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+      {m.replyTo && (
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            onScrollToReply(m.replyTo!.id);
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            cursor: "pointer",
+            backgroundColor: "rgba(255,255,255,0.06)",
+            borderLeft: `2px solid ${safeColor}`,
+            padding: "4px 8px",
+            borderRadius: 4,
+            marginBottom: 4,
+            maxWidth: "78%",
+            overflow: "hidden",
+            margin: "0 16px 4px 16px",
+          }}
+        >
+          <div
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+            }}
+          >
+            <span style={{ color: safeColor, fontWeight: 700, fontSize: 11 }}>
+              {m.replyTo.playerName}
+            </span>
+            <span
+              style={{
+                color: "var(--text-muted)",
+                fontSize: 11,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {m.replyTo.text}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div
+        className={`chat-row ${!m.isFirstInGroup ? "chat-grouped" : ""} ${isRolling ? "has-active-dice" : ""}`}
         style={{
-          position: "relative",
           display: "flex",
           flexDirection: "column",
           alignItems: isMe ? "flex-end" : "flex-start",
-          marginTop: m.isFirstInGroup ? 18 : 3,
-          marginBottom: 1,
           width: "100%",
-          transition: "background-color 0.3s ease",
-          backgroundColor: highlightedId === m.id ? "rgba(245, 158, 11, 0.1)" : "transparent",
-          opacity: m.isPending ? 0.6 : 1,
+          position: "relative",
         }}
       >
-        {m.replyTo && (
+        {m.isFirstInGroup && (
           <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onScrollToReply(m.replyTo!.id);
-            }}
             style={{
               display: "flex",
+              flexDirection: isMe ? "row-reverse" : "row",
               alignItems: "center",
-              gap: 6,
-              cursor: "pointer",
-              backgroundColor: "rgba(255,255,255,0.06)",
-              borderLeft: `2px solid ${playerColor}`,
-              padding: "4px 8px",
-              borderRadius: 4,
-              marginBottom: 4,
-              maxWidth: "78%",
-              overflow: "hidden",
-              margin: "0 16px 4px 16px",
+              marginBottom: 6,
+              padding: "0 16px",
             }}
           >
             <div
+              className="avatar"
               style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                display: "flex",
-                gap: 6,
-                alignItems: "center",
+                background: `linear-gradient(165deg, color-mix(in oklch, ${safeColor} 88%, white) 0%, ${safeColor} 55%, color-mix(in oklch, ${safeColor} 80%, black) 100%)`,
+                marginRight: isMe ? 0 : 12,
+                marginLeft: isMe ? 12 : 0,
+                width: 30,
+                height: 30,
+                fontSize: 13,
+                border: "1px solid rgba(255,255,255,0.45)",
+                boxShadow: [
+                  "inset 2px 3px 4px rgba(255,255,255,0.55)",
+                  "inset -2px -3px 5px rgba(0,0,0,0.35)",
+                  "0 0 0 2px var(--bg-primary)",
+                  `0 3px 10px -1px ${safeColor}`,
+                ].join(", "),
               }}
             >
-              <span style={{ color: playerColor, fontWeight: 700, fontSize: 11 }}>
-                {m.replyTo.playerName}
-              </span>
-              <span
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: 11,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {m.replyTo.text}
-              </span>
+              {[...safeName][0]?.toUpperCase() ?? "?"}
             </div>
+            <span
+              className="chat-sender"
+              style={{
+                color: nameColor,
+                fontWeight: 600,
+                fontSize: 13,
+                letterSpacing: 0.1,
+              }}
+            >
+              {safeName}
+            </span>
+            <span className="chat-timestamp">{timeString}</span>
           </div>
         )}
 
         <div
-          className={`chat-row ${!m.isFirstInGroup ? 'chat-grouped' : ''} ${isRolling ? 'has-active-dice' : ''}`}
+          className="chat-message"
           style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: isMe ? "flex-end" : "flex-start",
-            width: "100%",
-            position: "relative",
+            background: emojiOnly ? "transparent" : isMe ? "var(--bg-base)" : "var(--bg-tertiary)",
+            color: emojiOnly ? "inherit" : isMe ? "var(--text-secondary)" : "var(--text-primary)",
+            fontSize: emojiSize,
+            padding: emojiOnly ? "0 8px" : "10px 14px",
+            borderRadius: emojiOnly ? 0 : 16,
+            borderBottomRightRadius: isMe && !emojiOnly ? 4 : 16,
+            borderBottomLeftRadius: !isMe && !emojiOnly ? 4 : 16,
+            maxWidth: "78%",
+            wordBreak: "break-word",
+            whiteSpace: "pre-wrap",
+            fontFamily: '"Inter", sans-serif',
+            lineHeight: emojiOnly ? 1.15 : 1.375,
+            margin: "0 16px",
+            border: emojiOnly ? "none" : "1px solid rgba(255,255,255,0.06)",
+            boxShadow: emojiOnly ? "none" : "0 2px 8px rgba(0,0,0,0.18)",
           }}
         >
-          {m.isFirstInGroup && (
-            <div
+          <TwemojiText text={safeText} size={emojiOnly ? emojiSize : undefined} />
+        </div>
+
+        <AnimatePresence>
+          {isHovered && !m.isPending && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.1 }}
               style={{
-                display: "flex",
-                flexDirection: isMe ? "row-reverse" : "row",
-                alignItems: "center",
-                marginBottom: 6,
-                padding: "0 16px",
+                position: "absolute",
+                top: m.isFirstInGroup ? 28 : -8,
+                right: isMe ? "auto" : 24,
+                left: isMe ? 24 : "auto",
+                zIndex: 10,
               }}
             >
-              <div
-                className="avatar"
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReply(m);
+                }}
+                title="Reply"
                 style={{
-                  background: `linear-gradient(165deg, color-mix(in oklch, ${safeColor} 88%, white) 0%, ${safeColor} 55%, color-mix(in oklch, ${safeColor} 80%, black) 100%)`,
-                  marginRight: isMe ? 0 : 12,
-                  marginLeft: isMe ? 12 : 0,
-                  width: 30,
-                  height: 30,
-                  fontSize: 13,
-                  border: "1px solid rgba(255,255,255,0.45)",
-                  boxShadow: [
-                    "inset 2px 3px 4px rgba(255,255,255,0.55)",
-                    "inset -2px -3px 5px rgba(0,0,0,0.35)",
-                    "0 0 0 2px var(--bg-primary)",
-                  ].join(", "),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "var(--bg-secondary)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "50%",
+                  width: 28,
+                  height: 28,
+                  cursor: "pointer",
+                  color: "var(--text-secondary)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
                 }}
               >
-                {[...safeName][0]?.toUpperCase() ?? "?"}
-              </div>
-              <span
-                className="chat-sender"
-                style={{
-                  color: nameColor,
-                  fontWeight: 600,
-                  fontSize: 13,
-                  letterSpacing: 0.1,
-                }}
-              >
-                {safeName}
-              </span>
-              <span className="chat-timestamp">{timeString}</span>
-            </div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+                </svg>
+              </button>
+            </motion.div>
           )}
-
-          <div
-            className="chat-message"
-            style={{
-              background: emojiOnly
-                ? "transparent"
-                : isMe
-                ? "var(--bg-base)"
-                : "var(--bg-tertiary)",
-              color: emojiOnly
-                ? "inherit"
-                : isMe
-                ? "var(--text-secondary)"
-                : "var(--text-primary)",
-              fontSize: emojiSize,
-              padding: emojiOnly ? "0 8px" : "10px 14px",
-              borderRadius: emojiOnly ? 0 : 16,
-              borderBottomRightRadius: isMe && !emojiOnly ? 4 : 16,
-              borderBottomLeftRadius: !isMe && !emojiOnly ? 4 : 16,
-              maxWidth: "78%",
-              wordBreak: "break-word",
-              whiteSpace: "pre-wrap",
-              fontFamily: '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
-              lineHeight: emojiOnly ? 1.15 : 1.375,
-              margin: "0 16px",
-              border: emojiOnly ? "none" : "1px solid rgba(255,255,255,0.06)",
-              boxShadow: emojiOnly ? "none" : "0 2px 8px rgba(0,0,0,0.18)",
-            }}
-          >
-            {safeText}
-          </div>
-
-          <AnimatePresence>
-            {isHovered && !m.isPending && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.1 }}
-                style={{
-                  position: "absolute",
-                  top: m.isFirstInGroup ? 28 : -8,
-                  right: isMe ? "auto" : 24,
-                  left: isMe ? 24 : "auto",
-                  zIndex: 10,
-                }}
-              >
-                <button
-                  onClick={() => onReply(m)}
-                  title="Reply"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    background: "var(--bg-secondary)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "50%",
-                    width: 28,
-                    height: 28,
-                    cursor: "pointer",
-                    color: "var(--text-secondary)",
-                    boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
-                  </svg>
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </motion.div>
-    </>
+        </AnimatePresence>
+      </div>
+    </div>
   );
 });
 
@@ -363,23 +479,18 @@ export default function Chat({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const shadowRef = useRef<HTMLDivElement>(null);
+
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isNearBottom = useRef(true);
   const hasMountedRef = useRef(false);
   const sendAttemptRef = useRef(0);
-  const shadowRef = useRef<HTMLDivElement>(null);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = setTimeout(() => setToast(null), 3000);
-  }, []);
-
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior });
   }, []);
 
   const processedMessages = useMemo(() => {
@@ -388,15 +499,12 @@ export default function Chat({
       (om) => !serverClientAts.has(om.clientAt)
     );
     const all = [...activeOptimistic, ...messages];
-    all.sort(
-      (a, b) =>
-        (toMillis(a.at) || a.clientAt) - (toMillis(b.at) || b.clientAt)
-    );
+    all.sort((a, b) => (toMillis(a.at) || a.clientAt) - (toMillis(b.at) || b.clientAt));
 
     let lastSid: string | null = null,
       lastTime = 0,
       lastDate = new Date(0);
-      
+
     return all.map((m) => {
       const mt = toMillis(m.at) || m.clientAt;
       const md = new Date(mt);
@@ -410,14 +518,21 @@ export default function Chat({
     });
   }, [messages, optimisticMessages]);
 
-  useEffect(() => {
-    const ids = new Set(
-      processedMessages.map((m) => m.id).filter(Boolean) as string[]
-    );
-    Object.keys(messageRefs.current).forEach((id) => {
-      if (!ids.has(id)) delete messageRefs.current[id];
-    });
-  }, [processedMessages]);
+  // ─── FEATURE: List Virtualization ───
+  // Only the messages currently visible (plus a small overscan buffer)
+  // are ever mounted in the DOM, regardless of how many thousands of
+  // messages exist in the room. This is what prevents long-lived chat
+  // rooms from lagging/freezing the browser tab over time — previously
+  // every single message stayed mounted forever, growing the DOM (and
+  // the cost of every re-render) without bound.
+  const rowVirtualizer = useVirtualizer({
+    count: processedMessages.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 64, // rough average row height before measurement
+    measureElement: (el: Element) => el.getBoundingClientRect().height,
+    overscan: 12,
+    getItemKey: (i: number) => processedMessages[i].id || `opt-${processedMessages[i].clientAt}`,
+  });
 
   useEffect(() => {
     return () => {
@@ -431,13 +546,28 @@ export default function Chat({
     isNearBottom.current = t.scrollHeight - t.scrollTop - t.clientHeight < 150;
   }, []);
 
+  // FEATURE: replaces the previous scrollToBottom()/messageRefs DOM
+  // tracking with the virtualizer's own math-based scrollToIndex. This is
+  // more reliable than the old approach (which depended on every message
+  // having a live DOM ref to measure against) since it computes the exact
+  // target offset from row-size math instead of walking actual elements.
   useEffect(() => {
-    if (isNearBottom.current) {
-      scrollToBottom(hasMountedRef.current ? "smooth" : "auto");
+    if (isNearBottom.current && processedMessages.length > 0) {
+      rowVirtualizer.scrollToIndex(processedMessages.length - 1, {
+        align: "end",
+        behavior: hasMountedRef.current ? "smooth" : "auto",
+      });
       hasMountedRef.current = true;
     }
-  }, [processedMessages.length, scrollToBottom]);
+  }, [processedMessages.length, rowVirtualizer]);
 
+  // Shadow DOM measurement for the textarea's auto-resize. Mirrors the
+  // textarea's exact font/padding/line-height/width so its scrollHeight
+  // gives an accurate target height — without ever writing a layout-
+  // affecting "auto" reset onto the real textarea, which is the element
+  // an IME may be mid-composition on (writing "auto" then remeasuring
+  // directly on that element was an earlier source of text visibly
+  // duplicating/collapsing while typing on Android).
   useEffect(() => {
     const el = textareaRef.current;
     const shadow = shadowRef.current;
@@ -471,6 +601,9 @@ export default function Chat({
     };
   }, [showEmojiPicker]);
 
+  // Prevents the chat list's scroll-past-edge from yanking the mobile
+  // drawer closed (or triggering browser pull-to-refresh) when the user
+  // scrolls past the very top or bottom of the message list.
   useEffect(() => {
     if (!inDrawer) return;
     const c = scrollContainerRef.current;
@@ -483,10 +616,7 @@ export default function Chat({
       const { scrollTop, scrollHeight, clientHeight } = c;
       const atTop = scrollTop <= 0;
       const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
-      if (
-        (atTop && e.touches[0].clientY > lastY) ||
-        (atBottom && e.touches[0].clientY < lastY)
-      )
+      if ((atTop && e.touches[0].clientY > lastY) || (atBottom && e.touches[0].clientY < lastY))
         e.preventDefault();
       lastY = e.touches[0].clientY;
     };
@@ -536,13 +666,7 @@ export default function Chat({
     ]);
 
     try {
-      await sendMessage(
-        activeRoomId,
-        playerId,
-        playerName,
-        text,
-        replyPayload
-      );
+      await sendMessage(activeRoomId, playerId, playerName, text, replyPayload);
       setOptimisticMessages((p) => p.filter((m) => m.clientAt !== clientAt));
     } catch {
       setOptimisticMessages((p) => p.filter((m) => m.clientAt !== clientAt));
@@ -554,44 +678,27 @@ export default function Chat({
     } finally {
       if (sendAttemptRef.current === attemptId) setIsSending(false);
     }
-  }, [
-    chatInput,
-    activeRoomId,
-    isSending,
-    playerId,
-    playerName,
-    replyingTo,
-    showToast,
-  ]);
+  }, [chatInput, activeRoomId, isSending, playerId, playerName, replyingTo, showToast]);
 
+  // FEATURE: jump-to-reply now uses the virtualizer's index-based
+  // scrollToIndex instead of walking a map of live DOM refs. Finding the
+  // target is now an array search by id (cheap, and always accurate)
+  // rather than depending on the target message's DOM node still
+  // existing/being tracked, which is the more fragile assumption the old
+  // messageRefs approach made.
   const scrollToMessage = useCallback(
     (id: string) => {
-      const target = messageRefs.current[id];
-      const container = scrollContainerRef.current;
-      if (!target || !container) {
+      const idx = processedMessages.findIndex((m) => m.id === id);
+      if (idx === -1) {
         showToast("Original message not found.");
         return;
       }
-      const cRect = container.getBoundingClientRect();
-      const tRect = target.getBoundingClientRect();
-      container.scrollTo({
-        top:
-          tRect.top -
-          cRect.top +
-          container.scrollTop -
-          container.clientHeight / 2 +
-          tRect.height / 2,
-        behavior: "smooth",
-      });
-      if (highlightTimeoutRef.current)
-        clearTimeout(highlightTimeoutRef.current);
+      rowVirtualizer.scrollToIndex(idx, { align: "center", behavior: "smooth" });
       setHighlightedId(id);
-      highlightTimeoutRef.current = setTimeout(
-        () => setHighlightedId(null),
-        1500
-      );
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current);
+      highlightTimeoutRef.current = setTimeout(() => setHighlightedId(null), 1500);
     },
-    [showToast]
+    [processedMessages, rowVirtualizer, showToast]
   );
 
   const handleReply = useCallback((m: RoomMessage) => {
@@ -599,35 +706,29 @@ export default function Chat({
     textareaRef.current?.focus();
   }, []);
 
-  const handleMessageRef = useCallback(
-    (id: string) => (el: HTMLDivElement | null) => {
-      if (id) messageRefs.current[id] = el;
-    },
-    []
-  );
-
   const toggleEmojiPicker = useCallback(() => {
     setPickerMounted(true);
     setShowEmojiPicker((p) => {
       const next = !p;
-      if (next) {
-        textareaRef.current?.blur();
-      }
+      if (next) textareaRef.current?.blur();
       return next;
     });
   }, []);
 
+  // Deferred scroll-to-bottom on input focus, so it happens after the
+  // mobile keyboard/drawer resize settles instead of fighting it mid-
+  // animation (previously the source of a visible "sway" on mobile).
   const handleInputFocus = useCallback(() => {
     isNearBottom.current = true;
     const delay = inDrawer ? 220 : 0;
-    if (delay === 0) {
-      requestAnimationFrame(() => scrollToBottom("smooth"));
-    } else {
-      setTimeout(() => {
-        requestAnimationFrame(() => scrollToBottom("smooth"));
-      }, delay);
-    }
-  }, [inDrawer, scrollToBottom]);
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        if (processedMessages.length > 0) {
+          rowVirtualizer.scrollToIndex(processedMessages.length - 1, { align: "end" });
+        }
+      });
+    }, delay);
+  }, [inDrawer, processedMessages.length, rowVirtualizer]);
 
   return (
     <div
@@ -671,31 +772,48 @@ export default function Chat({
           </div>
         )}
 
-        {processedMessages.map((m) => {
-          const textStr = typeof m.text === "string" ? m.text : "";
-          const isEmoji = isEmojiOnly(textStr);
-          const emojiSize = isEmoji ? getEmojiFontSize(textStr) : 14;
+        <div
+          style={{
+            height: rowVirtualizer.getTotalSize(),
+            width: "100%",
+            position: "relative",
+          }}
+        >
+          {rowVirtualizer.getVirtualItems().map((vItem: VirtualItem) => {
+            const m = processedMessages[vItem.index];
+            const textStr = typeof m.text === "string" ? m.text : "";
+            const isEmoji = isEmojiOnly(textStr);
 
-          return (
-            <MessageItem
-              key={m.id || `opt-${m.clientAt}`}
-              m={m}
-              isMe={m.playerId === playerId}
-              playerId={playerId}
-              playerColor={
-                roomData?.playerColors?.[m.playerId] || "var(--text-primary)"
-              }
-              timeString={formatTime(m.at)}
-              emojiOnly={isEmoji}
-              emojiSize={emojiSize}
-              messageTime={toMillis(m.at) || m.clientAt}
-              highlightedId={highlightedId}
-              onReply={handleReply}
-              onScrollToReply={scrollToMessage}
-              messageRef={handleMessageRef(m.id || "")}
-            />
-          );
-        })}
+            return (
+              <div
+                key={vItem.key}
+                data-index={vItem.index}
+                ref={rowVirtualizer.measureElement}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${vItem.start}px)`,
+                }}
+              >
+                <MessageItem
+                  m={m}
+                  isMe={m.playerId === playerId}
+                  playerId={playerId}
+                  playerColor={roomData?.playerColors?.[m.playerId] || "var(--text-primary)"}
+                  timeString={formatTime(m.at)}
+                  emojiOnly={isEmoji}
+                  emojiSize={isEmoji ? getEmojiFontSize(textStr) : 14}
+                  messageTime={toMillis(m.at) || m.clientAt}
+                  highlightedId={highlightedId}
+                  onReply={handleReply}
+                  onScrollToReply={scrollToMessage}
+                />
+              </div>
+            );
+          })}
+        </div>
 
         <div style={{ height: 12 }} />
       </div>
@@ -746,21 +864,8 @@ export default function Chat({
                 zIndex: 10,
               }}
             >
-              <div
-                style={{
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  flex: 1,
-                }}
-              >
-                <span
-                  style={{
-                    color: "var(--accent)",
-                    fontWeight: 600,
-                    fontSize: 12,
-                  }}
-                >
+              <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                <span style={{ color: "var(--accent)", fontWeight: 600, fontSize: 12 }}>
                   Replying to {replyingTo.playerName}
                 </span>
                 <p
@@ -788,12 +893,7 @@ export default function Chat({
                   alignItems: "center",
                 }}
               >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
                 </svg>
               </button>
@@ -803,14 +903,21 @@ export default function Chat({
       </AnimatePresence>
 
       <div style={{ position: "relative", flexShrink: 0 }}>
+        {/*
+          Emoji picker overlay stays mounted permanently once opened once
+          (pickerMounted) and is animated between off-screen/on-screen
+          positions rather than unmounted on close — unmounting would
+          re-trigger emoji-picker-react's internal data fetch on every
+          reopen, which previously showed as a white blank flash.
+        */}
         {pickerMounted && (
           <motion.div
             ref={pickerRef}
             initial={false}
             animate={{
-              y: showEmojiPicker ? 0 : (inDrawer ? "100%" : 10),
+              y: showEmojiPicker ? 0 : inDrawer ? "100%" : 10,
               opacity: showEmojiPicker ? 1 : 0,
-              scale: showEmojiPicker ? 1 : (inDrawer ? 1 : 0.95),
+              scale: showEmojiPicker ? 1 : inDrawer ? 1 : 0.95,
             }}
             transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
             style={{
@@ -841,9 +948,7 @@ export default function Chat({
                 borderBottom: "1px solid var(--border)",
               }}
             >
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>
-                Emoji
-              </span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>Emoji</span>
               <button
                 type="button"
                 onClick={() => setShowEmojiPicker(false)}
@@ -856,7 +961,6 @@ export default function Chat({
                   display: "flex",
                   alignItems: "center",
                 }}
-                aria-label="Close emoji picker"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
@@ -874,9 +978,7 @@ export default function Chat({
                 }
                 const start = el.selectionStart ?? chatInput.length;
                 const end = el.selectionEnd ?? chatInput.length;
-                setChatInput(
-                  (p) => p.slice(0, start) + emoji + p.slice(end)
-                );
+                setChatInput((p) => p.slice(0, start) + emoji + p.slice(end));
                 requestAnimationFrame(() => {
                   const pos = start + emoji.length;
                   el.focus();
@@ -949,6 +1051,8 @@ export default function Chat({
                   onSendMessage();
                   return;
                 }
+                // Prevents backspace-at-empty-field from bubbling up to
+                // any browser/webview back-navigation gesture handling.
                 if (e.key === "Backspace" && chatInput.length === 0) {
                   e.stopPropagation();
                 }
@@ -969,12 +1073,20 @@ export default function Chat({
                 border: "none",
                 outline: "none",
                 color: "inherit",
-                fontFamily: '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
+                fontFamily: '"Inter", sans-serif',
                 fontSize: 16,
                 display: "block",
               }}
             />
-
+            {/*
+              Hidden shadow element mirroring the textarea's exact font/
+              padding/line-height/width, used to measure target height
+              without ever writing a layout-affecting reset onto the real
+              textarea (see the resize effect above). Always renders a
+              trailing zero-width-space + newline so the height expands
+              immediately when Enter is pressed, instead of lagging one
+              keystroke behind.
+            */}
             <div
               ref={shadowRef}
               aria-hidden="true"
@@ -986,7 +1098,7 @@ export default function Chat({
                 padding: "6px 0",
                 lineHeight: "20px",
                 border: "none",
-                fontFamily: '"Inter","Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif',
+                fontFamily: '"Inter", sans-serif',
                 fontSize: 16,
                 visibility: "hidden",
                 whiteSpace: "pre-wrap",
@@ -994,7 +1106,7 @@ export default function Chat({
                 pointerEvents: "none",
               }}
             >
-              {chatInput.endsWith("\n") || chatInput === "" ? chatInput + "\u200B" : chatInput}
+              {(chatInput.length > 0 ? chatInput : "\u200B") + "\n"}
             </div>
           </div>
 
@@ -1002,15 +1114,13 @@ export default function Chat({
             type="button"
             ref={buttonRef}
             onClick={toggleEmojiPicker}
-            onMouseDown={e => e.preventDefault()}
+            onMouseDown={(e) => e.preventDefault()}
             style={{
               minHeight: 28,
               minWidth: 28,
               padding: 0,
               background: "transparent",
-              color: showEmojiPicker
-                ? "var(--accent)"
-                : "var(--text-secondary)",
+              color: showEmojiPicker ? "var(--accent)" : "var(--text-secondary)",
               border: "none",
               display: "flex",
               alignItems: "center",
@@ -1029,22 +1139,18 @@ export default function Chat({
           <button
             type="submit"
             disabled={!chatInput.trim() || isSending}
-            onMouseDown={e => e.preventDefault()}
+            onMouseDown={(e) => e.preventDefault()}
             style={{
               minHeight: 28,
               minWidth: 28,
               padding: 0,
               background: "transparent",
               border: "none",
-              color:
-                chatInput.trim() && !isSending
-                  ? "var(--accent)"
-                  : "var(--text-secondary)",
+              color: chatInput.trim() && !isSending ? "var(--accent)" : "var(--text-secondary)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              cursor:
-                chatInput.trim() && !isSending ? "pointer" : "default",
+              cursor: chatInput.trim() && !isSending ? "pointer" : "default",
               flexShrink: 0,
               marginBottom: 2,
               opacity: isSending ? 0.7 : 1,
