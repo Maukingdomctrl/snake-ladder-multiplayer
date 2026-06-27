@@ -708,32 +708,37 @@ export default function Chat({
 
   const closeEmojiPicker = useCallback(() => {
     setShowEmojiPicker(false);
-    // Refocus once the picker closes so the user can resume typing
-    // immediately. By this point inputMode has reverted to "text" (it's
-    // derived from showEmojiPicker), so this brings back the NORMAL
-    // keyboard rather than re-triggering any emoji mode.
-    requestAnimationFrame(() => textareaRef.current?.focus());
   }, []);
 
   const toggleEmojiPicker = useCallback(() => {
     setPickerMounted(true);
-    setShowEmojiPicker((p) => {
-      const next = !p;
-      if (next) {
-        // inputMode is set to "none" in the same render this state
-        // change triggers (see the textarea's inputMode prop above), but
-        // an explicit blur right after still matters: on some browsers,
-        // changing inputMode on an element that's ALREADY focused with a
-        // keyboard up doesn't by itself force that keyboard to
-        // re-evaluate and close. Blurring (now backed by inputMode being
-        // "none", so a refocus can't bring the keyboard back) reliably
-        // closes whatever the OS keyboard was showing, including any
-        // emoji-mode panel it had switched into.
-        requestAnimationFrame(() => textareaRef.current?.blur());
-      }
-      return next;
-    });
+    setShowEmojiPicker((p) => !p); // pure updater — no side effects inside
   }, []);
+
+  // BUG FIX: blur() previously ran inside the setShowEmojiPicker updater
+  // function itself. State updaters must be pure — React is allowed to
+  // call them more than once (e.g. under StrictMode's double-invoke, or
+  // when batching) — so a side effect living inside one is fragile and
+  // has no guaranteed ordering relative to the inputMode="none" DOM
+  // commit it depends on. Driving the blur from an effect keyed on
+  // showEmojiPicker instead guarantees it only runs AFTER React has
+  // actually committed inputMode="none" to the textarea, which is the
+  // correct order for the blur to reliably take effect.
+  //
+  // On close, refocus the textarea so the user can resume typing
+  // immediately — by then inputMode has reverted to "text" (it's derived
+  // from showEmojiPicker), so this brings back the normal keyboard rather
+  // than re-triggering any emoji mode.
+  useEffect(() => {
+    if (showEmojiPicker) {
+      textareaRef.current?.blur();
+    } else if (pickerMounted) {
+      // Only refocus on the close transition, not on first mount (when
+      // pickerMounted just became true but the picker was never actually
+      // shown yet — e.g. nothing has opened it this session).
+      textareaRef.current?.focus();
+    }
+  }, [showEmojiPicker, pickerMounted]);
 
   // Deferred scroll-to-bottom on input focus, so it happens after the
   // mobile keyboard/drawer resize settles instead of fighting it mid-
@@ -989,6 +994,18 @@ export default function Chat({
             </div>
             <EmojiPicker
               theme={Theme.DARK}
+              // BUG FIX (the actual root cause of the OS keyboard covering
+              // the picker on mobile): emoji-picker-react's `autoFocusSearch`
+              // prop defaults to true. Every previous attempt at this bug
+              // was correctly dismissing the TEXTAREA's keyboard via blur()
+              // + inputMode="none" — but the picker's own internal search
+              // input was auto-focusing itself the instant the picker
+              // became visible, re-summoning the OS keyboard on top of the
+              // picker a frame later. No amount of textarea-side keyboard
+              // dismissal could ever win against a second input quietly
+              // grabbing focus right behind it. This is the single prop
+              // that actually fixes the screenshot.
+              autoFocusSearch={false}
               onEmojiClick={(emojiData: EmojiClickData) => {
                 const emoji = emojiData?.emoji || "";
                 const el = textareaRef.current;
