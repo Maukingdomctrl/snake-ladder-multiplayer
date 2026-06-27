@@ -52,13 +52,22 @@ export default function DiceRow({
         // pill-vs-floating-chat-button overlap purely via z-index, which
         // only flips which element COVERS the other — it doesn't solve
         // two elements occupying the same screen region. The real fix is
-        // now in App.tsx: the floating chat button shrinks and slides
+        // in App.tsx: the floating chat button shrinks and slides
         // up-and-right whenever jumpMessage is set, so it no longer
-        // overlaps this row at all. This z-index is kept only as a small
-        // safety margin against other low-z-index page content, not as
-        // the mechanism that resolves the FAB conflict.
+        // overlaps this row at all — that fix is spatial, not z-index
+        // based, so it still holds regardless of this row's z-index.
+        //
+        // BUG FIX (dice row rendering on top of the open chat drawer):
+        // this was previously zIndex: 501 — one above the chat drawer's
+        // z-index (var(--z-drawer) = 500) — so opening the drawer left
+        // the dice row punching straight through it, on top of the
+        // messages and input field. Since the FAB-overlap problem that
+        // originally motivated raising this above 500 is already solved
+        // spatially (see above), this row no longer needs to outrank the
+        // drawer at all. Dropping it below 500 lets the drawer correctly
+        // render on top of it while open.
         position: "relative",
-        zIndex: 501,
+        zIndex: 50,
         // BUG FIX (floating chat button dead during gameplay, works fine
         // in the lobby): this row is full-width and sits at z-index 501
         // — above the chat FAB's z-index 500 (var(--z-drawer)). The FAB
@@ -81,6 +90,7 @@ export default function DiceRow({
     >
       <div style={{ flex: 1 }} />
       <div
+        className="dice-action-block"
         style={{
           background: "var(--bg-tertiary)",
           borderRadius: 14,
@@ -123,7 +133,7 @@ export default function DiceRow({
             className="jump-message-pill"
             style={{
               position: "relative",
-              zIndex: 501,
+              zIndex: 50,
               background: "var(--accent)",
               boxShadow: "var(--shadow-sm)",
               borderRadius: 20,
@@ -157,7 +167,20 @@ export default function DiceRow({
         .jump-message-pill {
           max-width: min(60vw, 320px);
         }
-        @media (max-width: 480px) {
+        /*
+          BUG FIX (Problem 1 — jump pill overlapping the chat FAB on
+          phones wider than 480px): the breakpoint was 480px, but many
+          modern phones report an effective CSS width above that (larger
+          screens, some device pixel ratio / browser zoom combinations),
+          so they fell through to the desktop side-by-side layout instead
+          of wrapping. That let the dice block, jump pill, and chat FAB
+          all try to occupy the same horizontal plane in the bottom-right
+          corner. 768px matches the app's existing isTablet boundary
+          (see App.tsx), so "mobile" here means the same thing it means
+          everywhere else in the app — anything narrower than a tablet
+          gets the wrapping layout.
+        */
+        @media (max-width: 768px) {
           .dice-row-container {
             flex-wrap: wrap;
             justify-content: center;
@@ -173,6 +196,18 @@ export default function DiceRow({
           }
           .jump-message-pill {
             max-width: 92vw;
+          }
+          /*
+            BUG FIX (Problem 2 — dice block too large on mobile): scales
+            the entire dice card down evenly from its bottom-center point
+            (so it shrinks toward the dice row's baseline rather than
+            shifting position), freeing up vertical space in the bottom
+            UI on phones without touching the desktop layout at all,
+            since this rule only applies inside this same breakpoint.
+          */
+          .dice-action-block {
+            transform: scale(0.85);
+            transform-origin: bottom center;
           }
         }
       `}</style>
