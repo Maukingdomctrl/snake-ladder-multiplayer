@@ -740,6 +740,22 @@ export default function Chat({
     }
   }, [showEmojiPicker, pickerMounted]);
 
+  // BUG FIX (Step 4, scroll compensation): opening the picker in drawer
+  // mode adds bottom padding to the scroll container (see paddingBottom
+  // above) so the picker's absolute-positioned overlay doesn't cover the
+  // last message. That padding increases scrollHeight, which — without
+  // compensation — would make the view look like it scrolled away from
+  // the bottom even though the user didn't move. If the user was already
+  // near the bottom when they opened the picker, re-pin to the bottom
+  // after the padding change commits so nothing visually jumps.
+  useEffect(() => {
+    if (showEmojiPicker && inDrawer && isNearBottom.current && processedMessages.length > 0) {
+      requestAnimationFrame(() => {
+        rowVirtualizer.scrollToIndex(processedMessages.length - 1, { align: "end" });
+      });
+    }
+  }, [showEmojiPicker, inDrawer, processedMessages.length, rowVirtualizer]);
+
   // Deferred scroll-to-bottom on input focus, so it happens after the
   // mobile keyboard/drawer resize settles instead of fighting it mid-
   // animation (previously the source of a visible "sway" on mobile).
@@ -779,6 +795,16 @@ export default function Chat({
           overscrollBehaviorY: "contain",
           WebkitOverflowScrolling: "touch",
           overflowAnchor: "auto",
+          // BUG FIX (Step 4): the emoji picker is position: "absolute"
+          // relative to the input wrapper, so it no longer participates
+          // in normal flex flow — opening it doesn't shrink this scroll
+          // container the way a normal-flow sibling would. Without this,
+          // the picker (now correctly anchored above the input instead of
+          // over it) would still visually cover the last message(s) in
+          // the list. Reserving matching bottom padding while it's open
+          // keeps the most recent messages visible above the picker.
+          paddingBottom: showEmojiPicker && inDrawer ? "min(60vh, 440px)" : undefined,
+          transition: "padding-bottom 0.2s ease",
         }}
       >
         {processedMessages.length === 0 && (
@@ -940,20 +966,38 @@ export default function Chat({
             ref={pickerRef}
             initial={false}
             animate={{
-              y: showEmojiPicker ? 0 : inDrawer ? "100%" : 10,
+              // Slides from directly below its own resting position (just
+              // above the input) rather than from the screen bottom, since
+              // the picker no longer lives at the viewport edge in either
+              // mode.
+              y: showEmojiPicker ? 0 : 10,
               opacity: showEmojiPicker ? 1 : 0,
-              scale: showEmojiPicker ? 1 : inDrawer ? 1 : 0.95,
+              scale: showEmojiPicker ? 1 : 0.97,
             }}
             transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
             style={{
-              position: inDrawer ? "fixed" : "absolute",
-              bottom: inDrawer ? 0 : "100%",
-              right: inDrawer ? 0 : 0,
+              // BUG FIX: both modes now anchor the same way — absolutely
+              // positioned relative to the input wrapper (the parent div,
+              // which already has position: "relative"), sitting directly
+              // above the input row via bottom: "100%". Previously the
+              // drawer branch used position: "fixed", bottom: 0, which
+              // anchors to the viewport bottom — the exact spot the input
+              // <form> occupies — so the picker painted directly over the
+              // textarea. The emoji insertion logic was always working;
+              // the inserted emoji was just invisible behind the picker
+              // covering it.
+              position: "absolute",
+              bottom: "100%",
               left: inDrawer ? 0 : "auto",
-              marginBottom: inDrawer ? 0 : 8,
+              right: 0,
+              marginBottom: 8,
               zIndex: 2147483000,
+              width: inDrawer ? "100%" : undefined,
               maxWidth: inDrawer ? "100%" : 340,
-              height: inDrawer ? "min(45vh, 320px)" : 350,
+              // Step 3: roomier sheet, closer to Discord's expanded feel,
+              // while still letting emoji-picker-react scroll internally
+              // rather than ever overflowing its container.
+              height: inDrawer ? "min(60vh, 440px)" : 380,
               background: "var(--bg-secondary)",
               borderRadius: inDrawer ? "12px 12px 0 0" : 8,
               boxShadow: "0 -4px 24px rgba(0,0,0,0.5)",
@@ -1024,7 +1068,7 @@ export default function Chat({
               }}
               style={{
                 width: "100%",
-                height: inDrawer ? "calc(min(45vh, 320px) - 37px)" : "calc(350px - 37px)",
+                height: inDrawer ? "calc(min(60vh, 440px) - 37px)" : "calc(380px - 37px)",
                 border: "none",
               }}
             />
