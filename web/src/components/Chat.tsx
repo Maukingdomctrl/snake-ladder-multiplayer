@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback, memo, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
-import { useVirtualizer, VirtualItem } from "@tanstack/react-virtual";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   sendMessage,
   Room,
@@ -529,9 +529,9 @@ export default function Chat({
     count: processedMessages.length,
     getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => 64, // rough average row height before measurement
-    measureElement: (el: Element) => el.getBoundingClientRect().height,
+    measureElement: (el) => el.getBoundingClientRect().height,
     overscan: 12,
-    getItemKey: (i: number) => processedMessages[i].id || `opt-${processedMessages[i].clientAt}`,
+    getItemKey: (i) => processedMessages[i].id || `opt-${processedMessages[i].clientAt}`,
   });
 
   useEffect(() => {
@@ -706,11 +706,31 @@ export default function Chat({
     textareaRef.current?.focus();
   }, []);
 
+  const closeEmojiPicker = useCallback(() => {
+    setShowEmojiPicker(false);
+    // Refocus once the picker closes so the user can resume typing
+    // immediately. By this point inputMode has reverted to "text" (it's
+    // derived from showEmojiPicker), so this brings back the NORMAL
+    // keyboard rather than re-triggering any emoji mode.
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
   const toggleEmojiPicker = useCallback(() => {
     setPickerMounted(true);
     setShowEmojiPicker((p) => {
       const next = !p;
-      if (next) textareaRef.current?.blur();
+      if (next) {
+        // inputMode is set to "none" in the same render this state
+        // change triggers (see the textarea's inputMode prop above), but
+        // an explicit blur right after still matters: on some browsers,
+        // changing inputMode on an element that's ALREADY focused with a
+        // keyboard up doesn't by itself force that keyboard to
+        // re-evaluate and close. Blurring (now backed by inputMode being
+        // "none", so a refocus can't bring the keyboard back) reliably
+        // closes whatever the OS keyboard was showing, including any
+        // emoji-mode panel it had switched into.
+        requestAnimationFrame(() => textareaRef.current?.blur());
+      }
       return next;
     });
   }, []);
@@ -779,7 +799,7 @@ export default function Chat({
             position: "relative",
           }}
         >
-          {rowVirtualizer.getVirtualItems().map((vItem: VirtualItem) => {
+          {rowVirtualizer.getVirtualItems().map((vItem) => {
             const m = processedMessages[vItem.index];
             const textStr = typeof m.text === "string" ? m.text : "";
             const isEmoji = isEmojiOnly(textStr);
@@ -951,7 +971,7 @@ export default function Chat({
               <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>Emoji</span>
               <button
                 type="button"
-                onClick={() => setShowEmojiPicker(false)}
+                onClick={closeEmojiPicker}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -1041,6 +1061,21 @@ export default function Chat({
               value={chatInput}
               enterKeyHint="send"
               autoCapitalize="sentences"
+              // BUG FIX (emoji panel cut off / showing OS keyboard's own
+              // emoji mode instead of our picker, on mobile):
+              // blur() alone wasn't reliably dismissing the OS keyboard
+              // once it had already switched into its own emoji-input
+              // mode — some keyboards (confirmed: Samsung Keyboard) keep
+              // that surface open regardless, and it was rendering INSIDE
+              // the same fixed-height container reserved for our picker,
+              // pushing emoji-picker-react's actual grid off-screen below
+              // the fold. `inputMode="none"` is the reliable cross-
+              // browser signal to never show ANY virtual keyboard for
+              // this field — applied while our picker is open, it
+              // prevents the OS keyboard (in any mode) from claiming that
+              // screen space in the first place, instead of trying to
+              // dismiss one that's already up.
+              inputMode={showEmojiPicker ? "none" : "text"}
               onChange={(e) => setChatInput(e.target.value)}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
