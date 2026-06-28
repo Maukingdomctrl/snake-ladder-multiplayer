@@ -46,6 +46,14 @@ type Face = 1 | 2 | 3 | 4 | 5 | 6;
 // signal is genuinely lost.
 const DICE_FALLBACK_TIMEOUT_MS = 6000;
 
+// Stable, shared fallback objects — using `|| {}` inline creates a brand
+// new object reference on every render whenever the underlying field is
+// absent, which silently defeats React.memo on any child receiving that
+// prop. These are frozen module-level constants instead, so the fallback
+// reference never changes across renders.
+const EMPTY_PLAYER_MAP: Record<string, string> = Object.freeze({});
+const EMPTY_PLAYERS_LIST: string[] = Object.freeze([] as string[]) as string[];
+
 export default function App() {
   const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
   const { width, height } = useWindowDimensions();
@@ -57,6 +65,24 @@ export default function App() {
   const [error, setError] = useState<string>("");
   const [joinId, setJoinId] = useState<string>("");
   const [activeRoomId, setActiveRoomId] = useState<string>("");
+  // Mirrors activeRoomId via a ref so callbacks created in an OLDER
+  // effect closure (e.g. a Firestore snapshot listener from a room the
+  // user has since left) can check the TRUE current value at the moment
+  // they fire, rather than a value captured when that closure was
+  // created — comparing against a same-closure capture would always be
+  // trivially true and never actually catch a stale callback.
+  const activeRoomIdRef = useRef<string>("");
+  useEffect(() => {
+    activeRoomIdRef.current = activeRoomId;
+  }, [activeRoomId]);
+  // BUG FIX: tracks whether THIS room has ever delivered real (non-null)
+  // data. Lets the snapshot callback distinguish "still loading for the
+  // first time" (room === null is expected and already shows "Loading
+  // room...") from "the room existed and just got deleted out from under
+  // us" (room === null AFTER having real data) — the latter previously
+  // left the user stuck on the loading screen indefinitely with no way
+  // back to the login screen.
+  const hasLoadedRoomDataRef = useRef<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
 
   const [roomData, setRoomData] = useState<Room | null>(null);
@@ -85,7 +111,24 @@ export default function App() {
   const prevMsgCountRef = useRef<number>(0);
   const isFirstMessageLoadRef = useRef<boolean>(true);
   const diceFinishedRef = useRef<boolean>(true);
+  // BUG FIX: synchronous guard against a rapid double-tap on "Join Room."
+  // React state updates (setLoading(true)) are asynchronous, so two
+  // click events fired in quick succession can both pass the `loading`
+  // check before the button visually disables. A plain ref mutation is
+  // synchronous and closes that window completely.
+  const joiningRef = useRef<boolean>(false);
   const observerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // BUG FIX (Bug 5: loading stuck forever on network failure): if
+  // Firestore queues the write offline instead of throwing (its default
+  // behavior when the device has no connection), rollDice's await never
+  // rejects and handleRollComplete never fires — loading stays true
+  // forever, permanently disabling the roll button. This ref tracks a
+  // fallback timeout that force-clears loading after a generous window,
+  // mirroring the existing observerTimeoutRef pattern. It's tracked (not
+  // a bare setTimeout) so a normal, fast completion via
+  // handleRollComplete can clear it before it fires, and so a rapid
+  // re-roll can't leave multiple stray timers stacked.
+  const rollFallbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingJumpMessageRef = useRef<string>("");
   const pendingPositionsRef = useRef<Record<string, number>>({});
 
@@ -153,6 +196,17 @@ export default function App() {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
       cancelAnimationFrame(rafId);
+      // BUG FIX: without this, a teardown triggered by isTablet flipping
+      // true (rather than the user explicitly closing the drawer via
+      // closeChatDrawer) leaves drawerRef stuck with whatever inline
+      // bottom/height/keyboard-active state it last had while the
+      // keyboard was open.
+      const drawer = drawerRef.current;
+      if (drawer) {
+        drawer.style.bottom = '';
+        drawer.style.height = '';
+        drawer.classList.remove('keyboard-active');
+      }
     };
   }, [isTablet, chatOpen]);
 
@@ -181,12 +235,27 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+      // BUG FIX: rollFallbackTimeoutRef (the 8s failsafe armed in
+      // onRollDice) was never cleared on unmount, only observerTimeoutRef
+      // was. The 8s timer could survive a component unmount (route
+      // change, or a Strict Mode dev double-mount) and later fire
+      // setLoading(false) on a dead component — a real leak, though
+      // harmless to gameplay since nothing was listening anymore.
+      if (rollFallbackTimeoutRef.current) clearTimeout(rollFallbackTimeoutRef.current);
     };
   }, []);
 
   useEffect(() => {
-    if (messages.length === 0) return;
-
+    // Bug 1 fix: the previous version returned early when
+    // messages.length === 0, which meant a brand-new room's very first
+    // (empty) snapshot never got a chance to consume
+    // isFirstMessageLoadRef.current. The flag was still sitting at
+    // `true` when the first REAL message arrived moments later, so that
+    // message's snapshot was mistaken for "the initial load" and its
+    // unread count was silently skipped. Removing the early return lets
+    // every snapshot — even an empty one — correctly consume the flag,
+    // so by the time any real message arrives, isFirstMessageLoadRef is
+    // already false and the unread-counting branch runs as expected.
     if (isFirstMessageLoadRef.current) {
       isFirstMessageLoadRef.current = false;
     } else if (!chatOpen && !isTablet && messages.length > prevMsgCountRef.current) {
@@ -209,9 +278,10 @@ export default function App() {
   const displayTurnId = diceComplete ? roomData?.currentTurn : roomData?.lastRolledBy;
   const currentTurnName = displayTurnId ? getName(displayTurnId) : "";
 
-  const handleRollComplete = () => {
+  const handleRollComplete = useCallback(() => {
     diceFinishedRef.current = true;
     if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+    if (rollFallbackTimeoutRef.current) clearTimeout(rollFallbackTimeoutRef.current);
 
     setDiceComplete(true);
     setJumpMessage(pendingJumpMessageRef.current);
@@ -221,7 +291,7 @@ export default function App() {
     }
 
     setLoading(false);
-  };
+  }, []);
 
   const onPickColor = async (color: string) => {
     setPlayerColor(color);
@@ -242,7 +312,6 @@ export default function App() {
     setError("");
     try {
       const id = await createRoom(playerId, playerName.trim(), playerColor);
-      setJoinId(id);
       setActiveRoomId(id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to create room");
@@ -252,11 +321,18 @@ export default function App() {
   };
 
   const onJoinRoom = async () => {
+    if (joiningRef.current) return;
+    joiningRef.current = true;
     setError("");
     const trimmedId = joinId.trim();
-    if (trimmedId.length !== 4)
+    if (trimmedId.length !== 4) {
+      joiningRef.current = false;
       return setError("Room code must be exactly 4 digits");
-    if (!playerName.trim()) return setError("Please enter your name first");
+    }
+    if (!playerName.trim()) {
+      joiningRef.current = false;
+      return setError("Please enter your name first");
+    }
 
     setLoading(true);
     try {
@@ -266,6 +342,7 @@ export default function App() {
       setError(e instanceof Error ? e.message : "Failed to join room");
     } finally {
       setLoading(false);
+      joiningRef.current = false;
     }
   };
 
@@ -288,6 +365,17 @@ export default function App() {
     setError("");
     try {
       await rollDice(activeRoomId, playerId);
+      // Failsafe: if the game sync (handleRollComplete) never fires —
+      // e.g. the write got queued offline instead of erroring — force
+      // the roll button back to usable after a generous window. Cleared
+      // by handleRollComplete on normal completion, and any previous
+      // pending instance is cleared here first so rapid re-rolls can't
+      // stack multiple stray timers.
+      if (rollFallbackTimeoutRef.current) clearTimeout(rollFallbackTimeoutRef.current);
+      rollFallbackTimeoutRef.current = setTimeout(() => {
+        rollFallbackTimeoutRef.current = null;
+        setLoading(false);
+      }, 8000);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to roll dice");
       setLoading(false);
@@ -297,6 +385,18 @@ export default function App() {
   const onLeaveRoom = async () => {
     setError("");
     setMessages([]);
+    // BUG FIX: leaving mid-roll (loading=true, rollFallbackTimeoutRef
+    // armed) previously left both stranded. Nothing resets `loading` on
+    // the leave path — the activeRoomId effect's reset block only runs
+    // when JOINING a room (it early-returns while activeRoomId is
+    // falsy, which is exactly what this function sets it to), and even
+    // then it never touched `loading`. A player who left mid-roll and
+    // then joined a new room could find the new room's roll button
+    // already disabled, with recovery depending entirely on whether the
+    // orphaned 8s timer happened to still be alive and correctly timed.
+    setLoading(false);
+    if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+    if (rollFallbackTimeoutRef.current) clearTimeout(rollFallbackTimeoutRef.current);
     if (activeRoomId) {
       try {
         await leaveRoom(activeRoomId, playerId);
@@ -326,8 +426,31 @@ export default function App() {
     pendingPositionsRef.current = {};
     diceFinishedRef.current = true;
     setDiceComplete(true);
+    hasLoadedRoomDataRef.current = false;
 
+    // BUG FIX: guard the callback against firing after activeRoomId has
+    // already moved on (rapid leave-then-join). unsub() stops FUTURE
+    // callbacks, but a callback already in flight from the network when
+    // unsub() runs can still fire — without this guard, that stale
+    // callback could briefly apply Room A's data after the user has
+    // already switched to Room B. Compares against the live ref (not a
+    // value captured in this same closure) since this effect's own
+    // local `activeRoomId` can never differ from itself.
+    const subscribedRoomId = activeRoomId;
     const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
+      if (subscribedRoomId !== activeRoomIdRef.current) return;
+      if (room) {
+        hasLoadedRoomDataRef.current = true;
+      } else if (hasLoadedRoomDataRef.current) {
+        // The room previously had real data and just delivered null —
+        // it was deleted (e.g. the last other player left, or the host
+        // removed it), not "still loading." Surface this clearly instead
+        // of leaving the user on "Loading room..." forever.
+        setError("Room no longer exists.");
+        setActiveRoomId("");
+        setRoomData(null);
+        return;
+      }
       setRoomData(room);
     });
     const unsubMessages = subscribeMessages(activeRoomId, setMessages);
@@ -336,6 +459,11 @@ export default function App() {
       if (typeof unsub === "function") unsub();
       if (typeof unsubMessages === "function") unsubMessages();
       if (observerTimeoutRef.current) clearTimeout(observerTimeoutRef.current);
+      // BUG FIX: same leak as the dedicated unmount effect above — this
+      // cleanup runs on every activeRoomId change (room switch) as well
+      // as full unmount, and previously left rollFallbackTimeoutRef
+      // untouched in both cases.
+      if (rollFallbackTimeoutRef.current) clearTimeout(rollFallbackTimeoutRef.current);
     };
   }, [activeRoomId]);
 
@@ -355,6 +483,19 @@ export default function App() {
       return;
     }
 
+    // BUG FIX: a restart ("Play Again") transitions status into
+    // "countdown" — the one unambiguous signal that a new game is
+    // starting. If a dice roll was still in flight when the restart
+    // happened (e.g. Dice.tsx's onRollComplete fires in the brief window
+    // before Board/DiceRow unmount for the countdown screen), these refs
+    // could otherwise carry stale data from the PREVIOUS game into the
+    // new one once that late completion callback runs.
+    if (prev.status !== "countdown" && roomData.status === "countdown") {
+      pendingJumpMessageRef.current = "";
+      pendingPositionsRef.current = {};
+      diceFinishedRef.current = true;
+    }
+
     let isNewRoll = false;
 
     if (
@@ -370,7 +511,6 @@ export default function App() {
           if (Object.keys(pendingPositionsRef.current).length > 0) {
             setDisplayPositions(pendingPositionsRef.current);
           }
-          setJumpMessage(pendingJumpMessageRef.current);
         }
 
         isNewRoll = true;
@@ -384,8 +524,18 @@ export default function App() {
         // completion time (ROLL_MS + its own settle buffer) so it never
         // races the real onRollComplete signal under normal conditions.
         observerTimeoutRef.current = setTimeout(() => {
+          observerTimeoutRef.current = null;
           if (!diceFinishedRef.current) {
             diceFinishedRef.current = true;
+            // BUG FIX: this recovery path didn't clear
+            // rollFallbackTimeoutRef, so if onRollComplete was genuinely
+            // lost and THIS fallback recovered state, the separate 8s
+            // roll-fallback timer from onRollDice was still live and
+            // would fire setLoading(false) again ~2s later. Idempotent
+            // (no visible bug), but a stray timer that — combined with
+            // the unmount-cleanup gap fixed above — could outlive the
+            // component.
+            if (rollFallbackTimeoutRef.current) clearTimeout(rollFallbackTimeoutRef.current);
             setDiceComplete(true);
             setLoading(false);
             setJumpMessage(pendingJumpMessageRef.current);
@@ -398,12 +548,26 @@ export default function App() {
         const pid = roomData.lastRolledBy;
         const from = roomData.lastFrom;
         const to = roomData.positions?.[pid] ?? from;
-        const movedTo = Math.min(100, (from ?? 1) + roomData.lastDice);
 
-        if (from != null) {
+        // BUG FIX: validate lastDice/lastFrom before using them to infer
+        // a snake/ladder message. This is distinct from DiceRow's
+        // lastDice validation (display-only, doesn't protect this
+        // computation). Without it, a corrupted write (e.g. lastDice
+        // outside 1-6, lastFrom outside 1-100, or either being NaN) could
+        // produce a nonsensical "Snake!"/"Ladder!" message — it can't
+        // crash anything here since it's pure number math, but the
+        // inferred message would be meaningless.
+        const diceValid =
+          Number.isFinite(roomData.lastDice) &&
+          (roomData.lastDice as number) >= 1 &&
+          (roomData.lastDice as number) <= 6;
+        const fromValid = from != null && Number.isFinite(from) && from >= 1 && from <= 100;
+
+        if (diceValid && fromValid) {
+          const movedTo = Math.min(100, (from as number) + (roomData.lastDice as number));
           if (to > movedTo) {
             pendingJumpMessageRef.current = `🪜 Ladder! ${movedTo} → ${to}`;
-          } else if (to < movedTo && to !== from) {
+          } else if (to < movedTo) {
             pendingJumpMessageRef.current = `🐍 Snake! ${movedTo} → ${to}`;
           } else {
             pendingJumpMessageRef.current = "";
@@ -549,9 +713,9 @@ export default function App() {
             {!isCompact && (
               <GameHeader
                 roomId={roomData.id!}
-                players={roomData.players}
-                playerColors={roomData.playerColors || {}}
-                playerNames={roomData.playerNames || {}}
+                players={roomData.players ?? EMPTY_PLAYERS_LIST}
+                playerColors={roomData.playerColors || EMPTY_PLAYER_MAP}
+                playerNames={roomData.playerNames || EMPTY_PLAYER_MAP}
                 isTablet={isTablet}
               />
             )}
@@ -661,7 +825,7 @@ export default function App() {
 
                       {roomData.positions && (
                         <Scoreboard
-                          players={roomData.players}
+                          players={roomData.players ?? EMPTY_PLAYERS_LIST}
                           /*
                             BUG FIX: this previously read roomData.positions
                             directly — the raw, immediate Firestore value —
@@ -679,8 +843,8 @@ export default function App() {
                             views in lockstep.
                           */
                           positions={displayPositions}
-                          playerColors={roomData.playerColors || {}}
-                          playerNames={roomData.playerNames || {}}
+                          playerColors={roomData.playerColors || EMPTY_PLAYER_MAP}
+                          playerNames={roomData.playerNames || EMPTY_PLAYER_MAP}
                           currentTurn={roomData.currentTurn}
                           status={roomData.status}
                           winnerId={roomData.winnerId ?? null}
@@ -713,7 +877,7 @@ export default function App() {
                       <Board
                         key={activeRoomId}
                         positions={displayPositions}
-                        playerNames={roomData?.playerNames || {}}
+                        playerNames={roomData?.playerNames || EMPTY_PLAYER_MAP}
                         roomData={roomData}
                         hideLegend={true}
                         diceComplete={diceComplete}
@@ -749,7 +913,13 @@ export default function App() {
                         <DiceRow
                           onRoll={onRollDice}
                           disabled={!isMyTurn || loading}
-                          lastDice={(roomData.lastDice as Face) ?? null}
+                          lastDice={
+                            roomData.lastDice != null &&
+                            roomData.lastDice >= 1 &&
+                            roomData.lastDice <= 6
+                              ? (roomData.lastDice as Face)
+                              : null
+                          }
                           rollKey={String(roomData.moveCount ?? 0)}
                           jumpMessage={jumpMessage}
                           onRollComplete={handleRollComplete}
@@ -822,14 +992,32 @@ export default function App() {
             onClick={() => setChatOpen(true)}
             style={{
               position: "fixed",
-              bottom: "max(24px, env(safe-area-inset-bottom))",
-              right: 24,
-              minHeight: 56,
-              minWidth: 56,
+              // BUG FIX (chat button hidden behind / hiding the snake-
+              // ladder jump-message pill): the FAB and DiceRow's jump
+              // message pill both occupy the bottom-right corner of the
+              // screen on mobile, and neither knew about the other —
+              // raising one's z-index just made it cover the other
+              // instead of the reverse. Real fix: when a jump message is
+              // showing, shrink the FAB and slide it up-and-right into a
+              // small icon that tucks above the pill, instead of the two
+              // competing for the exact same spot. They now coexist
+              // instead of stacking.
+              // Requested: shift the FAB up a bit from the bottom edge on
+              // mobile so it doesn't sit flush at the same baseline as
+              // the dice card below it. This only adjusts the FAB's own
+              // resting position — the board, the dice row, and desktop/
+              // tablet layout (this whole block only renders when
+              // !isTablet) are untouched.
+              bottom: jumpMessage
+                ? "calc(max(24px, env(safe-area-inset-bottom)) + 64px)"
+                : "calc(max(24px, env(safe-area-inset-bottom)) + 16px)",
+              right: jumpMessage ? 16 : 24,
+              minHeight: jumpMessage ? 40 : 56,
+              minWidth: jumpMessage ? 40 : 56,
               borderRadius: "50%",
               backgroundColor: "var(--accent)",
               color: "white",
-              fontSize: 24,
+              fontSize: jumpMessage ? 18 : 24,
               zIndex: "var(--z-drawer)", // ★ DESIGN TOKEN
               boxShadow: "var(--shadow-lg)",
               display: "flex",
@@ -837,12 +1025,12 @@ export default function App() {
               justifyContent: "center",
               padding: 0,
               border: "1px solid rgba(255,255,255,0.2)",
-              transition: "transform 0.2s ease",
+              transition: "transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), bottom 0.25s ease, right 0.25s ease, min-height 0.25s ease, min-width 0.25s ease, font-size 0.25s ease",
             }}
           >
             <svg
-              width="24"
-              height="24"
+              width={jumpMessage ? 18 : 24}
+              height={jumpMessage ? 18 : 24}
               viewBox="0 0 24 24"
               fill="currentColor"
             >
