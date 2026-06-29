@@ -53,7 +53,6 @@ const DICE_FALLBACK_TIMEOUT_MS = 6000;
 // reference never changes across renders.
 const EMPTY_PLAYER_MAP: Record<string, string> = Object.freeze({});
 const EMPTY_PLAYERS_LIST: string[] = Object.freeze([] as string[]) as string[];
-
 export default function App() {
   const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
   const { width, height } = useWindowDimensions();
@@ -1053,6 +1052,7 @@ export default function App() {
             <div
               className={`drawer-backdrop ${chatOpen ? "open" : ""}`}
               onClick={closeChatDrawer}
+              style={{ zIndex: chatOpen ? 599 : undefined }}
             />
             <div
               ref={drawerRef}
@@ -1060,6 +1060,19 @@ export default function App() {
               style={{
                 padding: "12px 0",
                 paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+                // BUG FIX: the open drawer was rendering BEHIND the
+                // DiceRow container (z-index 501, raised in an earlier
+                // round specifically to clear the floating chat button).
+                // The drawer's own z-index comes from the .chat-drawer
+                // CSS class (var(--z-drawer) = 500 in App.css), which is
+                // lower than 501 — so the dice card and jump-message
+                // pill painted on top of the open drawer's bottom edge.
+                // DiceRow's z-index is intentionally left untouched (kept
+                // as-is per earlier decision); this only raises the
+                // drawer's z-index ABOVE it, and only while the drawer is
+                // actually open — closed, it falls back to its normal
+                // CSS-class value.
+                zIndex: chatOpen ? 600 : undefined,
               }}
             >
               <div className="drawer-handle" />
