@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { onAuthStateChanged, signInWithPopup, signOut as fbSignOut, User } from "firebase/auth";
-import { auth, googleProvider } from "../firebase";
+import { onAuthStateChanged, signInAnonymously, User } from "firebase/auth";
+import { auth } from "../firebase";
 import { LOBBY_COLORS } from "../constants";
 
 // Safe localStorage wrapper so Incognito/Private mode doesn't crash the app
@@ -21,18 +21,14 @@ const safeLocalStorage = {
   },
 };
 
-export async function signInWithGoogle() {
-  await signInWithPopup(auth, googleProvider);
-}
-
-export async function signOut() {
-  await fbSignOut(auth);
-}
-
-/** The signed-in Google user drives identity: playerId is the Firebase uid. */
+/**
+ * Players are signed in silently as Firebase anonymous users (no account
+ * needed); playerId is that uid, which persists in this browser.
+ */
 export function usePlayerStorage() {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [authError, setAuthError] = useState("");
   const [playerName, setPlayerName] = useState<string>(
     () => safeLocalStorage.getItem("playerName") || ""
   );
@@ -43,11 +39,16 @@ export function usePlayerStorage() {
   useEffect(
     () =>
       onAuthStateChanged(auth, (u) => {
-        setUser(u);
-        setAuthReady(true);
-        if (u && !safeLocalStorage.getItem("playerName")) {
-          setPlayerName((u.displayName || "").split(" ")[0].slice(0, 20));
+        if (u) {
+          setUser(u);
+          setAuthReady(true);
+          return;
         }
+        signInAnonymously(auth).catch((e) => {
+          console.error("Anonymous sign-in failed:", e);
+          setAuthError("Couldn't connect. Please refresh the page.");
+          setAuthReady(true);
+        });
       }),
     []
   );
@@ -63,6 +64,7 @@ export function usePlayerStorage() {
   return {
     user,
     authReady,
+    authError,
     playerId: user?.uid ?? "",
     playerName,
     setPlayerName,

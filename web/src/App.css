@@ -486,11 +486,10 @@ button, input, textarea {
   box-shadow: var(--shadow-md);
   padding: 28px 22px;
 }
-.btn-google, .btn-secondary {
+.btn-secondary {
   display: inline-flex; align-items: center; justify-content: center; gap: 10px;
   padding: 11px 16px; font: inherit; font-weight: 600; font-size: 15px;
   background: #fff; color: var(--text-primary);
   border: 1px solid var(--border-strong); border-radius: var(--radius-md); cursor: pointer;
 }
-.btn-google:hover, .btn-secondary:hover { background: var(--bg-tertiary); }
-.link-btn { background: none; border: 0; padding: 0; color: var(--text-link); font: inherit; cursor: pointer; }
+.btn-secondary:hover { background: var(--bg-tertiary); }

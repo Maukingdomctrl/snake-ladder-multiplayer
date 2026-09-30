@@ -1,6 +1,6 @@
 import { initializeApp, FirebaseOptions, getApps, getApp } from "firebase/app";
 import { initializeFirestore, getFirestore, Firestore } from "firebase/firestore";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth } from "firebase/auth";
 
 // Firebase web config is public by design (it ships in the bundle); env vars
 // can override it, e.g. to point a preview build at another project.
@@ -26,7 +26,5 @@ if (isFirstInit) {
 }
 
 const auth = getAuth(app);
-const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: "select_account" });
 
-export { app, db, auth, googleProvider };
+export { app, db, auth };

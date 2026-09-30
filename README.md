@@ -2,12 +2,12 @@
 
 | Piece | Where | What it does |
 |---|---|---|
-| `web/` | Vercel **and** Firebase Hosting | React app (Google sign-in, lobby, board, chat) |
-| `server/` | Render | Creates rooms and rolls dice (authoritative), verifies Google ID tokens |
+| `web/` | Vercel **and** Firebase Hosting | React app (guest sign-in, lobby, board, chat) |
+| `server/` | Render | Creates rooms and rolls dice (authoritative), verifies Firebase ID tokens |
 | Firestore | `snake-ladder-maukingdom` | Live game state and chat |
 
 ## One-time Firebase setup
-1. Console → **Authentication → Sign-in method** → enable **Google**.
+1. Console → **Authentication → Sign-in method** → enable **Anonymous** (players join with just a name).
 2. Authentication → Settings → **Authorized domains**: add your Vercel domain
    (`snake-ladder-multiplayer-chi.vercel.app`). The `web.app`/`firebaseapp.com` domains are already there.
 
