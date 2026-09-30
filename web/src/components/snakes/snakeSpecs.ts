@@ -118,8 +118,8 @@ export const RED_68: SnakeSpec = {
   ],
   halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.8 }),
   palette: {
-    hue: 355, sat: 0.42, value: -0.1,
-    recess: "#4a1a1c", edge: "#180606", shadow: "#140405", light: "#8a4a4a", highlight: "#a26060", rim: "#100304",
+    hue: 4, sat: 0.4, value: -0.15,
+    recess: "#2a1614", edge: "#0e0706", shadow: "#0c0605", light: "#8a3c30", highlight: "#9c4a3a", rim: "#080404",
   },
 };
 
