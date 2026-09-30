@@ -161,10 +161,9 @@ const SNAKE_WAYPOINTS: Record<number, { c: number; ox?: number; oy?: number }[]>
     { c: 43, ox: -0.5 }, { c: 38, ox: -0.4 }, { c: 22, oy: -0.4 },
   ],
   68: [
-    { c: 68, ox: 0.1, oy: -0.15 }, { c: 67, ox: 0.1, oy: -0.2 },
-    { c: 53, ox: -0.6, oy: -0.3 }, { c: 48, ox: -0.5, oy: 0.2 },
-    { c: 33, ox: -0.4, oy: -0.3 }, { c: 34, ox: -0.1, oy: -0.25 },
-    { c: 35, ox: -0.1, oy: -0.5 }, { c: 36, ox: -0.1, oy: 0.3 },
+    { c: 68, ox: 0.05, oy: 0.1 }, { c: 53, ox: -0.05, oy: 0.1 },
+    { c: 47, ox: 0.15, oy: 0.1 }, { c: 46, ox: 0.2, oy: 0.45 },
+    { c: 36, ox: 0.25, oy: 0.3 },
     { c: 25, ox: 0.1, oy: -0.3 }, { c: 26, ox: -0.1, oy: -0.01 },
     { c: 15, ox: -0.1, oy: 0.05 }, { c: 16, ox: -0.15, oy: 0.45 },
     { c: 17, ox: -0.15, oy: 0.25 }, { c: 18, ox: -0.15, oy: 0.4 },
@@ -184,7 +183,7 @@ const SNAKE_STYLE_CONFIGS: Record<number, { scaleStride?: number; bulgeProfile?:
     scaleStride: 10,
     bulgeProfile: [
       { t: 0.0, width: 0.2 }, { t: 0.1, width: 0.8 }, { t: 0.3, width: 1.4 },
-      { t: 0.5, width: 0.6 }, { t: 0.8, width: 1.2 }, { t: 1.0, width: 1.5 },
+      { t: 0.5, width: 0.9 }, { t: 0.8, width: 1.1 }, { t: 1.0, width: 1.1 },
     ],
   },
 };
