@@ -128,5 +128,8 @@ export const BLUE_93: SnakeSpec = {
     [500, 680], [482, 725], [470, 755],
   ],
   halfWidth: profile({ head: 14, neck: 11, body: 13, headLen: 0.04, taperFrom: 0.78 }),
-  palette: BLUE_59.palette,
+  palette: {
+    hue: 205, sat: 0.75,
+    recess: "#2a86d6", edge: "#0c3a6a", shadow: "#0a2e58", light: "#7cc4f4", highlight: "#a2d6f8", rim: "#082a50",
+  },
 };
