@@ -21,6 +21,21 @@ const safeLocalStorage = {
   },
 };
 
+// Mobile networks drop requests now and then, so retry a couple of times
+async function signInWithRetry(onFail?: (msg: string) => void, attempt = 1): Promise<void> {
+  try {
+    await signInAnonymously(auth);
+  } catch (e) {
+    const code = (e as { code?: string })?.code || "unknown";
+    console.error(`Anonymous sign-in failed (attempt ${attempt}):`, e);
+    if (attempt < 3) {
+      await new Promise((r) => setTimeout(r, 1000 * attempt));
+      return signInWithRetry(onFail, attempt + 1);
+    }
+    onFail?.(`Couldn't connect (${code}). Please refresh the page.`);
+  }
+}
+
 /**
  * Players are signed in silently as Firebase anonymous users (no account
  * needed); playerId is that uid, which persists in this browser.
@@ -44,9 +59,8 @@ export function usePlayerStorage() {
           setAuthReady(true);
           return;
         }
-        signInAnonymously(auth).catch((e) => {
-          console.error("Anonymous sign-in failed:", e);
-          setAuthError("Couldn't connect. Please refresh the page.");
+        signInWithRetry((msg) => {
+          setAuthError(msg);
           setAuthReady(true);
         });
       }),

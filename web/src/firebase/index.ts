@@ -1,6 +1,12 @@
 import { initializeApp, FirebaseOptions, getApps, getApp } from "firebase/app";
 import { initializeFirestore, getFirestore, Firestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth,
+  initializeAuth,
+  indexedDBLocalPersistence,
+  browserLocalPersistence,
+  inMemoryPersistence,
+} from "firebase/auth";
 
 // Firebase web config is public by design (it ships in the bundle); env vars
 // can override it, e.g. to point a preview build at another project.
@@ -25,6 +31,13 @@ if (isFirstInit) {
   db = getFirestore(app);
 }
 
-const auth = getAuth(app);
+// initializeAuth (instead of getAuth) skips the Google popup/redirect helper,
+// which we don't use, and falls back to in-memory storage when a browser
+// (incognito, in-app webviews) blocks IndexedDB/localStorage.
+const auth = isFirstInit
+  ? initializeAuth(app, {
+      persistence: [indexedDBLocalPersistence, browserLocalPersistence, inMemoryPersistence],
+    })
+  : getAuth(app);
 
 export { app, db, auth };
