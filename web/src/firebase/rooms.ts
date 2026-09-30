@@ -70,6 +70,7 @@ export type RoomMessage = {
   at?: any;
   clientAt: number;
   replyTo?: MessageReply | null;
+  mentions?: string[];
   isPending?: boolean; // Used for Optimistic UI
 };
 
@@ -257,7 +258,9 @@ export async function sendMessage(
   playerId: string,
   playerName: string,
   text: string,
-  replyTo?: MessageReply | null
+  replyTo?: MessageReply | null,
+  mentions: string[] = [],
+  clientAt: number = Date.now()
 ) {
   const cleanText = (text ?? "").trim();
   if (!cleanText) return;
@@ -268,8 +271,9 @@ export async function sendMessage(
     playerName: (playerName || playerId).slice(0, 40),
     text: cleanText,
     at: serverTimestamp(),
-    clientAt: Date.now(),
+    clientAt,
     replyTo: replyTo || null,
+    mentions,
   });
 }
 
