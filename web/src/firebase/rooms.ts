@@ -17,6 +17,17 @@ const RENDER_URL =
   import.meta.env.VITE_SERVER_URL ||
   (import.meta.env.PROD ? "https://snake-ladder-multiplayer-c5ai.onrender.com" : "/render");
 
+/** Asks the Render server for a guest sign-in token (fallback when direct sign-in fails). */
+export async function fetchGuestToken(): Promise<string> {
+  // Long timeout: the free Render instance can take ~50s to wake up
+  const response = await fetchWithTimeout(`${RENDER_URL}/guest`, { method: "POST" }, 70000);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Server error: ${response.status}`);
+  }
+  return (await response.json()).token;
+}
+
 /** Calls the Render server with the signed-in user's Firebase ID token. */
 async function postToServer(path: string, body: object) {
   const user = auth.currentUser;
