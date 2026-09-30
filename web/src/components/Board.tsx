@@ -471,7 +471,7 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
           const { row, col } = cellToPos(num);
           const isHome = num === 100;
           const isStart = num === 1;
-          const fontSize = isHome ? cellSize * 0.16 : isStart ? cellSize * 0.22 : cellSize * 0.4;
+          const fontSize = isHome ? cellSize * 0.18 : isStart ? cellSize * 0.24 : cellSize * 0.4;
           let yOffset = 0;
           if (isHome) yOffset = cellSize * 0.35;
           if (num === 83 || num === 94 || num === 97 || num === 98) yOffset = -cellSize * 0.25;
@@ -486,7 +486,7 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
                 fontSize={fontSize}
                 fontWeight="900"
                 fontFamily="'Arial Black', Impact, sans-serif"
-                fill={isHome || isStart ? "rgba(255,255,255,0.78)" : "rgba(0,0,0,0.78)"}
+                fill="rgba(0,0,0,0.78)"
                 filter="url(#stampEmboss)"
                 style={{ userSelect: "none" }}
               >
