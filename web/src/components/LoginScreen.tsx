@@ -14,7 +14,7 @@ interface LoginScreenProps {
 
 const inputStyle: React.CSSProperties = {
   fontSize: 16, // 16px+ stops iOS from zooming into the field
-  padding: "14px 16px",
+  padding: "13px 16px",
   background: "var(--bg-input)",
   color: "var(--text-primary)",
   border: "1px solid var(--border)",
@@ -23,6 +23,8 @@ const inputStyle: React.CSSProperties = {
   minWidth: 0,
 };
 
+
+const bigInput: React.CSSProperties = { ...inputStyle, fontSize: 17, padding: "16px 18px" };
 
 export default function LoginScreen({
   ready,
@@ -37,12 +39,16 @@ export default function LoginScreen({
 }: LoginScreenProps) {
   // Fixed top offset (measured once) so the card doesn't jump when the phone
   // keyboard opens and the visible area shrinks.
-  // Lower on tall screens, but keep the card's bottom above the keyboard,
-  // which covers roughly the lower half of a phone screen.
-  const [topGap] = useState(() => {
+  // Measured once, so nothing moves when the keyboard opens. The keyboard
+  // covers roughly the lower half of a phone screen: the card sits in the
+  // upper half and stretches down to just above where the keyboard starts.
+  const [layout] = useState(() => {
     const h = window.innerHeight;
-    const CARD_H = 300;
-    return Math.max(20, Math.round(Math.min(h * 0.17, h * 0.46 - CARD_H)));
+    const keyboardTop = h * 0.48 - 24;
+    const top = Math.max(20, Math.min(h * 0.15, keyboardTop - 300));
+    const minHeight = Math.max(300, Math.min(440, keyboardTop - top));
+    // Small phones get slightly smaller controls so the card still fits
+    return { top: Math.round(top), minHeight: Math.round(minHeight), large: h >= 860 };
   });
   const [action, setAction] = useState<"create" | "join" | null>(null);
   const create = () => {
@@ -54,9 +60,9 @@ export default function LoginScreen({
     onJoinRoom();
   };
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", flex: 1, padding: `${topGap}px 12px 16px`, overflowY: "auto" }}>
-      <div className="card" style={{ width: "100%", maxWidth: 460, padding: "32px 22px", display: "flex", flexDirection: "column", gap: 16, textAlign: "center" }}>
-        <h1 style={{ fontSize: 30, margin: 0, color: "var(--text-primary)", fontWeight: 800, letterSpacing: -0.5 }}>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", flex: 1, padding: `${layout.top}px 12px 16px`, overflowY: "auto" }}>
+      <div className="card" style={{ width: "100%", maxWidth: 460, minHeight: layout.minHeight, padding: layout.large ? "32px 22px" : "24px 18px", display: "flex", flexDirection: "column", justifyContent: "space-evenly", gap: 16, textAlign: "center" }}>
+        <h1 style={{ fontSize: layout.large ? 32 : 28, margin: 0, color: "var(--text-primary)", fontWeight: 800, letterSpacing: -0.5 }}>
           Snakes &amp; Ladders
         </h1>
 
@@ -70,9 +76,9 @@ export default function LoginScreen({
               maxLength={20}
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
-              style={inputStyle}
+              style={layout.large ? bigInput : inputStyle}
             />
-            <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: 14, fontSize: 16 }}>
+            <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: layout.large ? 16 : 13, fontSize: layout.large ? 17 : 16 }}>
               {loading && action === "create" ? "Creating…" : "Create room"}
             </button>
 
@@ -85,9 +91,9 @@ export default function LoginScreen({
                 value={joinId}
                 onChange={(e) => setJoinId(e.target.value.replace(/\D/g, ""))}
                 onKeyDown={(e) => e.key === "Enter" && join()}
-                style={{ ...inputStyle, flex: 1 }}
+                style={{ ...(layout.large ? bigInput : inputStyle), flex: 1 }}
               />
-              <button onClick={join} disabled={loading} className="btn-secondary" style={{ padding: "0 24px", fontSize: 16 }}>
+              <button onClick={join} disabled={loading} className="btn-secondary" style={{ padding: "0 24px", fontSize: layout.large ? 17 : 16 }}>
                 {loading && action === "join" ? "Joining…" : "Join"}
               </button>
             </div>
