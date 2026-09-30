@@ -119,7 +119,7 @@ export const RED_68: SnakeSpec = {
   palette: RED_SPEC.palette,
 };
 
-// 93 -> 37: thick bottle-green snake (graded head to tail), head at 93/88 facing right, arcs left over 87 and down past 74 (behind the ladder),
+// 93 -> 37: thick charcoal-green snake (graded head to tail), head at 93/88 facing right, arcs left over 87 and down past 74 (behind the ladder),
 // sweeps left across 66/65 (behind the green snake) and down past 57/44 (behind the ladder) to 37.
 export const BLUE_93: SnakeSpec = {
   control: [
@@ -129,7 +129,22 @@ export const BLUE_93: SnakeSpec = {
   ],
   halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.8 }),
   palette: {
-    hue: 150, hueEnd: 160, sat: 0.6,
-    recess: "#0f5a32", edge: "#032010", shadow: "#021a0c", light: "#3aa068", highlight: "#5cba84", rim: "#021408",
+    hue: 145, hueEnd: 155, sat: 0.38, value: -0.1,
+    recess: "#1e3a2a", edge: "#0a140e", shadow: "#08120c", light: "#4a7a5c", highlight: "#62906f", rim: "#060e09",
+  },
+};
+
+// 98 -> 13: long green snake with yellow spots. Head at 97/84 facing left, along the top of 84 and down the
+// 85/76/65/56 column, sweeps right under 55, then down past 46/35/27 to its tail by 14/13.
+export const GREEN_98: SnakeSpec = {
+  control: [
+    [383, 125], [420, 120], [470, 122], [515, 140], [548, 180], [560, 235], [555, 300], [550, 370],
+    [552, 440], [548, 510], [556, 560], [600, 582], [660, 585], [715, 588], [752, 615], [765, 665],
+    [760, 720], [750, 780], [748, 840], [765, 890], [800, 930], [850, 965], [885, 978],
+  ],
+  halfWidth: profile({ head: 15, neck: 12, body: 15, headLen: 0.03, taperFrom: 0.82 }),
+  palette: {
+    hue: 138, hueEnd: 150, sat: 0.45,
+    recess: "#2a6a3a", edge: "#0c2a14", shadow: "#0a2210", light: "#6ab47c", highlight: "#8ccc9c", rim: "#081c0c",
   },
 };
