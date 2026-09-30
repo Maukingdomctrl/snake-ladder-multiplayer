@@ -95,6 +95,8 @@ export default function App() {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [chatOpen, setChatOpen] = useState<boolean>(isTablet);
   const [unreadCount, setUnreadCount] = useState<number>(0);
+  // Phone user is typing in the docked chat (keyboard up): squeeze the game UI
+  const [typing, setTyping] = useState(false);
 
   // ★ Board container measurement
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -103,8 +105,6 @@ export default function App() {
     height: 0,
   });
 
-  // ★ Mobile keyboard tracking
-  const drawerRef = useRef<HTMLDivElement>(null);
 
   const prevRoomRef = useRef<Room | null>(null);
   const lastProcessedMoveRef = useRef<string>("");
@@ -163,32 +163,21 @@ export default function App() {
     };
   }, [roomData?.status]);
 
-  // ★ VisualViewport keyboard detection for mobile drawer
+  // Size the whole app to the *visible* viewport so that when the phone
+  // keyboard opens, the board, dice and docked chat all shrink to fit above
+  // it instead of being covered.
   useEffect(() => {
-    if (isTablet || !chatOpen) return;
-
     const vv = window.visualViewport;
     if (!vv) return;
-
+    const root = document.documentElement;
     let rafId = 0;
     const update = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const kh = window.innerHeight - vv.height - vv.offsetTop;
-        const drawer = drawerRef.current;
-        if (!drawer) return;
-        if (kh > 50) {
-          drawer.style.bottom = `${kh}px`;
-          drawer.style.height = `${(window.innerHeight - kh) * 0.85}px`;
-          drawer.classList.add('keyboard-active');
-        } else {
-          drawer.style.bottom = '';
-          drawer.style.height = '';
-          drawer.classList.remove('keyboard-active');
-        }
+        root.style.setProperty("--app-h", `${Math.round(vv.height)}px`);
+        root.style.setProperty("--app-top", `${Math.round(vv.offsetTop)}px`);
       });
     };
-
     update();
     vv.addEventListener("resize", update);
     vv.addEventListener("scroll", update);
@@ -196,33 +185,8 @@ export default function App() {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
       cancelAnimationFrame(rafId);
-      // BUG FIX: without this, a teardown triggered by isTablet flipping
-      // true (rather than the user explicitly closing the drawer via
-      // closeChatDrawer) leaves drawerRef stuck with whatever inline
-      // bottom/height/keyboard-active state it last had while the
-      // keyboard was open.
-      const drawer = drawerRef.current;
-      if (drawer) {
-        drawer.style.bottom = '';
-        drawer.style.height = '';
-        drawer.classList.remove('keyboard-active');
-      }
     };
-  }, [isTablet, chatOpen]);
-
-  // ★ Lock body scroll when mobile chat drawer is open
-  useEffect(() => {
-    if (chatOpen && !isTablet) {
-      const prev = document.body.style.overflow;
-      const prevTouch = document.body.style.overscrollBehavior;
-      document.body.style.overflow = "hidden";
-      document.body.style.overscrollBehavior = "none";
-      return () => {
-        document.body.style.overflow = prev;
-        document.body.style.overscrollBehavior = prevTouch;
-      };
-    }
-  }, [chatOpen, isTablet]);
+  }, []);
 
   useEffect(() => {
     if (isTablet) {
@@ -597,20 +561,18 @@ export default function App() {
 
   const closeChatDrawer = useCallback(() => {
     setChatOpen(false);
-    const drawer = drawerRef.current;
-    if (drawer) {
-      drawer.style.bottom = '';
-      drawer.style.height = '';
-      drawer.classList.remove('keyboard-active');
-    }
+    setTyping(false);
   }, []);
 
   return (
     <div
       style={{
         background: "var(--bg-secondary)",
-        minHeight: "100dvh",
-        height: "100dvh",
+        position: "fixed",
+        left: 0,
+        right: 0,
+        top: "var(--app-top, 0px)",
+        height: "var(--app-h, 100dvh)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
@@ -710,7 +672,7 @@ export default function App() {
               </div>
             )}
 
-            {!isCompact && (
+            {!isCompact && !typing && (
               <GameHeader
                 roomId={roomData.id!}
                 players={roomData.players ?? EMPTY_PLAYERS_LIST}
@@ -736,7 +698,8 @@ export default function App() {
                 style={{
                   flex: 1,
                   minWidth: 0,
-                  height: "100%",
+                  minHeight: 0,
+                  height: isTablet ? "100%" : undefined,
                   overflow: isPlayingOrFinished ? "hidden" : "auto",
                   display: "flex",
                   flexDirection: "column",
@@ -780,8 +743,8 @@ export default function App() {
                       overflow: "hidden",
                     }}
                   >
-                    {/* TOP BAR */}
-                    <div style={{ flexShrink: 0, padding: "2px 8px 4px" }}>
+                    {/* TOP BAR (hidden while typing in chat on a phone) */}
+                    <div style={{ flexShrink: 0, padding: "2px 8px 4px", display: typing && !isTablet ? "none" : undefined }}>
                       {roomData.status === "playing" ? (
                         <div
                           className="turn-indicator"
@@ -888,7 +851,7 @@ export default function App() {
                     </div>
 
                     {/* BOTTOM BAR */}
-                    <div style={{ flexShrink: 0, padding: "0 8px" }}>
+                    <div className={typing && !isTablet ? "dice-compact" : undefined} style={{ flexShrink: 0, padding: "0 8px" }}>
                       {roomData.status === "finished" &&
                         roomData.winnerId &&
                         diceComplete && (
@@ -929,6 +892,30 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* MOBILE CHAT: docked under the board so both stay usable */}
+              {!isTablet && chatOpen && (
+                <div
+                  className="mobile-chat"
+                  onFocus={(e) => e.target.tagName === "TEXTAREA" && setTyping(true)}
+                  onBlur={(e) => e.target.tagName === "TEXTAREA" && setTyping(false)}
+                >
+                  <div className="mobile-chat-head">
+                    <span># chat</span>
+                    <button onClick={closeChatDrawer} aria-label="Close chat">
+                      ✕
+                    </button>
+                  </div>
+                  <Chat
+                    messages={messages}
+                    playerId={playerId}
+                    playerName={playerName}
+                    activeRoomId={activeRoomId}
+                    roomData={roomData}
+                    inDrawer={true}
+                  />
+                </div>
+              )}
 
               {/* RIGHT COLUMN: TABLET CHAT */}
               {isTablet && (
@@ -1047,92 +1034,6 @@ export default function App() {
           </button>
         )}
 
-        {/* MOBILE CHAT: SLIDE-UP DRAWER — Keyboard-aware */}
-        {!isTablet && activeRoomId && (
-          <>
-            <div
-              className={`drawer-backdrop ${chatOpen ? "open" : ""}`}
-              onClick={closeChatDrawer}
-              style={{ zIndex: chatOpen ? 599 : undefined }}
-            />
-            <div
-              ref={drawerRef}
-              className={`chat-drawer ${chatOpen ? "open" : ""}`}
-              style={{
-                padding: "12px 0",
-                paddingBottom: "max(12px, env(safe-area-inset-bottom))",
-                // BUG FIX: the open drawer was rendering BEHIND the
-                // DiceRow container (z-index 501, raised in an earlier
-                // round specifically to clear the floating chat button).
-                // The drawer's own z-index comes from the .chat-drawer
-                // CSS class (var(--z-drawer) = 500 in App.css), which is
-                // lower than 501 — so the dice card and jump-message
-                // pill painted on top of the open drawer's bottom edge.
-                // DiceRow's z-index is intentionally left untouched (kept
-                // as-is per earlier decision); this only raises the
-                // drawer's z-index ABOVE it, and only while the drawer is
-                // actually open — closed, it falls back to its normal
-                // CSS-class value.
-                zIndex: chatOpen ? 600 : undefined,
-              }}
-            >
-              <div className="drawer-handle" />
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: 12,
-                  padding: "0 12px",
-                }}
-              >
-                <div
-                  style={{ display: "flex", alignItems: "center", gap: 8 }}
-                >
-                  <span
-                    style={{ color: "var(--text-muted)", fontSize: 20 }}
-                  >
-                    #
-                  </span>
-                  <h3
-                    style={{
-                      margin: 0,
-                      color: "var(--text-primary)",
-                      fontSize: 16,
-                    }}
-                  >
-                    chat
-                  </h3>
-                </div>
-                <button
-                  onClick={closeChatDrawer}
-                  style={{
-                    minHeight: 32,
-                    minWidth: 32,
-                    background: "transparent",
-                    color: "var(--text-secondary)",
-                    fontSize: 24,
-                    border: "none",
-                    padding: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-              <Chat
-                messages={messages}
-                playerId={playerId}
-                playerName={playerName}
-                activeRoomId={activeRoomId}
-                roomData={roomData}
-                inDrawer={true}
-              />
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
