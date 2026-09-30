@@ -134,7 +134,7 @@ export const BLUE_93: SnakeSpec = {
   },
 };
 
-// 98 -> 13: long green snake with yellow spots. Head at 97/84 facing left, along the top of 84 and down the
+// 98 -> 13: long, thick dark purple-charcoal snake. Head at 97/84 facing left, along the top of 84 and down the
 // 85/76/65/56 column, sweeps right under 55, then down past 46/35/27 to its tail by 14/13.
 export const GREEN_98: SnakeSpec = {
   control: [
@@ -142,9 +142,9 @@ export const GREEN_98: SnakeSpec = {
     [552, 440], [548, 510], [556, 560], [600, 582], [660, 585], [715, 588], [752, 615], [765, 665],
     [760, 720], [750, 780], [748, 840], [765, 890], [800, 930], [850, 965], [885, 978],
   ],
-  halfWidth: profile({ head: 15, neck: 12, body: 15, headLen: 0.03, taperFrom: 0.82 }),
+  halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.82 }),
   palette: {
-    hue: 138, hueEnd: 150, sat: 0.45,
-    recess: "#2a6a3a", edge: "#0c2a14", shadow: "#0a2210", light: "#6ab47c", highlight: "#8ccc9c", rim: "#081c0c",
+    hue: 275, hueEnd: 268, sat: 0.3, value: -0.1,
+    recess: "#35243f", edge: "#120a18", shadow: "#0e0814", light: "#6e5a80", highlight: "#8a7498", rim: "#0a0610",
   },
 };
