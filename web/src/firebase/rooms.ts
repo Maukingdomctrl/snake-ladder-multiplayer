@@ -9,6 +9,7 @@ import {
   orderBy,
   runTransaction,
   deleteField,
+  deleteDoc,
   limitToLast
 } from "firebase/firestore";
 import { db, auth } from "./index";
@@ -82,6 +83,7 @@ export type RoomMessage = {
   clientAt: number;
   replyTo?: MessageReply | null;
   mentions?: string[];
+  image?: string | null;
   isPending?: boolean; // Used for Optimistic UI
 };
 
@@ -271,10 +273,11 @@ export async function sendMessage(
   text: string,
   replyTo?: MessageReply | null,
   mentions: string[] = [],
-  clientAt: number = Date.now()
+  clientAt: number = Date.now(),
+  image: string | null = null
 ) {
   const cleanText = (text ?? "").trim();
-  if (!cleanText) return;
+  if (!cleanText && !image) return;
   if (cleanText.length > 1000) throw new Error("Message too long (max 1000 chars)");
 
   await addDoc(collection(db, "rooms", roomId, "messages"), {
@@ -285,7 +288,12 @@ export async function sendMessage(
     clientAt,
     replyTo: replyTo || null,
     mentions,
+    ...(image ? { image } : {}),
   });
+}
+
+export async function deleteMessage(roomId: string, messageId: string) {
+  await deleteDoc(doc(db, "rooms", roomId, "messages", messageId));
 }
 
 export function subscribeMessages(roomId: string, cb: (msgs: RoomMessage[]) => void) {

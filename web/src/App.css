@@ -245,23 +245,57 @@ button, input, textarea {
 .msg-replyref-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .msg-replyref:hover .msg-replyref-text { color: var(--text-primary); }
 
-.msg-action {
-  position: absolute; top: -10px; right: 10px; display: none;
-  background: var(--bg-primary); border: 1px solid var(--border-strong); border-radius: 6px;
-  padding: 2px 8px; font: inherit; font-size: 12px; color: var(--text-secondary);
-  box-shadow: var(--shadow-sm); cursor: pointer;
+.msg-actions {
+  position: absolute; top: -12px; right: 10px; display: none; gap: 2px; z-index: 2;
+  background: var(--bg-primary); border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: 2px; box-shadow: var(--shadow-sm);
 }
-.msg-selected .msg-action { display: block; }
-/* Hover effects only on real pointers; phones tap a message to show Reply */
+.msg-actions button {
+  background: none; border: 0; border-radius: 6px; padding: 3px 8px; cursor: pointer;
+  font: inherit; font-size: 12px; color: var(--text-secondary); white-space: nowrap;
+}
+.msg-actions button.danger { color: var(--danger); }
+.msg-selected .msg-actions { display: flex; }
+/* Hover effects only on real pointers; phones tap a message to show the actions */
 @media (hover: hover) {
   .msg:hover { background: var(--bg-message-hover); }
   .msg-mentioned:hover { background: #faefd2; }
-  .msg:hover .msg-action { display: block; }
-  .msg-action:hover { color: var(--accent); }
+  .msg:hover .msg-actions { display: flex; }
+  .msg-actions button:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+  .msg-actions button.danger:hover { color: var(--danger); }
 }
 @media (pointer: coarse) {
-  .msg-selected .msg-action { top: 4px; font-size: 13px; padding: 4px 10px; }
+  .msg-selected .msg-actions { position: static; margin: 6px 0 2px; width: max-content; }
+  .msg-actions button { font-size: 14px; padding: 6px 12px; }
 }
+
+.msg-text a { color: var(--text-link); text-decoration: underline; overflow-wrap: anywhere; }
+.msg-image {
+  display: block; max-width: min(100%, 280px); max-height: 280px; margin-top: 4px;
+  border-radius: 8px; border: 1px solid var(--border); cursor: zoom-in; object-fit: contain;
+}
+
+.chat-attachment {
+  position: relative; display: inline-flex; align-items: center; margin-bottom: 6px;
+  font-size: 13px; color: var(--text-muted);
+}
+.chat-attachment img { max-height: 90px; max-width: 160px; border-radius: 8px; border: 1px solid var(--border); }
+.chat-attachment button {
+  position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--border-strong); background: var(--bg-primary); cursor: pointer; font-size: 11px; line-height: 1;
+}
+.chat-plus { font-size: 26px; font-weight: 300; color: var(--text-secondary); line-height: 1; }
+
+.chat { position: relative; }
+.chat-toast {
+  position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); z-index: 30;
+  background: #1f2328; color: #fff; font-size: 13px; padding: 6px 12px; border-radius: 8px; pointer-events: none;
+}
+.image-viewer {
+  position: fixed; inset: 0; z-index: 2000; background: rgb(0 0 0 / 0.8);
+  display: grid; place-items: center; padding: 16px; cursor: zoom-out;
+}
+.image-viewer img { max-width: 100%; max-height: 100%; border-radius: 8px; }
 
 .mention { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border-radius: 4px; padding: 0 2px; font-weight: 600; }
 .mention-me { background: #fbe6a6; color: #7a5a00; }

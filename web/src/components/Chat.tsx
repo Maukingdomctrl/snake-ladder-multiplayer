@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback, memo, ReactNode, lazy, Suspense } from "react";
 import { twemojify } from "./Twemoji";
-import { sendMessage, Room, RoomMessage, MessageReply, toMillis } from "../firebase/rooms";
+import { sendMessage, deleteMessage, Room, RoomMessage, MessageReply, toMillis } from "../firebase/rooms";
+import { compressImage } from "./imageUtils";
 
 // Full picker (search + categories) only downloads the first time it is opened
 const EmojiPanel = lazy(() => import("./EmojiPanel"));
@@ -18,9 +19,32 @@ const msgTime = (m: RoomMessage) => toMillis(m.at) || m.clientAt || 0;
 
 type Member = { id: string; name: string; color: string };
 
-/** Splits text into plain runs and highlighted @mentions of room members. */
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<>"]+/gi;
+
+/** Turns links into clickable anchors, then renders mentions + emoji in the rest. */
 function renderText(text: string, members: Member[], myId: string): ReactNode[] {
-  if (!members.length || !text.includes("@")) return twemojify(text);
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const match of text.matchAll(URL_RE)) {
+    // Leave trailing punctuation outside the link: "see google.com." -> "google.com"
+    const url = match[0].replace(/[.,!?;:)\]'"]+$/, "");
+    const start = match.index!;
+    if (start > last) out.push(...renderMentions(text.slice(last, start), members, myId, `t${start}-`));
+    const href = url.startsWith("www.") ? `https://${url}` : url;
+    out.push(
+      <a key={`l${start}`} href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+        {url}
+      </a>
+    );
+    last = start + url.length;
+  }
+  if (last < text.length) out.push(...renderMentions(text.slice(last), members, myId, `t${last}-`));
+  return out;
+}
+
+/** Splits text into plain runs and highlighted @mentions of room members. */
+function renderMentions(text: string, members: Member[], myId: string, keyPrefix: string): ReactNode[] {
+  if (!members.length || !text.includes("@")) return twemojify(text, keyPrefix);
   // Longest names first so "@Mau K" wins over "@Mau"
   const sorted = [...members].sort((a, b) => b.name.length - a.name.length);
   const out: ReactNode[] = [];
@@ -31,10 +55,10 @@ function renderText(text: string, members: Member[], myId: string): ReactNode[] 
       const rest = text.slice(i + 1).toLowerCase();
       const hit = sorted.find((m) => rest.startsWith(m.name.toLowerCase()));
       if (hit) {
-        if (buf) out.push(...twemojify(buf, `${i}-`));
+        if (buf) out.push(...twemojify(buf, `${keyPrefix}${i}-`));
         buf = "";
         out.push(
-          <span key={i} className={`mention ${hit.id === myId ? "mention-me" : ""}`}>
+          <span key={`${keyPrefix}m${i}`} className={`mention ${hit.id === myId ? "mention-me" : ""}`}>
             @{hit.name}
           </span>
         );
@@ -44,7 +68,7 @@ function renderText(text: string, members: Member[], myId: string): ReactNode[] 
     }
     buf += text[i++];
   }
-  if (buf) out.push(...twemojify(buf, "end-"));
+  if (buf) out.push(...twemojify(buf, `${keyPrefix}end-`));
   return out;
 }
 
@@ -61,13 +85,16 @@ interface RowProps {
   onSelect: (id: string | null) => void;
   onReply: (m: RoomMessage) => void;
   onJump: (id: string) => void;
+  onCopy: (m: RoomMessage) => void;
+  onDelete: (m: RoomMessage) => void;
+  onOpenImage: (src: string) => void;
 }
 
 const MessageRow = memo(function MessageRow({
-  m, grouped, mentionsMe, selected, flash, color, members, myId, onSelect, onReply, onJump,
+  m, grouped, isMe, mentionsMe, selected, flash, color, members, myId, onSelect, onReply, onJump, onCopy, onDelete, onOpenImage,
 }: RowProps) {
   const text = m.text || "";
-  const big = text.length <= 16 && emojiOnlyRe.test(text);
+  const big = !!text && text.length <= 16 && emojiOnlyRe.test(text);
   return (
     <div
       id={`msg-${m.id}`}
@@ -89,19 +116,29 @@ const MessageRow = memo(function MessageRow({
           <span className="msg-time">{formatTime(msgTime(m))}</span>
         </div>
       )}
-      <div className={`msg-text ${big ? "msg-big" : ""}`}>{renderText(text, members, myId)}</div>
-      {!m.isPending && (
-        <button
-          className="msg-action"
-          aria-label="Reply"
-          title="Reply"
+      {text && <div className={`msg-text ${big ? "msg-big" : ""}`}>{renderText(text, members, myId)}</div>}
+      {m.image && (
+        <img
+          className="msg-image"
+          src={m.image}
+          alt="Shared image"
+          loading="lazy"
           onClick={(e) => {
             e.stopPropagation();
-            onReply(m);
+            onOpenImage(m.image!);
           }}
-        >
-          ↩ Reply
-        </button>
+        />
+      )}
+      {!m.isPending && (
+        <div className="msg-actions" onClick={(e) => e.stopPropagation()}>
+          <button title="Reply" onClick={() => onReply(m)}>↩ Reply</button>
+          {text && <button title="Copy text" onClick={() => onCopy(m)}>⧉ Copy</button>}
+          {isMe && (
+            <button title="Delete" className="danger" onClick={() => onDelete(m)}>
+              🗑 Delete
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -126,6 +163,11 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
   const [mentionIdx, setMentionIdx] = useState(0);
   const [error, setError] = useState("");
+  const [image, setImage] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [viewImage, setViewImage] = useState<string | null>(null);
+  const [toast, setToast] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -223,13 +265,56 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
     setTimeout(() => setFlashId((f) => (f === id ? null : f)), 1200);
   }, []);
 
+  const flashToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast((t) => (t === msg ? "" : t)), 1500);
+  };
+
+  const copyMessage = useCallback(async (m: RoomMessage) => {
+    setSelectedId(null);
+    try {
+      await navigator.clipboard.writeText(m.text || "");
+      flashToast("Copied");
+    } catch {
+      flashToast("Couldn't copy");
+    }
+  }, []);
+
+  const removeMessage = useCallback(
+    async (m: RoomMessage) => {
+      setSelectedId(null);
+      if (!m.id || !window.confirm("Delete this message?")) return;
+      try {
+        await deleteMessage(activeRoomId, m.id);
+      } catch {
+        flashToast("Couldn't delete");
+      }
+    },
+    [activeRoomId]
+  );
+
+  const attachFile = async (file: File | undefined | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return setError("Only photos can be shared.");
+    setImageBusy(true);
+    setError("");
+    try {
+      setImage(await compressImage(file));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't read that image.");
+    } finally {
+      setImageBusy(false);
+    }
+  };
+
   const send = async () => {
     const text = input.trim();
-    if (!text || !activeRoomId) return;
+    const img = image;
+    if ((!text && !img) || !activeRoomId) return;
     const replyTo: MessageReply | null = replyingTo?.id
       ? {
           id: replyingTo.id,
-          text: (replyingTo.text || "").slice(0, 100),
+          text: (replyingTo.text || (replyingTo.image ? "📷 Photo" : "")).slice(0, 100),
           playerId: replyingTo.playerId,
           playerName: replyingTo.playerName,
         }
@@ -238,18 +323,23 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
     const clientAt = Date.now();
 
     setInput("");
+    setImage(null);
     setReplyingTo(null);
     setShowEmoji(false);
     setMention(null);
     setError("");
     stickToBottom.current = true;
-    setPending((p) => [...p, { id: `pending-${clientAt}`, playerId, playerName, text, clientAt, replyTo, isPending: true }]);
+    setPending((p) => [
+      ...p,
+      { id: `pending-${clientAt}`, playerId, playerName, text, image: img, clientAt, replyTo, isPending: true },
+    ]);
 
     try {
-      await sendMessage(activeRoomId, playerId, playerName, text, replyTo, mentions, clientAt);
+      await sendMessage(activeRoomId, playerId, playerName, text, replyTo, mentions, clientAt, img);
     } catch (e) {
       setPending((p) => p.filter((m) => m.clientAt !== clientAt));
       setInput(text);
+      setImage(img);
       setError(e instanceof Error ? e.message : "Message failed to send");
     }
   };
@@ -312,6 +402,9 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
               onSelect={setSelectedId}
               onReply={startReply}
               onJump={jumpTo}
+              onCopy={copyMessage}
+              onDelete={removeMessage}
+              onOpenImage={setViewImage}
             />
           );
         })}
@@ -352,6 +445,17 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
           </div>
         )}
 
+        {(image || imageBusy) && (
+          <div className="chat-attachment">
+            {image ? <img src={image} alt="Attachment preview" /> : <span>Preparing photo…</span>}
+            {image && (
+              <button aria-label="Remove photo" onClick={() => setImage(null)}>
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+
         {error && <div className="chat-error">{error}</div>}
 
         <form
@@ -361,6 +465,25 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
             send();
           }}
         >
+          <button
+            type="button"
+            className="chat-iconbtn chat-plus"
+            aria-label="Add photo"
+            title="Add photo"
+            onClick={() => fileRef.current?.click()}
+          >
+            +
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(e) => {
+              attachFile(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
           <button
             type="button"
             className="chat-iconbtn"
@@ -381,15 +504,30 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
               updateMention(e.target.value, e.target.selectionStart);
             }}
             onKeyDown={onKeyDown}
+            onPaste={(e) => {
+              const file = [...e.clipboardData.files].find((f) => f.type.startsWith("image/"));
+              if (file) {
+                e.preventDefault();
+                attachFile(file);
+              }
+            }}
             onBlur={() => setTimeout(() => setMention(null), 150)}
           />
-          <button type="submit" className="chat-send" disabled={!input.trim()} aria-label="Send">
+          <button type="submit" className="chat-send" disabled={(!input.trim() && !image) || imageBusy} aria-label="Send">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 3.6a.993.993 0 00-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.06-.87.49-.87.99l.01 4.61c0 .71.73 1.2 1.39.92z" />
             </svg>
           </button>
         </form>
       </div>
+
+      {toast && <div className="chat-toast">{toast}</div>}
+
+      {viewImage && (
+        <div className="image-viewer" onClick={() => setViewImage(null)}>
+          <img src={viewImage} alt="Shared image, full size" />
+        </div>
+      )}
     </div>
   );
 }

@@ -22,7 +22,13 @@ service cloud.firestore {
           && request.resource.data.playerId == request.auth.uid
           && request.resource.data.text is string
           && request.resource.data.text.size() <= 1000
+          && (!('image' in request.resource.data)
+              || (request.resource.data.image is string
+                  && request.resource.data.image.size() <= 450000
+                  && request.resource.data.image.matches('^data:image/jpeg;base64,.*')))
           && request.auth.uid in get(/databases/$(database)/documents/rooms/$(roomId)).data.players;
+        // Players can delete their own messages
+        allow delete: if request.auth != null && resource.data.playerId == request.auth.uid;
       }
     }
   }
