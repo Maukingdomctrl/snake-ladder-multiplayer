@@ -119,7 +119,7 @@ export const RED_68: SnakeSpec = {
   palette: RED_SPEC.palette,
 };
 
-// 93 -> 37: blue snake, head at 93/88 facing right, arcs left over 87 and down past 74 (behind the ladder),
+// 93 -> 37: sap-green snake (graded head to tail), head at 93/88 facing right, arcs left over 87 and down past 74 (behind the ladder),
 // sweeps left across 66/65 (behind the green snake) and down past 57/44 (behind the ladder) to 37.
 export const BLUE_93: SnakeSpec = {
   control: [
@@ -129,7 +129,7 @@ export const BLUE_93: SnakeSpec = {
   ],
   halfWidth: profile({ head: 14, neck: 11, body: 13, headLen: 0.04, taperFrom: 0.78 }),
   palette: {
-    hue: 205, sat: 0.75,
-    recess: "#2a86d6", edge: "#0c3a6a", shadow: "#0a2e58", light: "#7cc4f4", highlight: "#a2d6f8", rim: "#082a50",
+    hue: 88, hueEnd: 108, sat: 0.5,
+    recess: "#4e7a26", edge: "#1e3208", shadow: "#182a06", light: "#9cc862", highlight: "#b8dc84", rim: "#142404",
   },
 };
