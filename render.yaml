@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: snake-ladder-multiplayer
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false

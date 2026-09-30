@@ -16,7 +16,7 @@ import {
   RoomMessage, // ★ STRICT TS: Imported RoomMessage
 } from "./firebase/rooms";
 
-import { usePlayerStorage } from "./hooks/usePlayerStorage";
+import { usePlayerStorage, signInWithGoogle, signOut } from "./hooks/usePlayerStorage";
 import { useGameSync } from "./hooks/useGameSync";
 import { useWindowDimensions } from "./hooks/useWindowDimensions";
 
@@ -54,7 +54,8 @@ const DICE_FALLBACK_TIMEOUT_MS = 6000;
 const EMPTY_PLAYER_MAP: Record<string, string> = Object.freeze({});
 const EMPTY_PLAYERS_LIST: string[] = Object.freeze([] as string[]) as string[];
 export default function App() {
-  const { playerId, playerName, setPlayerName, playerColor, setPlayerColor } = usePlayerStorage();
+  const { user, authReady, playerId, playerName, setPlayerName, playerColor, setPlayerColor } =
+    usePlayerStorage();
   const { width, height } = useWindowDimensions();
 
   const isTablet = width >= 768;
@@ -310,7 +311,7 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      const id = await createRoom(playerId, playerName.trim(), playerColor);
+      const id = await createRoom(playerName.trim(), playerColor);
       setActiveRoomId(id);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to create room");
@@ -363,7 +364,7 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      await rollDice(activeRoomId, playerId);
+      await rollDice(activeRoomId);
       // Failsafe: if the game sync (handleRollComplete) never fires —
       // e.g. the write got queued offline instead of erroring — force
       // the roll button back to usable after a generous window. Cleared
@@ -633,7 +634,10 @@ export default function App() {
         {/* ── LOGIN SCREEN ── */}
         {!activeRoomId && (
           <LoginScreen
-            playerId={playerId}
+            authReady={authReady}
+            userEmail={user?.email ?? null}
+            onSignIn={() => signInWithGoogle().catch((e) => setError(e.message || "Sign-in failed"))}
+            onSignOut={() => void signOut()}
             playerName={playerName}
             setPlayerName={setPlayerName}
             joinId={joinId}
