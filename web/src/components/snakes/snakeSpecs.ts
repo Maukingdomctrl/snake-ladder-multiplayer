@@ -57,3 +57,16 @@ export const BLUE_48: SnakeSpec = {
     recess: "#2c3f94", edge: "#111a4a", shadow: "#0c1238", light: "#7890e8", highlight: "#98aef2", rim: "#0a1030",
   },
 };
+
+// 52 -> 11: green snake, head at 49/52 looking left, straight down the 50/31/30 column, tail flicks right into 11.
+export const GREEN_52: SnakeSpec = {
+  control: [
+    [1025, 585], [1045, 576], [1065, 580], [1085, 605], [1090, 650], [1086, 700], [1083, 750],
+    [1082, 800], [1082, 850], [1083, 895], [1090, 930], [1105, 953], [1120, 965], [1132, 970],
+  ],
+  halfWidth: profile({ head: 13.5, neck: 10.5, body: 12, headLen: 0.06, taperFrom: 0.75 }),
+  palette: {
+    hue: 140, sat: 0.5,
+    recess: "#2a7a44", edge: "#0e3a1c", shadow: "#0a2a14", light: "#6cc88a", highlight: "#90dca8", rim: "#082410",
+  },
+};
