@@ -75,3 +75,12 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 ```
 The end-to-end suite starts the emulators, the server and the web app itself, then plays real
 games in several browsers (both games, phones to desktop). It needs Java for the Firestore emulator.
+
+## Dependency overrides
+`npm audit` is clean in `web/`, `server/` and `e2e/`. Two `overrides` in `package.json` make that so
+until upstream catches up — drop them once the parent packages ship the fixed versions:
+- `server/`: `uuid ^11.1.1` — Google Cloud libraries under `firebase-admin` 13 still pull in uuid 8/9
+  (they only call `uuid.v4()`, which v11 keeps). `firebase-admin` 14 would fix it but drops the API
+  `server.js` uses and needs Node 22.
+- `web/`: `@grpc/grpc-js ^1.14.5` — `firebase` still pins 1.9.x. It's only used by Firestore's
+  Node.js build, never by the browser bundle.
