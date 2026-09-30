@@ -150,7 +150,8 @@ interface ChatProps {
   playerId: string;
   playerName: string;
   activeRoomId: string;
-  roomData: Room | null;
+  /** Only the member list is used (names, colours for mentions). */
+  roomData: Pick<Room, "players" | "playerNames" | "playerColors"> | null;
   inDrawer?: boolean;
   /** When set, a ✕ in the input row closes the chat (phone layout). */
   onClose?: () => void;

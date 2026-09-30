@@ -10,7 +10,15 @@ interface LoginScreenProps {
   loading: boolean;
   onCreateRoom: () => void;
   onJoinRoom: () => void;
+  /** Which game "Create room" starts. Joining follows the room code. */
+  game: "snakes" | "ludo";
+  setGame: (game: "snakes" | "ludo") => void;
 }
+
+const GAMES = [
+  { id: "snakes", label: "Snakes & Ladders" },
+  { id: "ludo", label: "Ludo" },
+] as const;
 
 const inputStyle: React.CSSProperties = {
   fontSize: 16, // 16px+ stops iOS from zooming into the field
@@ -36,6 +44,8 @@ export default function LoginScreen({
   loading,
   onCreateRoom,
   onJoinRoom,
+  game,
+  setGame,
 }: LoginScreenProps) {
   // Fixed top offset (measured once) so the card doesn't jump when the phone
   // keyboard opens and the visible area shrinks.
@@ -62,9 +72,22 @@ export default function LoginScreen({
   return (
     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", flex: 1, padding: `${layout.top}px 12px 16px`, overflowY: "auto" }}>
       <div className="card" style={{ width: "100%", maxWidth: 460, minHeight: layout.minHeight, padding: layout.large ? "32px 22px" : "24px 18px", display: "flex", flexDirection: "column", justifyContent: "space-evenly", gap: 16, textAlign: "center" }}>
-        <h1 style={{ fontSize: layout.large ? 32 : 28, margin: 0, color: "var(--text-primary)", fontWeight: 800, letterSpacing: -0.5 }}>
-          Snakes &amp; Ladders
-        </h1>
+        <h1 className="sr-only">{game === "ludo" ? "Ludo" : "Snakes & Ladders"}</h1>
+        {/* The game switch doubles as the title */}
+        <div className={`game-switch${layout.large ? " game-switch--large" : ""}`} role="radiogroup" aria-label="Game">
+          {GAMES.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              role="radio"
+              aria-checked={game === g.id}
+              className={game === g.id ? "is-active" : ""}
+              onClick={() => setGame(g.id)}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
 
         {!ready && !error ? (
           <p style={{ color: "var(--text-muted)", margin: 0 }}>Connecting…</p>
@@ -79,7 +102,7 @@ export default function LoginScreen({
               style={layout.large ? bigInput : inputStyle}
             />
             <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: layout.large ? 16 : 13, fontSize: layout.large ? 17 : 16 }}>
-              {loading && action === "create" ? "Creating…" : "Create room"}
+              {loading && action === "create" ? "Creating…" : game === "ludo" ? "Create Ludo room" : "Create room"}
             </button>
 
             <div style={{ display: "flex", gap: 8 }}>

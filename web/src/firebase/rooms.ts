@@ -14,7 +14,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "./index";
 
-const RENDER_URL =
+export const RENDER_URL =
   import.meta.env.VITE_SERVER_URL ||
   (import.meta.env.PROD ? "https://snake-ladder-multiplayer-c5ai.onrender.com" : "/render");
 
@@ -100,7 +100,7 @@ export function toMillis(at: any): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-async function fetchWithTimeout(url: string, options: any = {}, timeoutMs = 20000) {
+export async function fetchWithTimeout(url: string, options: any = {}, timeoutMs = 20000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {

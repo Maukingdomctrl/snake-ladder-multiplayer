@@ -61,6 +61,10 @@ export function usePlayerStorage() {
   const [playerColor, setPlayerColor] = useState<string>(
     () => safeLocalStorage.getItem("playerColor") || LOBBY_COLORS[0]
   );
+  // Game picked on the join screen (what "Create room" makes)
+  const [selectedGame, setSelectedGame] = useState<"snakes" | "ludo">(() =>
+    safeLocalStorage.getItem("selectedGame") === "ludo" ? "ludo" : "snakes"
+  );
 
   useEffect(
     () =>
@@ -86,6 +90,10 @@ export function usePlayerStorage() {
     safeLocalStorage.setItem("playerColor", playerColor);
   }, [playerColor]);
 
+  useEffect(() => {
+    safeLocalStorage.setItem("selectedGame", selectedGame);
+  }, [selectedGame]);
+
   return {
     user,
     authReady,
@@ -95,5 +103,7 @@ export function usePlayerStorage() {
     setPlayerName,
     playerColor,
     setPlayerColor,
+    selectedGame,
+    setSelectedGame,
   };
 }
