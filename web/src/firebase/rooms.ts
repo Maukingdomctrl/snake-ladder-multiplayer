@@ -3,8 +3,6 @@ import {
   arrayUnion,
   collection,
   doc,
-  getDoc,
-  setDoc,
   onSnapshot,
   serverTimestamp,
   query,
@@ -13,11 +11,28 @@ import {
   deleteField,
   limitToLast
 } from "firebase/firestore";
-import { db } from "./index";
+import { db, auth } from "./index";
 
-const RENDER_URL = import.meta.env.PROD
-  ? "https://snake-ladder-multiplayer-c5ai.onrender.com"
-  : "/render";
+const RENDER_URL =
+  import.meta.env.VITE_SERVER_URL ||
+  (import.meta.env.PROD ? "https://snake-ladder-multiplayer-c5ai.onrender.com" : "/render");
+
+/** Calls the Render server with the signed-in user's Firebase ID token. */
+async function postToServer(path: string, body: object) {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Please sign in first.");
+  const token = await user.getIdToken();
+  const response = await fetchWithTimeout(`${RENDER_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.error || `Server error: ${response.status}`);
+  }
+  return response.json();
+}
 
 export type RoomStatus = "waiting" | "countdown" | "playing" | "finished";
 
@@ -71,7 +86,7 @@ export function toMillis(at: any): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-const fetchWithTimeout = async (url: string, options: any = {}, timeoutMs = 15000) => {
+async function fetchWithTimeout(url: string, options: any = {}, timeoutMs = 20000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -84,30 +99,11 @@ const fetchWithTimeout = async (url: string, options: any = {}, timeoutMs = 1500
   } finally {
     clearTimeout(id);
   }
-};
+}
 
-export async function createRoom(hostId: string, hostName: string, hostColor: string, instanceId?: string) {
-  try {
-    const payload: any = { hostId, hostName, hostColor };
-    if (instanceId) payload.instanceId = instanceId;
-
-    const response = await fetchWithTimeout(`${RENDER_URL}/createRoom`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Server error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.roomId;
-  } catch (error) {
-    console.error("❌ [createRoom] Connection failed:", error);
-    throw error;
-  }
+export async function createRoom(hostName: string, hostColor: string): Promise<string> {
+  const data = await postToServer("/createRoom", { hostName, hostColor });
+  return data.roomId;
 }
 
 export async function joinRoom(roomId: string, playerId: string, playerName: string, playerColor: string) {
@@ -252,24 +248,8 @@ export async function finalizeGameStart(roomId: string) {
   });
 }
 
-export async function rollDice(roomId: string, playerId: string) {
-  try {
-    const response = await fetchWithTimeout(`${RENDER_URL}/roll`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roomId, playerId }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.error || `Server error: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error("❌ [rollDice] Error hitting server:", error);
-    throw error;
-  }
+export async function rollDice(roomId: string) {
+  return postToServer("/roll", { roomId });
 }
 
 export async function sendMessage(
@@ -321,28 +301,4 @@ export function subscribeMessages(roomId: string, cb: (msgs: RoomMessage[]) => v
       cb([]);
     }
   );
-}
-
-export async function getInstanceRoom(instanceId: string): Promise<string | null> {
-  try {
-    const instanceRef = doc(db, "instances", instanceId);
-    const snap = await getDoc(instanceRef);
-    if (snap.exists()) {
-      return snap.data().roomId || null;
-    }
-    return null;
-  } catch (error) {
-    console.error("❌ [getInstanceRoom] Error fetching instance:", error);
-    return null;
-  }
-}
-
-export async function setInstanceRoom(instanceId: string, roomId: string): Promise<void> {
-  try {
-    const instanceRef = doc(db, "instances", instanceId);
-    await setDoc(instanceRef, { roomId, updatedAt: serverTimestamp() }, { merge: true });
-  } catch (error) {
-    console.error("❌ [setInstanceRoom] Error setting instance room:", error);
-    throw error;
-  }
 }

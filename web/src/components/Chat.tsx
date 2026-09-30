@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback, memo, ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import EmojiPicker, { Theme, EmojiClickData } from "emoji-picker-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   sendMessage,
@@ -468,8 +467,6 @@ export default function Chat({
   inDrawer = false,
 }: ChatProps) {
   const [chatInput, setChatInput] = useState("");
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [pickerMounted, setPickerMounted] = useState(false);
   const [replyingTo, setReplyingTo] = useState<RoomMessage | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -479,8 +476,6 @@ export default function Chat({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
   const shadowRef = useRef<HTMLDivElement>(null);
 
   const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -584,25 +579,6 @@ export default function Chat({
     return () => cancelAnimationFrame(raf);
   }, [chatInput]);
 
-  useEffect(() => {
-    if (!showEmojiPicker) return;
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (
-        pickerRef.current &&
-        !pickerRef.current.contains(e.target as Node) &&
-        buttonRef.current &&
-        !buttonRef.current.contains(e.target as Node)
-      )
-        setShowEmojiPicker(false);
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchend", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchend", handler);
-    };
-  }, [showEmojiPicker]);
-
   // Prevents the chat list's scroll-past-edge from yanking the mobile
   // drawer closed (or triggering browser pull-to-refresh) when the user
   // scrolls past the very top or bottom of the message list.
@@ -641,7 +617,6 @@ export default function Chat({
     setIsSending(true);
     setChatInput("");
     setReplyingTo(null);
-    setShowEmojiPicker(false);
     isNearBottom.current = true;
 
     const replyPayload: MessageReply | null = prevReply?.id
@@ -707,45 +682,6 @@ export default function Chat({
     setReplyingTo(m);
     textareaRef.current?.focus();
   }, []);
-
-  const closeEmojiPicker = useCallback(() => {
-    setShowEmojiPicker(false);
-  }, []);
-
-  const toggleEmojiPicker = useCallback(() => {
-    setPickerMounted(true);
-    setShowEmojiPicker((p) => !p); // pure updater — no side effects inside
-  }, []);
-
-  // BUG FIX: blur() previously ran inside the setShowEmojiPicker updater
-  // function itself. State updaters must be pure — React is allowed to
-  // call them more than once (e.g. under StrictMode's double-invoke, or
-  // when batching) — so a side effect living inside one is fragile and
-  // has no guaranteed ordering relative to the inputMode="none" DOM
-  // commit it depends on. Driving the blur from an effect keyed on
-  // showEmojiPicker instead guarantees it only runs AFTER React has
-  // actually committed inputMode="none" to the textarea, which is the
-  // correct order for the blur to reliably take effect.
-  //
-  // Steps 3 & 4: blurring/refocusing only matters on mobile, where an OS
-  // virtual keyboard exists to fight with the picker for screen space.
-  // Desktop has no virtual keyboard, so forcing a blur/focus cycle there
-  // only adds unnecessary focus churn for no benefit — keeping desktop's
-  // editing session undisturbed while mobile still gets the keyboard
-  // coordination it actually needs.
-  useEffect(() => {
-    if (showEmojiPicker) {
-      if (inDrawer) textareaRef.current?.blur();
-    } else if (pickerMounted) {
-      // Only refocus on the close transition, not on first mount (when
-      // pickerMounted just became true but the picker was never actually
-      // shown yet — e.g. nothing has opened it this session). And only
-      // on desktop: on mobile, closing the picker should leave the
-      // keyboard dismissed (matching Discord mobile) rather than
-      // immediately popping it back up.
-      if (!inDrawer) textareaRef.current?.focus();
-    }
-  }, [showEmojiPicker, pickerMounted, inDrawer]);
 
   // Deferred scroll-to-bottom on input focus, so it happens after the
   // mobile keyboard/drawer resize settles instead of fighting it mid-
@@ -936,137 +872,6 @@ export default function Chat({
       </AnimatePresence>
 
       <div style={{ position: "relative", flexShrink: 0 }}>
-        {/*
-          Emoji picker overlay stays mounted permanently once opened once
-          (pickerMounted) and is animated between off-screen/on-screen
-          positions rather than unmounted on close — unmounting would
-          re-trigger emoji-picker-react's internal data fetch on every
-          reopen, which previously showed as a white blank flash.
-        */}
-        {pickerMounted && (
-          <motion.div
-            ref={pickerRef}
-            initial={false}
-            animate={{
-              // Slides from directly below its own resting position (just
-              // above the input) rather than from the screen bottom, since
-              // the picker no longer lives at the viewport edge in either
-              // mode.
-              y: showEmojiPicker ? 0 : 10,
-              opacity: showEmojiPicker ? 1 : 0,
-              scale: showEmojiPicker ? 1 : 0.97,
-            }}
-            transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.8 }}
-            style={{
-              // BUG FIX: both modes now anchor the same way — absolutely
-              // positioned relative to the input wrapper (the parent div,
-              // which already has position: "relative"), sitting directly
-              // above the input row via bottom: "100%". Previously the
-              // drawer branch used position: "fixed", bottom: 0, which
-              // anchors to the viewport bottom — the exact spot the input
-              // <form> occupies — so the picker painted directly over the
-              // textarea. The emoji insertion logic was always working;
-              // the inserted emoji was just invisible behind the picker
-              // covering it.
-              position: "absolute",
-              bottom: "100%",
-              left: inDrawer ? 0 : "auto",
-              right: 0,
-              marginBottom: 8,
-              zIndex: 2147483000,
-              width: inDrawer ? "100%" : undefined,
-              maxWidth: inDrawer ? "100%" : 340,
-              // Step 3: roomier sheet, closer to Discord's expanded feel,
-              // while still letting emoji-picker-react scroll internally
-              // rather than ever overflowing its container.
-              height: inDrawer ? "min(60vh, 440px)" : 380,
-              background: "var(--bg-secondary)",
-              borderRadius: inDrawer ? "12px 12px 0 0" : 8,
-              boxShadow: "0 -4px 24px rgba(0,0,0,0.5)",
-              overflow: "hidden",
-              visibility: showEmojiPicker ? "visible" : "hidden",
-              pointerEvents: showEmojiPicker ? "auto" : "none",
-              willChange: "transform",
-              transformOrigin: "bottom right",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "8px 12px",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>Emoji</span>
-              <button
-                type="button"
-                onClick={closeEmojiPicker}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  padding: 4,
-                  display: "flex",
-                  alignItems: "center",
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-                </svg>
-              </button>
-            </div>
-            <EmojiPicker
-              theme={Theme.DARK}
-              // BUG FIX (the actual root cause of the OS keyboard covering
-              // the picker on mobile): emoji-picker-react's `autoFocusSearch`
-              // prop defaults to true. Every previous attempt at this bug
-              // was correctly dismissing the TEXTAREA's keyboard via blur()
-              // + inputMode="none" — but the picker's own internal search
-              // input was auto-focusing itself the instant the picker
-              // became visible, re-summoning the OS keyboard on top of the
-              // picker a frame later. No amount of textarea-side keyboard
-              // dismissal could ever win against a second input quietly
-              // grabbing focus right behind it. This is the single prop
-              // that actually fixes the screenshot.
-              autoFocusSearch={false}
-              onEmojiClick={(emojiData: EmojiClickData) => {
-                const emoji = emojiData?.emoji || "";
-                const el = textareaRef.current;
-                if (!el) {
-                  setChatInput((p) => p + emoji);
-                  return;
-                }
-                const start = el.selectionStart ?? chatInput.length;
-                const end = el.selectionEnd ?? chatInput.length;
-                setChatInput((p) => p.slice(0, start) + emoji + p.slice(end));
-                // Step 5: only restore focus/cursor position on desktop.
-                // On mobile, calling focus() here would re-summon the OS
-                // keyboard immediately after we just dismissed it to show
-                // the picker — exactly the "keyboard fights the picker"
-                // behavior this whole pass is trying to eliminate. The
-                // text is inserted correctly either way (setChatInput
-                // above doesn't depend on focus); mobile just skips
-                // restoring the visual cursor position until the user
-                // taps the textarea again themselves.
-                if (!inDrawer) {
-                  requestAnimationFrame(() => {
-                    const pos = start + emoji.length;
-                    el.focus();
-                    el.setSelectionRange(pos, pos);
-                  });
-                }
-              }}
-              style={{
-                width: "100%",
-                height: inDrawer ? "calc(min(60vh, 440px) - 37px)" : "calc(380px - 37px)",
-                border: "none",
-              }}
-            />
-          </motion.div>
-        )}
 
         <form
           onSubmit={(e) => {
@@ -1117,20 +922,7 @@ export default function Chat({
               autoCapitalize="sentences"
               // BUG FIX (emoji panel cut off / showing OS keyboard's own
               // emoji mode instead of our picker, on mobile):
-              // blur() alone wasn't reliably dismissing the OS keyboard
-              // once it had already switched into its own emoji-input
-              // mode — some keyboards (confirmed: Samsung Keyboard) keep
-              // that surface open regardless, and it was rendering INSIDE
-              // the same fixed-height container reserved for our picker,
-              // pushing emoji-picker-react's actual grid off-screen below
-              // the fold. `inputMode="none"` is the reliable cross-
-              // browser signal to never show ANY virtual keyboard for
-              // this field — applied while our picker is open, it
-              // prevents the OS keyboard (in any mode) from claiming that
-              // screen space in the first place, instead of trying to
-              // dismiss one that's already up.
-              inputMode={showEmojiPicker ? "none" : "text"}
-              onChange={(e) => setChatInput(e.target.value)}
+                            onChange={(e) => setChatInput(e.target.value)}
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               onKeyDown={(e) => {
@@ -1198,32 +990,6 @@ export default function Chat({
               {(chatInput.length > 0 ? chatInput : "\u200B") + "\n"}
             </div>
           </div>
-
-          <button
-            type="button"
-            ref={buttonRef}
-            onClick={toggleEmojiPicker}
-            onMouseDown={(e) => e.preventDefault()}
-            style={{
-              minHeight: 28,
-              minWidth: 28,
-              padding: 0,
-              background: "transparent",
-              color: showEmojiPicker ? "var(--accent)" : "var(--text-secondary)",
-              border: "none",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-              cursor: "pointer",
-              marginBottom: 2,
-              transition: "color 0.15s ease",
-            }}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C6.486 2 2 6.486 2 12C2 17.515 6.486 22 12 22C17.514 22 22 17.515 22 12C22 6.486 17.514 2 12 2ZM8.5 9.5C9.328 9.5 10 10.172 10 11C10 11.828 9.328 12.5 8.5 12.5C7.672 12.5 7 11.828 7 11C7 10.172 7.672 9.5 8.5 9.5ZM12 17.5C9.669 17.5 7.697 16.037 6.88 14H17.12C16.303 16.037 14.331 17.5 12 17.5ZM15.5 12.5C14.672 12.5 14 11.828 14 11C14 10.172 14.672 9.5 15.5 9.5C16.328 9.5 17 10.172 17 11C17 11.828 16.328 12.5 15.5 12.5Z" />
-            </svg>
-          </button>
 
           <button
             type="submit"

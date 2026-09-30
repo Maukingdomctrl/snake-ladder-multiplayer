@@ -36,14 +36,29 @@ const BOARD_JUMPS = {
   46: 15, 48: 9, 52: 11, 59: 18, 64: 24, 68: 2, 69: 33, 83: 22, 89: 51, 93: 37, 98: 13,
 };
 
+// ── Auth: every request carries the player's Firebase ID token ──
+async function requireUser(req, res, next) {
+  const match = (req.headers.authorization || "").match(/^Bearer (.+)$/);
+  if (!match) return res.status(401).send({ error: "Please sign in." });
+  try {
+    req.user = await admin.auth().verifyIdToken(match[1]);
+    next();
+  } catch {
+    res.status(401).send({ error: "Your session expired. Please sign in again." });
+  }
+}
+
 // ── Routes ──
 
-// 1. Create Room Route
-app.post('/createRoom', async (req, res) => {
-  try {
-    const { hostId, hostName, hostColor, instanceId } = req.body;
+// Health check (Render pings this; also handy for waking the free instance)
+app.get("/", (_req, res) => res.send({ ok: true }));
 
-    if (!hostId) return res.status(400).send({ error: "Missing hostId" });
+// 1. Create Room Route
+app.post('/createRoom', requireUser, async (req, res) => {
+  try {
+    const hostId = req.user.uid;
+    const hostName = String(req.body.hostName || req.user.name || "Player").trim().slice(0, 20);
+    const hostColor = String(req.body.hostColor || "#e5484d");
 
     // Generate unique 4-digit room code
     let roomId;
@@ -73,14 +88,6 @@ app.post('/createRoom', async (req, res) => {
       moveCount: 0, // Initialized moveCount here
     });
 
-    // Map Discord instanceId to roomId if provided
-    if (instanceId) {
-      await db.collection("instances").doc(instanceId).set(
-        { roomId, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-        { merge: true }
-      );
-    }
-
     res.status(200).send({ roomId });
 
   } catch (error) {
@@ -91,12 +98,13 @@ app.post('/createRoom', async (req, res) => {
 
 
 // 2. Roll Dice Route
-app.post('/roll', async (req, res) => {
+app.post('/roll', requireUser, async (req, res) => {
   try {
-    const { roomId, playerId } = req.body;
+    const playerId = req.user.uid;
+    const { roomId } = req.body;
 
-    if (!roomId || !playerId) {
-      return res.status(400).send({ error: "Missing roomId or playerId" });
+    if (!roomId) {
+      return res.status(400).send({ error: "Missing roomId" });
     }
 
     const roomRef = db.collection("rooms").doc(roomId);
