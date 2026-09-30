@@ -182,13 +182,26 @@ export default function App() {
     };
   }, [roomData?.status]);
 
-  // Size the whole app to the *visible* viewport so that when the phone
-  // keyboard opens, the board, dice and docked chat all shrink to fit above
-  // it instead of being covered.
+  // Keyboard behaviour differs by screen:
+  // - Join screen: like a banking app, the keyboard slides OVER the page and
+  //   nothing moves (interactive-widget=overlays-content, fixed full height).
+  // - In a room: the app shrinks to the space above the keyboard so the
+  //   board, dice and docked chat all stay visible while typing.
+  const inRoom = !!activeRoomId;
   useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    if (meta) {
+      const mode = inRoom ? "resizes-content" : "overlays-content";
+      meta.content = meta.content.replace(/interactive-widget=[a-z-]+/, `interactive-widget=${mode}`);
+    }
+
     const root = document.documentElement;
+    const vv = window.visualViewport;
+    if (!inRoom || !vv) {
+      root.style.removeProperty("--app-h");
+      root.style.removeProperty("--app-top");
+      return;
+    }
     let rafId = 0;
     const update = () => {
       cancelAnimationFrame(rafId);
@@ -205,7 +218,7 @@ export default function App() {
       vv.removeEventListener("scroll", update);
       cancelAnimationFrame(rafId);
     };
-  }, []);
+  }, [inRoom]);
 
   useEffect(() => {
     if (isTablet) {
@@ -591,7 +604,7 @@ export default function App() {
         left: 0,
         right: 0,
         top: "var(--app-top, 0px)",
-        height: "var(--app-h, 100dvh)",
+        height: "var(--app-h, 100svh)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
