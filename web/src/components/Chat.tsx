@@ -1,12 +1,10 @@
-import { useState, useRef, useEffect, useMemo, useCallback, memo, ReactNode } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, memo, ReactNode, lazy, Suspense } from "react";
+import { twemojify } from "./Twemoji";
 import { sendMessage, Room, RoomMessage, MessageReply, toMillis } from "../firebase/rooms";
 
-const EMOJIS = [
-  "😀", "😂", "🤣", "😊", "😍", "😎", "🤔", "😅", "😭", "😡", "😱", "🥳",
-  "😴", "🤯", "🙄", "😏", "😬", "🥲", "😇", "🤡", "👍", "👎", "👏", "🙏",
-  "💪", "🤝", "👀", "🔥", "❤️", "💔", "💯", "✨", "🎉", "🎲", "🐍", "🪜",
-  "🏆", "🥇", "😈", "💀", "🫡", "🤞", "✌️", "👋", "🙌", "🤷", "😤", "🤩",
-];
+// Full picker (search + categories) only downloads the first time it is opened
+const EmojiPanel = lazy(() => import("./EmojiPanel"));
+
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
@@ -22,7 +20,7 @@ type Member = { id: string; name: string; color: string };
 
 /** Splits text into plain runs and highlighted @mentions of room members. */
 function renderText(text: string, members: Member[], myId: string): ReactNode[] {
-  if (!members.length || !text.includes("@")) return [text];
+  if (!members.length || !text.includes("@")) return twemojify(text);
   // Longest names first so "@Mau K" wins over "@Mau"
   const sorted = [...members].sort((a, b) => b.name.length - a.name.length);
   const out: ReactNode[] = [];
@@ -33,7 +31,7 @@ function renderText(text: string, members: Member[], myId: string): ReactNode[] 
       const rest = text.slice(i + 1).toLowerCase();
       const hit = sorted.find((m) => rest.startsWith(m.name.toLowerCase()));
       if (hit) {
-        if (buf) out.push(buf);
+        if (buf) out.push(...twemojify(buf, `${i}-`));
         buf = "";
         out.push(
           <span key={i} className={`mention ${hit.id === myId ? "mention-me" : ""}`}>
@@ -46,7 +44,7 @@ function renderText(text: string, members: Member[], myId: string): ReactNode[] 
     }
     buf += text[i++];
   }
-  if (buf) out.push(buf);
+  if (buf) out.push(...twemojify(buf, "end-"));
   return out;
 }
 
@@ -82,7 +80,7 @@ const MessageRow = memo(function MessageRow({
         <button className="msg-replyref" onClick={(e) => (e.stopPropagation(), onJump(m.replyTo!.id))}>
           <span className="msg-replyref-line" />
           <b>{m.replyTo.playerName}</b>
-          <span className="msg-replyref-text">{m.replyTo.text}</span>
+          <span className="msg-replyref-text">{twemojify(m.replyTo.text)}</span>
         </button>
       )}
       {!grouped && (
@@ -336,12 +334,10 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
         )}
 
         {showEmoji && (
-          <div className="chat-popup chat-emojis">
-            {EMOJIS.map((em) => (
-              <button key={em} onMouseDown={(e) => e.preventDefault()} onClick={() => insertAtCursor(em)}>
-                {em}
-              </button>
-            ))}
+          <div className="chat-popup chat-emojis" onMouseDown={(e) => e.target === e.currentTarget && e.preventDefault()}>
+            <Suspense fallback={<div className="chat-empty">Loading emojis…</div>}>
+              <EmojiPanel onPick={insertAtCursor} />
+            </Suspense>
           </div>
         )}
 
