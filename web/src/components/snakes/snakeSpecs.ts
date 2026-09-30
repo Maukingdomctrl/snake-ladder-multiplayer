@@ -39,21 +39,21 @@ export const BLUE_59: SnakeSpec = {
 export const RED_64: SnakeSpec = {
   control: [
     [515, 452], [495, 466], [467, 490], [445, 520], [435, 560], [432, 605], [436, 655], [440, 705],
-    [432, 755], [418, 805], [406, 850], [402, 878], [412, 898], [428, 905], [445, 895],
+    [430, 755], [416, 805], [407, 845], [406, 875], [415, 897], [433, 908], [453, 905], [468, 890], [474, 870],
   ],
   halfWidth: profile({ head: 14, neck: 10.5, body: 12.5, headLen: 0.05, taperFrom: 0.75 }),
   palette: RED_SPEC.palette,
 };
 
-// 48 -> 9: indigo/blue snake, head raised at 52/53, down past 48, sweeps right through 32/29, tail at 12/9.
+// 48 -> 9: blue snake, head at 48 (under the ladder in the reference), sweeps right and down through 32/29, tail at 12/9.
 export const BLUE_48: SnakeSpec = {
   control: [
-    [992, 470], [967, 495], [955, 525], [952, 575], [957, 625], [970, 665], [1000, 685], [1030, 715],
+    [930, 648], [955, 660], [985, 672], [1012, 690], [1032, 718],
     [1045, 760], [1052, 810], [1050, 860], [1035, 900], [1020, 950], [1022, 1000], [1035, 1045], [1070, 1082],
   ],
-  halfWidth: profile({ head: 13.5, neck: 10, body: 12.5, headLen: 0.045, taperFrom: 0.72 }),
+  halfWidth: profile({ head: 14, neck: 11, body: 13, headLen: 0.06, taperFrom: 0.7 }),
   palette: {
-    hue: 228, sat: 0.55,
-    recess: "#2c3f94", edge: "#111a4a", shadow: "#0c1238", light: "#7890e8", highlight: "#98aef2", rim: "#0a1030",
+    hue: 214, sat: 0.62,
+    recess: "#244f99", edge: "#0c1f48", shadow: "#0a1a40", light: "#6aa4e8", highlight: "#8fbef2", rim: "#081535",
   },
 };
