@@ -115,6 +115,6 @@ export const RED_68: SnakeSpec = {
     [690, 722], [630, 738], [592, 775], [585, 825], [594, 862], [640, 890], [682, 915], [682, 1015],
     [566, 1060], [456, 1037], [346, 1054], [253, 1122],
   ],
-  halfWidth: profile({ head: 18, neck: 14, body: 16.5, headLen: 0.03, taperFrom: 0.8 }),
+  halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.8 }),
   palette: RED_SPEC.palette,
 };
