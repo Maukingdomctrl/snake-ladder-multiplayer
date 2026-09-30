@@ -3,6 +3,8 @@
 import React, { useMemo, useEffect, useRef, useState, useCallback, memo } from "react";
 import Snake from "./snakes/Snake";
 import RedSnake from "./snakes/RedSnake";
+import TracedSnake from "./snakes/TracedSnake";
+import { BLUE_59 } from "./snakes/snakeSpecs";
 import type { SnakeColors } from "./snakes/shared/types";
 import {
   SNAKES,
@@ -315,6 +317,7 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
         height={boardSize}
       >
         {/* Snakes */}
+        <TracedSnake cellSize={cellSize} spec={BLUE_59} name="59" />
         {resolvedSnakes.map((s) => s.id === 83 ? (
           <RedSnake key="snake-83" cellSize={cellSize} />
         ) : (

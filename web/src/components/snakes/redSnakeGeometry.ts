@@ -62,8 +62,7 @@ const fmt = (P: Pt[]) => P.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).j
 // Seeded generators so the snake looks identical on every render / device.
 const rng = (seed: number) => () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
-function centreline(): Pt[] {
-  const C = CONTROL;
+function centreline(C: Pt[]): Pt[] {
   const ext: Pt[] = [
     [2 * C[0][0] - C[1][0], 2 * C[0][1] - C[1][1]],
     ...C,
@@ -95,7 +94,7 @@ function centreline(): Pt[] {
   return out;
 }
 
-function halfWidth(k: number) {
+function redHalfWidth(k: number) {
   // Catmull-Rom through the width samples (continuous, no steps)
   const x = (k / SAMPLES) * (HALF_WIDTH.length - 1);
   const j = Math.min(Math.floor(x), HALF_WIDTH.length - 2), t = x - j;
@@ -106,7 +105,35 @@ function halfWidth(k: number) {
 export type ScaleInstance = { shape: number; color: string; transform: string };
 export type Band = { points: string; fill: string; opacity: number };
 
-export type RedSnakeGeometry = {
+export type SnakePalette = {
+  hue: number;        // base hue of the skin (deg)
+  sat: number;        // base saturation (0..1)
+  recess: string;     // colour between scales
+  edge: string;       // outline colour
+  shadow: string;     // form shadow
+  light: string;      // broad light
+  highlight: string;  // restrained highlight on the lit ridge
+  rim: string;        // dark rim at the sides
+};
+
+export type SnakeSpec = {
+  control: Pt[];                       // centreline control points (reference px), snout first
+  halfWidth: (k: number) => number;    // half-width at sample k (0..SAMPLES)
+  palette: SnakePalette;
+  thicken?: number;                    // body multiplier (head kept exact)
+};
+
+export const SAMPLES_COUNT = 280;
+
+export const RED_SPEC: SnakeSpec = {
+  control: CONTROL,
+  halfWidth: redHalfWidth,
+  thicken: 1.15,
+  palette: { hue: 354, sat: 0.66, recess: "#a3322b", edge: "#5a1512", shadow: "#4a0f0d", light: "#e8705e", highlight: "#f28a74", rim: "#3e0a09" },
+};
+
+export type SnakeGeometry = {
+  head: { x: number; y: number; angle: number; width: number }; // snout frame for generic heads
   body: string;          // full outline (head + body)
   shadowBody: string;    // outline behind the head, for the soft contact shadow
   scales: ScaleInstance[];
@@ -114,12 +141,16 @@ export type RedSnakeGeometry = {
   scaleShapes: string[]; // 3 teardrop plate variants (unit space, pointing to the tail)
 };
 
-export function buildRedSnake(): RedSnakeGeometry {
-  const C = centreline();
+export type RedSnakeGeometry = SnakeGeometry;
+export const buildRedSnake = () => buildSnake(RED_SPEC);
+
+export function buildSnake(spec: SnakeSpec): SnakeGeometry {
+  const C = centreline(spec.control);
+  const P = spec.palette;
   const N = SAMPLES;
   // body ~15% thicker than the traced outline; head (first ~40 samples) kept exact, blended in smoothly
-  const THICKEN = 1.15;
-  const W = C.map((_, k) => halfWidth(k) * (1 + (THICKEN - 1) * smoothstep(30, 60, k)));
+  const THICKEN = spec.thicken ?? 1;
+  const W = C.map((_, k) => spec.halfWidth(k) * (1 + (THICKEN - 1) * smoothstep(30, 60, k)));
   const tang = (i: number) => {
     const a = C[Math.max(i - 1, 0)], b = C[Math.min(i + 1, N)];
     const dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1;
@@ -170,14 +201,14 @@ export function buildRedSnake(): RedSnakeGeometry {
   const isoHi = (lv: number) => (i: number) => (lit(i, lv) ?? [0, 0])[1];
   const shading: Band[] = [
     // shadow side: from the edge facing away up to where the light starts to reach
-    band(12, () => -1.25, isoLo(0.32), "#4a0f0d", 0.26),
-    band(12, isoHi(0.32), () => 1.25, "#4a0f0d", 0.22),
+    band(12, () => -1.25, isoLo(0.32), P.shadow, 0.26),
+    band(12, isoHi(0.32), () => 1.25, P.shadow, 0.22),
     // broad soft light, then a restrained coral highlight on the lit ridge (no white)
-    band(8, isoLo(0.7), isoHi(0.7), "#e8705e", 0.2),
-    band(8, isoLo(0.88), isoHi(0.88), "#f28a74", 0.14),
+    band(8, isoLo(0.7), isoHi(0.7), P.light, 0.2),
+    band(8, isoLo(0.88), isoHi(0.88), P.highlight, 0.14),
     // dark maroon rim on both sides
-    band(12, () => -1.25, () => -0.84, "#3e0a09", 0.3),
-    band(12, () => 0.84, () => 1.25, "#3e0a09", 0.24),
+    band(12, () => -1.25, () => -0.84, P.rim, 0.3),
+    band(12, () => 0.84, () => 1.25, P.rim, 0.24),
   ];
 
   // ---- scales: rows along the centreline, wrapped round the cylinder, anterior plates on top ----
@@ -227,9 +258,9 @@ export function buildRedSnake(): RedSnakeGeometry {
       const tipDark = smoothstep(0.78, 1, t);               // tail a touch darker toward the tip
       const light = 0.26 + 0.28 * Math.pow(diff, 0.85) - 0.05 * bend - 0.04 * tipDark + rowV + grp + odd + jit;
       const Lv = Math.max(0.21, Math.min(0.56, light));
-      const hue = 354 + 9 * Math.min(1, diff) + 3 * warm + 2 * (tone(sArc * 1.3, f + 2) - 0.5) + (cr() - 0.5) * 2;
-      const sat = 0.66 + 0.06 * (cr() - 0.5) - 0.06 * (1 - diff);
-      const color = `hsl(${(hue % 360).toFixed(1)},${(sat * 100).toFixed(0)}%,${(Lv * 100).toFixed(1)}%)`;
+      const hue = P.hue + 9 * Math.min(1, diff) + 3 * warm + 2 * (tone(sArc * 1.3, f + 2) - 0.5) + (cr() - 0.5) * 2;
+      const sat = P.sat + 0.06 * (cr() - 0.5) - 0.06 * (1 - diff);
+      const color = `hsl(${(((hue % 360) + 360) % 360).toFixed(1)},${(sat * 100).toFixed(0)}%,${(Lv * 100).toFixed(1)}%)`;
       // light the scale's upper side on whichever side of the body faces the light
       const flip = lightAround(i).th < 0 ? -1 : 1;
       scales.push({
@@ -245,5 +276,7 @@ export function buildRedSnake(): RedSnakeGeometry {
     return `M-.62,-${a} C.05,-${a + 0.06} ${t},-${a * 0.62} .64,0 C${t},${a * 0.62} .05,${a + 0.06} -.62,${a} Z`;
   });
 
-  return { body, shadowBody, scales, shading, scaleShapes };
+  const t0 = tang(3);
+  const head = { x: C[0][0], y: C[0][1], angle: (t0.ang * 180) / Math.PI + 180, width: Math.max(...W.slice(0, 40)) };
+  return { head, body, shadowBody, scales, shading, scaleShapes };
 }
