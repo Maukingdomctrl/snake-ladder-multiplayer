@@ -106,3 +106,15 @@ export const PURPLE_69: SnakeSpec = {
     recess: "#4a3290", edge: "#1e1244", shadow: "#140c34", light: "#9a84e0", highlight: "#b4a2ee", rim: "#100a2c",
   },
 };
+
+// 68 -> 2: thick red snake. Top traced from the reference (head at 68/53 facing right, neck down past 53/48,
+// across the top of 46/35 into 36); from 25/26 down it keeps the existing board path to 2.
+export const RED_68: SnakeSpec = {
+  control: [
+    [928, 445], [898, 450], [870, 478], [857, 525], [855, 565], [850, 610], [835, 660], [800, 700], [750, 715],
+    [690, 722], [630, 738], [592, 775], [585, 825], [594, 862], [640, 890], [682, 915], [682, 1015],
+    [566, 1060], [456, 1037], [346, 1054], [253, 1122],
+  ],
+  halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.8 }),
+  palette: RED_SPEC.palette,
+};

@@ -4,7 +4,7 @@ import React, { useMemo, useEffect, useRef, useState, useCallback, memo } from "
 import Snake from "./snakes/Snake";
 import RedSnake from "./snakes/RedSnake";
 import TracedSnake from "./snakes/TracedSnake";
-import { BLUE_48, BLUE_59, BLUE_89, GREEN_52, ORANGE_46, PURPLE_69, RED_64 } from "./snakes/snakeSpecs";
+import { BLUE_48, BLUE_59, BLUE_89, GREEN_52, ORANGE_46, PURPLE_69, RED_64, RED_68 } from "./snakes/snakeSpecs";
 import type { SnakeColors } from "./snakes/shared/types";
 import {
   SNAKES,
@@ -161,10 +161,10 @@ const SNAKE_WAYPOINTS: Record<number, { c: number; ox?: number; oy?: number }[]>
     { c: 43, ox: -0.5 }, { c: 38, ox: -0.4 }, { c: 22, oy: -0.4 },
   ],
   68: [
-    { c: 68, ox: 0.1, oy: -0.15 }, { c: 67, ox: 0.1, oy: -0.2 },
-    { c: 53, ox: -0.6, oy: -0.3 }, { c: 48, ox: -0.5, oy: 0.2 },
-    { c: 33, ox: -0.4, oy: -0.3 }, { c: 34, ox: -0.1, oy: -0.25 },
-    { c: 35, ox: -0.1, oy: -0.5 }, { c: 36, ox: -0.1, oy: 0.3 },
+    { c: 68, ox: 0.4, oy: 0.3 }, { c: 68, ox: 0.05, oy: 0.22 },
+    { c: 68, ox: -0.3, oy: 0.42 }, { c: 53, ox: -0.42, oy: 0.05 },
+    { c: 47, ox: 0.15, oy: 0.1 }, { c: 46, ox: 0.2, oy: 0.45 },
+    { c: 36, ox: 0.25, oy: 0.3 },
     { c: 25, ox: 0.1, oy: -0.3 }, { c: 26, ox: -0.1, oy: -0.01 },
     { c: 15, ox: -0.1, oy: 0.05 }, { c: 16, ox: -0.15, oy: 0.45 },
     { c: 17, ox: -0.15, oy: 0.25 }, { c: 18, ox: -0.15, oy: 0.4 },
@@ -184,7 +184,7 @@ const SNAKE_STYLE_CONFIGS: Record<number, { scaleStride?: number; bulgeProfile?:
     scaleStride: 10,
     bulgeProfile: [
       { t: 0.0, width: 0.2 }, { t: 0.1, width: 0.8 }, { t: 0.3, width: 1.4 },
-      { t: 0.5, width: 0.6 }, { t: 0.8, width: 1.2 }, { t: 1.0, width: 1.5 },
+      { t: 0.5, width: 0.9 }, { t: 0.8, width: 1.1 }, { t: 1.0, width: 1.1 },
     ],
   },
 };
@@ -327,6 +327,8 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
         <TracedSnake cellSize={cellSize} spec={BLUE_89} name="89" />
         {resolvedSnakes.map((s) => s.id === 83 ? (
           <RedSnake key="snake-83" cellSize={cellSize} />
+        ) : s.id === 68 ? (
+          <TracedSnake key="snake-68" cellSize={cellSize} spec={RED_68} name="68" />
         ) : (
           <Snake
             key={`snake-${s.id}`}
