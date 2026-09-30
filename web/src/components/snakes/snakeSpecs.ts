@@ -91,7 +91,7 @@ export const BLUE_89: SnakeSpec = {
     [1022, 243], [1045, 242], [1065, 255], [1080, 290], [1078, 330], [1066, 362], [1057, 392],
     [1056, 425], [1063, 452], [1077, 478], [1092, 500], [1102, 512],
   ],
-  halfWidth: profile({ head: 12.5, neck: 9.5, body: 10.5, headLen: 0.08, taperFrom: 0.68 }),
+  halfWidth: profile({ head: 15, neck: 12.5, body: 14.5, headLen: 0.07, taperFrom: 0.7 }),
   palette: BLUE_59.palette,
 };
 

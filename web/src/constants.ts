@@ -57,10 +57,10 @@ export const SNAKES_AND_LADDERS: Record<number, number> = {
 
 // 🟦 The specific diagonal sequence (Red -> Blue -> Yellow -> Green)
 export const CELL_COLORS = [
-  "#E63946", // 0: Red
-  "#2980B9", // 1: Blue
-  "#F4D03F", // 2: Yellow
-  "#27AE60", // 3: Green
+  "#d93a45", // 0: Red
+  "#2a78b4", // 1: Blue
+  "#f0c93e", // 2: Yellow
+  "#26a15a", // 3: Green
 ];
 
 // 👤 Player and lobby defaults
