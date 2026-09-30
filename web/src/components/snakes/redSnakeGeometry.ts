@@ -108,6 +108,7 @@ export type Band = { points: string; fill: string; opacity: number };
 export type SnakePalette = {
   hue: number;        // base hue of the skin (deg)
   hueEnd?: number;    // optional hue at the tail, for a head-to-tail colour grade
+  value?: number;     // optional brightness offset (-0.2..0.2) for darker/lighter snakes
   sat: number;        // base saturation (0..1)
   recess: string;     // colour between scales
   edge: string;       // outline colour
@@ -258,7 +259,7 @@ export function buildSnake(spec: SnakeSpec): SnakeGeometry {
       const warm = 1 - smoothstep(0.05, 0.4, t);          // upper body slightly warmer
       const tipDark = smoothstep(0.78, 1, t);               // tail a touch darker toward the tip
       const light = 0.26 + 0.28 * Math.pow(diff, 0.85) - 0.05 * bend - 0.04 * tipDark + rowV + grp + odd + jit;
-      const Lv = Math.max(0.21, Math.min(0.56, light));
+      const Lv = Math.max(0.1, Math.min(0.56, light + (P.value ?? 0)));
       const hue = P.hue + ((P.hueEnd ?? P.hue) - P.hue) * t + 9 * Math.min(1, diff) + 3 * warm + 2 * (tone(sArc * 1.3, f + 2) - 0.5) + (cr() - 0.5) * 2;
       const sat = P.sat + 0.06 * (cr() - 0.5) - 0.06 * (1 - diff);
       const color = `hsl(${(((hue % 360) + 360) % 360).toFixed(1)},${(sat * 100).toFixed(0)}%,${(Lv * 100).toFixed(1)}%)`;

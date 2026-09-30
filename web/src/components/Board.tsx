@@ -4,7 +4,7 @@ import React, { useMemo, useEffect, useRef, useState, useCallback, memo } from "
 import Snake from "./snakes/Snake";
 import RedSnake from "./snakes/RedSnake";
 import TracedSnake from "./snakes/TracedSnake";
-import { BLUE_48, BLUE_59, BLUE_89, GREEN_52, ORANGE_46, PURPLE_69, RED_64, RED_68, BLUE_93 } from "./snakes/snakeSpecs";
+import { BLUE_48, BLUE_59, BLUE_89, GREEN_52, ORANGE_46, PURPLE_69, RED_64, RED_68, BLUE_93, GREEN_98 } from "./snakes/snakeSpecs";
 import type { SnakeColors } from "./snakes/shared/types";
 import {
   SNAKES,
@@ -248,8 +248,8 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
               width: cellSize,
               height: cellSize,
               background: getCellColor(num),
-              border: "1px solid rgba(0,0,0,0.35)",
-              boxShadow: "inset 0 0 0.5px rgba(0,0,0,0.2)",
+              border: "1px solid rgba(0,0,0,0.28)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -2px 3px rgba(0,0,0,0.14)",
               boxSizing: "border-box",
             }}
           />
@@ -320,6 +320,7 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
         {/* drawn first: runs behind the other snakes */}
         <TracedSnake cellSize={cellSize} spec={PURPLE_69} name="69" />
         <TracedSnake cellSize={cellSize} spec={BLUE_93} name="93" />
+        <TracedSnake cellSize={cellSize} spec={GREEN_98} name="98" />
         <TracedSnake cellSize={cellSize} spec={BLUE_59} name="59" />
         <TracedSnake cellSize={cellSize} spec={RED_64} name="64" />
         <TracedSnake cellSize={cellSize} spec={BLUE_48} name="48" />
@@ -388,12 +389,12 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
             <g key={`l-${from}`}>
               <line x1={r1a.x+3} y1={r1a.y+4} x2={r1b.x+3} y2={r1b.y+4} stroke="rgba(0,0,0,0.4)" strokeWidth="8" strokeLinecap="round" />
               <line x1={r2a.x+3} y1={r2a.y+4} x2={r2b.x+3} y2={r2b.y+4} stroke="rgba(0,0,0,0.4)" strokeWidth="8" strokeLinecap="round" />
-              <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y} stroke="#8B5328" strokeWidth="8" strokeLinecap="round" />
-              <line x1={r1a.x-1.5} y1={r1a.y-1.5} x2={r1b.x-1.5} y2={r1b.y-1.5} stroke="#E8C488" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
-              <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y} stroke="#8B5328" strokeWidth="8" strokeLinecap="round" />
-              <line x1={r2a.x-1.5} y1={r2a.y-1.5} x2={r2b.x-1.5} y2={r2b.y-1.5} stroke="#E8C488" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
-              <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y} stroke="#C48B58" strokeWidth="2" strokeDasharray="10 8" opacity="0.7" />
-              <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y} stroke="#C48B58" strokeWidth="2" strokeDasharray="10 8" opacity="0.7" />
+              <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y} stroke="#5e3416" strokeWidth="8" strokeLinecap="round" />
+              <line x1={r1a.x-1.5} y1={r1a.y-1.5} x2={r1b.x-1.5} y2={r1b.y-1.5} stroke="#c79a5e" strokeWidth="2" strokeLinecap="round" opacity="0.85" />
+              <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y} stroke="#5e3416" strokeWidth="8" strokeLinecap="round" />
+              <line x1={r2a.x-1.5} y1={r2a.y-1.5} x2={r2b.x-1.5} y2={r2b.y-1.5} stroke="#c79a5e" strokeWidth="2" strokeLinecap="round" opacity="0.85" />
+              <line x1={r1a.x} y1={r1a.y} x2={r1b.x} y2={r1b.y} stroke="#94622f" strokeWidth="2" strokeDasharray="10 8" opacity="0.7" />
+              <line x1={r2a.x} y1={r2a.y} x2={r2b.x} y2={r2b.y} stroke="#94622f" strokeWidth="2" strokeDasharray="10 8" opacity="0.7" />
               {Array.from({ length: rungsCount }, (_, i) => {
                 const t = (i + 1) / (rungsCount + 1);
                 const rx = a.x + dx * t;
@@ -403,8 +404,8 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
                 return (
                   <g key={`rung-${from}-${i}`}>
                     <line x1={rung1.x+1} y1={rung1.y+2} x2={rung2.x+1} y2={rung2.y+2} stroke="rgba(0,0,0,0.4)" strokeWidth="6" />
-                    <line x1={rung1.x} y1={rung1.y} x2={rung2.x} y2={rung2.y} stroke="#A66A38" strokeWidth="6" strokeLinecap="round" />
-                    <line x1={rung1.x} y1={rung1.y-1} x2={rung2.x} y2={rung2.y-1} stroke="#E8C488" strokeWidth="1.5" opacity="0.8" />
+                    <line x1={rung1.x} y1={rung1.y} x2={rung2.x} y2={rung2.y} stroke="#784620" strokeWidth="6" strokeLinecap="round" />
+                    <line x1={rung1.x} y1={rung1.y-1} x2={rung2.x} y2={rung2.y-1} stroke="#c79a5e" strokeWidth="1.5" opacity="0.75" />
                   </g>
                 );
               })}
@@ -996,14 +997,14 @@ export default function Board({
       {hasMeasurement && (
         <div style={{
             padding: borderPadding,
-            background: "linear-gradient(145deg, #F5C800 0%, #D4A600 50%, #F5C800 100%)",
+            background: "linear-gradient(145deg, #f3d77a 0%, #c9962b 22%, #f6e19a 45%, #b07d1c 70%, #e9c766 100%)",
             borderRadius: Math.max(6, borderPadding * 0.7),
-            boxShadow: `0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(245,200,0,0.3), 0 0 24px rgba(245,200,0,0.08)`,
+            boxShadow: `0 18px 50px rgba(40,20,0,0.45), 0 2px 6px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,250,220,0.8), inset 0 -2px 3px rgba(90,55,0,0.45), 0 0 0 1px rgba(120,80,10,0.55)`,
         }}>
           <div style={{
               position: "relative", width: boardSize, height: boardSize, borderRadius: 4, background: "#FFF",
-              boxShadow: "inset 0 0 10px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.08)",
-              outline: `${Math.max(2, Math.round(cellSize * 0.04))}px solid #5C2A00`,
+              boxShadow: "inset 0 0 18px rgba(0,0,0,0.28), 0 0 0 1px rgba(0,0,0,0.12)",
+              outline: `${Math.max(2, Math.round(cellSize * 0.05))}px solid #3a1e08`,
               outlineOffset: `-${Math.max(1, Math.round(cellSize * 0.02))}px`,
               overflow: "hidden", userSelect: "none", WebkitUserSelect: "none", touchAction: "none",
           }}>
