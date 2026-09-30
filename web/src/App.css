@@ -530,3 +530,12 @@ img.emoji { width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin: 0 0.
 /* While typing on a phone, shrink the dice row so the board keeps its space */
 .dice-compact { zoom: 0.62; }
 .dice-compact .dice-row-container { margin: 2px 0; }
+
+/* Board: scaled smoothly instead of re-rendered when its space changes */
+.board-stage {
+  transform-origin: center center;
+  transition: transform 0.22s ease-out;
+  animation: board-in 0.3s ease-out 0.12s both;
+  will-change: transform;
+}
+@keyframes board-in { from { opacity: 0; } to { opacity: 1; } }
