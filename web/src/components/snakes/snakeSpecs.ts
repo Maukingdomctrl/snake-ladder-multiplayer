@@ -83,3 +83,13 @@ export const ORANGE_46: SnakeSpec = {
     recess: "#c0601e", edge: "#5a2408", shadow: "#4a1c06", light: "#f6a860", highlight: "#fcc080", rim: "#3e1604",
   },
 };
+
+// 89 -> 51: blue snake, head at 89/72 looking left, gentle S down past 72/69, tail slips under the ladder at 51.
+export const BLUE_89: SnakeSpec = {
+  control: [
+    [1020, 245], [1040, 243], [1065, 255], [1075, 280], [1072, 310], [1066, 345], [1057, 378],
+    [1058, 420], [1073, 455], [1087, 485], [1100, 510],
+  ],
+  halfWidth: profile({ head: 12.5, neck: 9.5, body: 10.5, headLen: 0.08, taperFrom: 0.68 }),
+  palette: BLUE_59.palette,
+};
