@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 interface LoginScreenProps {
   ready: boolean;
   playerName: string;
@@ -11,8 +13,8 @@ interface LoginScreenProps {
 }
 
 const inputStyle: React.CSSProperties = {
-  fontSize: 15,
-  padding: "12px 14px",
+  fontSize: 16, // 16px+ stops iOS from zooming into the field
+  padding: "14px 16px",
   background: "var(--bg-input)",
   color: "var(--text-primary)",
   border: "1px solid var(--border)",
@@ -21,7 +23,6 @@ const inputStyle: React.CSSProperties = {
   minWidth: 0,
 };
 
-import { useState } from "react";
 
 export default function LoginScreen({
   ready,
@@ -36,7 +37,13 @@ export default function LoginScreen({
 }: LoginScreenProps) {
   // Fixed top offset (measured once) so the card doesn't jump when the phone
   // keyboard opens and the visible area shrinks.
-  const [topGap] = useState(() => Math.max(24, Math.round(window.innerHeight * 0.14)));
+  // Lower on tall screens, but keep the card's bottom above the keyboard,
+  // which covers roughly the lower half of a phone screen.
+  const [topGap] = useState(() => {
+    const h = window.innerHeight;
+    const CARD_H = 300;
+    return Math.max(20, Math.round(Math.min(h * 0.17, h * 0.46 - CARD_H)));
+  });
   const [action, setAction] = useState<"create" | "join" | null>(null);
   const create = () => {
     setAction("create");
@@ -47,9 +54,9 @@ export default function LoginScreen({
     onJoinRoom();
   };
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", flex: 1, padding: `${topGap}px 16px 16px`, overflowY: "auto" }}>
-      <div className="card" style={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 14, textAlign: "center" }}>
-        <h1 style={{ fontSize: 26, margin: 0, color: "var(--text-primary)", fontWeight: 800, letterSpacing: -0.5 }}>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", flex: 1, padding: `${topGap}px 12px 16px`, overflowY: "auto" }}>
+      <div className="card" style={{ width: "100%", maxWidth: 460, padding: "32px 22px", display: "flex", flexDirection: "column", gap: 16, textAlign: "center" }}>
+        <h1 style={{ fontSize: 30, margin: 0, color: "var(--text-primary)", fontWeight: 800, letterSpacing: -0.5 }}>
           Snakes &amp; Ladders
         </h1>
 
@@ -65,7 +72,7 @@ export default function LoginScreen({
               onChange={(e) => setPlayerName(e.target.value)}
               style={inputStyle}
             />
-            <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: 12, fontSize: 15 }}>
+            <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: 14, fontSize: 16 }}>
               {loading && action === "create" ? "Creating…" : "Create room"}
             </button>
 
@@ -80,7 +87,7 @@ export default function LoginScreen({
                 onKeyDown={(e) => e.key === "Enter" && join()}
                 style={{ ...inputStyle, flex: 1 }}
               />
-              <button onClick={join} disabled={loading} className="btn-secondary" style={{ padding: "0 18px" }}>
+              <button onClick={join} disabled={loading} className="btn-secondary" style={{ padding: "0 24px", fontSize: 16 }}>
                 {loading && action === "join" ? "Joining…" : "Join"}
               </button>
             </div>
