@@ -12,7 +12,7 @@ const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: 
 const emojiOnlyRe = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|️|‍|\s)+$/u;
 
 function formatTime(ms: number) {
-  return ms ? new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  return ms ? new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
 }
 
 const msgTime = (m: RoomMessage) => toMillis(m.at) || m.clientAt || 0;
@@ -98,37 +98,38 @@ const MessageRow = memo(function MessageRow({
   return (
     <div
       id={`msg-${m.id}`}
-      className={`msg ${grouped ? "msg-grouped" : ""} ${mentionsMe ? "msg-mentioned" : ""} ${
-        selected ? "msg-selected" : ""
-      } ${flash ? "msg-flash" : ""} ${m.isPending ? "msg-pending" : ""}`}
+      className={`msg ${isMe ? "msg-me" : "msg-them"} ${grouped ? "msg-grouped" : ""} ${
+        mentionsMe ? "msg-mentioned" : ""
+      } ${selected ? "msg-selected" : ""} ${flash ? "msg-flash" : ""} ${m.isPending ? "msg-pending" : ""}`}
       onClick={() => isTouch && onSelect(selected ? null : m.id!)}
     >
-      {m.replyTo && (
-        <button className="msg-replyref" onClick={(e) => (e.stopPropagation(), onJump(m.replyTo!.id))}>
-          <span className="msg-replyref-line" />
-          <b>{m.replyTo.playerName}</b>
-          <span className="msg-replyref-text">{twemojify(m.replyTo.text)}</span>
-        </button>
-      )}
-      {!grouped && (
-        <div className="msg-head">
-          <span className="msg-name" style={{ color }}>{m.playerName}</span>
-          <span className="msg-time">{formatTime(msgTime(m))}</span>
-        </div>
-      )}
-      {text && <div className={`msg-text ${big ? "msg-big" : ""}`}>{renderText(text, members, myId)}</div>}
-      {m.image && (
-        <img
-          className="msg-image"
-          src={m.image}
-          alt="Shared image"
-          loading="lazy"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenImage(m.image!);
-          }}
-        />
-      )}
+      <div className={`bubble ${big && !m.replyTo ? "bubble-bare" : ""}`}>
+        {m.replyTo && (
+          <button className="msg-replyref" onClick={(e) => (e.stopPropagation(), onJump(m.replyTo!.id))}>
+            <b>{m.replyTo.playerName}</b>
+            <span className="msg-replyref-text">{twemojify(m.replyTo.text)}</span>
+          </button>
+        )}
+        {!grouped && !isMe && (
+          <div className="msg-name" style={{ color }}>
+            {m.playerName}
+          </div>
+        )}
+        {text && <div className={`msg-text ${big ? "msg-big" : ""}`}>{renderText(text, members, myId)}</div>}
+        {m.image && (
+          <img
+            className="msg-image"
+            src={m.image}
+            alt="Shared image"
+            loading="lazy"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenImage(m.image!);
+            }}
+          />
+        )}
+        <span className="msg-time">{formatTime(msgTime(m))}</span>
+      </div>
       {!m.isPending && (
         <div className="msg-actions" onClick={(e) => e.stopPropagation()}>
           <button title="Reply" onClick={() => onReply(m)}>↩ Reply</button>

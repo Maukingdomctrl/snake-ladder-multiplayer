@@ -215,38 +215,50 @@ button, input, textarea {
 .chat-list > :first-child { margin-top: auto; }
 .chat-empty { color: var(--text-muted); text-align: center; padding: 24px 12px; font-size: 14px; }
 
-/* Discord-style reading: one left edge for names and text, groups separated by air */
-.msg { position: relative; padding: 2px 16px 2px 16px; box-shadow: inset 2px 0 0 transparent; font-family: var(--font-stack); }
-.msg:not(.msg-grouped) { margin-top: 10px; }
+/* Chat-app bubbles: yours on the right, others on the left */
+.msg {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start;
+  padding: 1px 12px; font-family: var(--font-stack);
+}
+.msg-me { align-items: flex-end; }
+.msg:not(.msg-grouped) { margin-top: 6px; }
 .chat-list > .msg:first-child { margin-top: auto; }
-.msg-grouped { padding-top: 0; }
 .msg-selected { background: var(--bg-message-hover); }
-.msg-mentioned { background: #fdf6e3; box-shadow: inset 2px 0 0 #e0a800; }
-.msg-flash { animation: msg-flash 1.2s ease-out; }
-@keyframes msg-flash { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } }
+.msg-flash .bubble { animation: msg-flash 1.2s ease-out; }
+@keyframes msg-flash { from { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent); } }
 .msg-pending { opacity: 0.55; }
 
-.msg-head { display: flex; align-items: baseline; gap: 6px; line-height: 1.3; margin-bottom: 1px; }
-.msg-name { font-weight: 600; font-size: 15px; letter-spacing: 0.005em; }
-.msg-time { font-size: 11.5px; color: #80848e; font-weight: 500; }
+.bubble {
+  max-width: 82%; min-width: 0;
+  padding: 6px 10px 5px; border-radius: 16px;
+  background: #f0eeea; color: #1f2328;
+}
+.msg-them:not(.msg-grouped) .bubble { border-top-left-radius: 5px; }
+.msg-me .bubble { background: #d7f2e2; }
+.msg-me:not(.msg-grouped) .bubble { border-top-right-radius: 5px; }
+.msg-mentioned .bubble { box-shadow: inset 0 0 0 1.5px #e0a800; background: #fdf3d8; }
+.bubble-bare { background: none !important; padding: 0 2px; box-shadow: none !important; }
+
+.msg-name { font-weight: 600; font-size: 13px; line-height: 1.25; margin-bottom: 1px; }
 .msg-text {
-  font-size: 15px; line-height: 1.375; color: #313338; font-weight: 400;
+  display: inline; font-size: 15px; line-height: 1.35; color: inherit;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.msg-big { line-height: 1.1; padding: 2px 0; }
+.msg-big { display: block; line-height: 1.1; }
+/* Time sits in the bubble's bottom-right corner, WhatsApp style */
+.msg-time {
+  float: right; margin: 5px 0 -2px 10px; font-size: 10.5px; line-height: 1;
+  color: #7d828b; font-variant-numeric: tabular-nums;
+}
+.bubble-bare .msg-time { float: none; display: block; text-align: right; margin: 0; }
 
 .msg-replyref {
-  display: flex; align-items: center; gap: 6px; max-width: 100%;
-  background: none; border: 0; padding: 0 0 2px; font: inherit; font-size: 12px;
-  color: var(--text-muted); cursor: pointer; text-align: left;
-}
-.msg-replyref-line {
-  width: 18px; height: 8px; margin-left: 4px; flex-shrink: 0;
-  border-left: 2px solid var(--border-strong); border-top: 2px solid var(--border-strong); border-top-left-radius: 5px;
+  display: flex; align-items: center; gap: 6px; width: 100%; max-width: 100%; margin-bottom: 3px;
+  background: rgb(0 0 0 / 0.05); border: 0; border-left: 3px solid var(--accent); border-radius: 6px;
+  padding: 3px 8px; font: inherit; font-size: 12px; color: var(--text-muted); cursor: pointer; text-align: left;
 }
 .msg-replyref b { color: var(--text-secondary); flex-shrink: 0; }
 .msg-replyref-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.msg-replyref:hover .msg-replyref-text { color: var(--text-primary); }
 
 .msg-actions {
   position: absolute; top: -12px; right: 10px; display: none; gap: 2px; z-index: 2;
@@ -340,8 +352,8 @@ button, input, textarea {
 
 /* Discord sizes: inline emoji 1.375em, emoji-only messages "jumbo" */
 img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0.05em; display: inline-block; object-fit: contain; }
-.msg-big img.emoji { width: 48px; height: 48px; vertical-align: bottom; margin-right: 2px; }
-.mobile-chat .msg-big img.emoji { width: 36px; height: 36px; }
+.msg-big img.emoji { width: 44px; height: 44px; vertical-align: bottom; margin-right: 2px; }
+.mobile-chat .msg-big img.emoji { width: 34px; height: 34px; }
 .chat-mentions button {
   display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
   background: none; border: 0; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 14px; cursor: pointer; color: var(--text-primary);
@@ -526,9 +538,6 @@ img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0
 .mobile-chat .chat { flex: none; height: auto; }
 /* ~1–1.5 cm of messages; scroll for older ones */
 .mobile-chat .chat-list { flex: none; height: 96px; padding: 2px 0; }
-.mobile-chat .msg { padding-left: 18px; padding-right: 18px; }
-.mobile-chat .msg:not(.msg-grouped) { margin-top: 8px; }
-.mobile-chat .chat-list > .msg:first-child { margin-top: auto; }
 .mobile-chat .chat-composer { padding: 4px 8px 6px; }
 .chat-close { font-size: 16px; color: var(--text-muted); }
 

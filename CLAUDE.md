@@ -35,6 +35,8 @@ These were adjusted step by step on a real phone. Treat them as requirements.
   `resizes-content` so the board/chat fit above the keyboard.
 
 ### General
+- Chat messages are phone-chat-app bubbles: yours on the right (green), others
+  on the left (grey) with the sender name on top and the time in the corner.
 - Light theme, minimal clutter. Emoji render as Twemoji (Discord style), served
   from `web/public/twemoji` (copied at build time).
 - Verify layout changes in a phone-sized browser (e.g. 412×820 and 360×700,
