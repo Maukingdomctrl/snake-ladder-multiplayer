@@ -421,56 +421,10 @@ img.emoji { width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin: 0 0.
 }
 
 /* Mobile Drawer */
-.chat-drawer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  width: 100vw;
-  height: 85vh;
-  max-height: 100dvh;
-  background: var(--bg-primary);
-  border-radius: 12px 12px 0 0;
-  border-top: 1px solid var(--border-strong);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-lg);
-  z-index: var(--z-drawer);
-  display: flex;
-  flex-direction: column;
-  transform: translateY(100%);
-  transition: transform var(--dur-slow) var(--ease-out);
-  -webkit-overflow-scrolling: touch;
-
-  &.open { transform: translateY(0); }
-
-  &.keyboard-active {
-    transition: none !important;
-  }
-}
 
 .is-transitioning { will-change: transform; }
 
-.drawer-handle {
-  width: 36px;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: var(--radius-full);
-  margin: var(--space-2) auto;
-  flex-shrink: 0;
-}
 
-.drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  z-index: var(--z-backdrop);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--dur-slow) var(--ease-out);
-
-  &.open { opacity: 1; pointer-events: all; }
-}
 
 /* =========================================
    5. ANIMATIONS & UTILITIES
@@ -515,7 +469,7 @@ img.emoji { width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin: 0 0.
    ========================================= */
 
 @media (prefers-reduced-transparency: reduce) {
-  .channel-header, .chat-drawer, .elevated-panel {
+  .channel-header, .elevated-panel {
     background: var(--bg-primary);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -552,3 +506,27 @@ img.emoji { width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin: 0 0.
   border: 1px solid var(--border-strong); border-radius: var(--radius-md); cursor: pointer;
 }
 .btn-secondary:hover { background: var(--bg-tertiary); }
+
+/* ── Mobile chat: docked under the board (board + dice stay visible) ── */
+.mobile-chat {
+  flex: 0 0 40%;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  margin: 0 -12px;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border-strong);
+  box-shadow: 0 -4px 16px rgb(0 0 0 / 0.06);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.mobile-chat-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px 0 14px; font-size: 13px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0;
+}
+.mobile-chat-head button {
+  width: 32px; height: 32px; background: none; border: 0; font-size: 16px; color: var(--text-muted); cursor: pointer;
+}
+.mobile-chat .chat-composer { padding-bottom: 6px; }
+/* While typing on a phone, shrink the dice row so the board keeps its space */
+.dice-compact { zoom: 0.62; }
+.dice-compact .dice-row-container { margin: 2px 0; }

@@ -91,7 +91,8 @@ function calculateBoardMetrics(
   const availH = containerHeight - borderPadding * 2;
 
   const maxBoardSize = Math.min(availW, availH);
-  const cellSize = Math.max(18, Math.floor(maxBoardSize / 10));
+  // Small floor so the board can shrink to fit above the phone keyboard
+  const cellSize = Math.max(11, Math.floor(maxBoardSize / 10));
 
   return { cellSize, borderPadding };
 }
