@@ -61,8 +61,9 @@ export const BLUE_48: SnakeSpec = {
 // 52 -> 11: green snake, head at 49/52 looking left, straight down the 50/31/30 column, tail flicks right into 11.
 export const GREEN_52: SnakeSpec = {
   control: [
-    [1025, 585], [1045, 576], [1065, 580], [1085, 605], [1090, 650], [1086, 700], [1083, 750],
-    [1082, 800], [1082, 850], [1083, 895], [1090, 930], [1105, 953], [1120, 965], [1132, 970],
+    [1028, 580], [1048, 575], [1066, 581], [1081, 600], [1089, 630], [1091, 670], [1087, 710],
+    [1084, 750], [1085, 790], [1088, 830], [1085, 865], [1085, 900], [1087, 930], [1096, 954],
+    [1111, 965], [1130, 971],
   ],
   halfWidth: profile({ head: 13.5, neck: 10.5, body: 12, headLen: 0.06, taperFrom: 0.75 }),
   palette: {
@@ -87,8 +88,8 @@ export const ORANGE_46: SnakeSpec = {
 // 89 -> 51: blue snake, head at 89/72 looking left, gentle S down past 72/69, tail slips under the ladder at 51.
 export const BLUE_89: SnakeSpec = {
   control: [
-    [1020, 245], [1040, 243], [1065, 255], [1075, 280], [1072, 310], [1066, 345], [1057, 378],
-    [1058, 420], [1073, 455], [1087, 485], [1100, 510],
+    [1022, 243], [1045, 242], [1065, 255], [1080, 290], [1078, 330], [1066, 362], [1057, 392],
+    [1056, 425], [1063, 452], [1077, 478], [1092, 500], [1102, 512],
   ],
   halfWidth: profile({ head: 12.5, neck: 9.5, body: 10.5, headLen: 0.08, taperFrom: 0.68 }),
   palette: BLUE_59.palette,
