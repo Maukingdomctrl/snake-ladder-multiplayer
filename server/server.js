@@ -1,4 +1,4 @@
-const { randomInt } = require("crypto");
+const { randomInt, randomUUID } = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
@@ -48,10 +48,40 @@ async function requireUser(req, res, next) {
   }
 }
 
+// ── Guest passes ──
+// Fallback for players whose direct anonymous sign-up is refused by Firebase
+// (e.g. shared VPN addresses hit the per-IP sign-up limit): we mint a custom
+// token here and the browser signs in with it.
+const guestHits = new Map(); // ip -> { count, resetAt }
+function guestRateLimited(ip) {
+  const now = Date.now();
+  const entry = guestHits.get(ip);
+  if (!entry || entry.resetAt < now) {
+    guestHits.set(ip, { count: 1, resetAt: now + 60_000 });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > 20;
+}
+
 // ── Routes ──
 
 // Health check (Render pings this; also handy for waking the free instance)
 app.get("/", (_req, res) => res.send({ ok: true }));
+
+// Guest pass for players whose direct sign-in failed
+app.post("/guest", async (req, res) => {
+  const ip = (req.headers["x-forwarded-for"] || req.ip || "").toString().split(",")[0].trim();
+  if (guestRateLimited(ip)) return res.status(429).send({ error: "Too many attempts, try again in a minute." });
+  try {
+    const uid = `guest_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
+    const token = await admin.auth().createCustomToken(uid);
+    res.status(200).send({ token });
+  } catch (error) {
+    console.error("Error creating guest token:", error);
+    res.status(500).send({ error: "Could not create guest pass" });
+  }
+});
 
 // 1. Create Room Route
 app.post('/createRoom', requireUser, async (req, res) => {

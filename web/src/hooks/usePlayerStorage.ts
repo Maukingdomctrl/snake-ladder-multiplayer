@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { onAuthStateChanged, signInAnonymously, User } from "firebase/auth";
+import { onAuthStateChanged, signInAnonymously, signInWithCustomToken, User } from "firebase/auth";
 import { auth } from "../firebase";
+import { fetchGuestToken } from "../firebase/rooms";
 import { LOBBY_COLORS } from "../constants";
 
 // Safe localStorage wrapper so Incognito/Private mode doesn't crash the app
@@ -21,18 +22,28 @@ const safeLocalStorage = {
   },
 };
 
-// Mobile networks drop requests now and then, so retry a couple of times
-async function signInWithRetry(onFail?: (msg: string) => void, attempt = 1): Promise<void> {
-  try {
-    await signInAnonymously(auth);
-  } catch (e) {
-    const code = (e as { code?: string })?.code || "unknown";
-    console.error(`Anonymous sign-in failed (attempt ${attempt}):`, e);
-    if (attempt < 3) {
-      await new Promise((r) => setTimeout(r, 1000 * attempt));
-      return signInWithRetry(onFail, attempt + 1);
+// Direct anonymous sign-in is tried first. If Firebase refuses it (flaky
+// network, or a shared VPN address that hit the per-IP sign-up limit), fall
+// back to a guest token issued by our own server.
+async function signInGuest(onFail?: (msg: string) => void): Promise<void> {
+  let code = "unknown";
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await signInAnonymously(auth);
+      return;
+    } catch (e) {
+      code = (e as { code?: string })?.code || code;
+      console.error(`Anonymous sign-in failed (attempt ${attempt}):`, e);
+      if (code !== "auth/network-request-failed") break; // retrying won't help
+      await new Promise((r) => setTimeout(r, 1000));
     }
-    onFail?.(`Couldn't connect (${code}). Please refresh the page.`);
+  }
+  try {
+    await signInWithCustomToken(auth, await fetchGuestToken());
+  } catch (e) {
+    console.error("Guest token sign-in failed:", e);
+    const fallbackCode = (e as { code?: string })?.code;
+    onFail?.(`Couldn't connect (${code}${fallbackCode ? `, ${fallbackCode}` : ""}). Please refresh the page.`);
   }
 }
 
@@ -59,7 +70,7 @@ export function usePlayerStorage() {
           setAuthReady(true);
           return;
         }
-        signInWithRetry((msg) => {
+        signInGuest((msg) => {
           setAuthError(msg);
           setAuthReady(true);
         });
