@@ -95,8 +95,6 @@ export default function App() {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [chatOpen, setChatOpen] = useState<boolean>(isTablet);
   const [unreadCount, setUnreadCount] = useState<number>(0);
-  // Phone user is typing in the docked chat (keyboard up): squeeze the game UI
-  const [typing, setTyping] = useState(false);
 
   // ★ Board container measurement
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -593,7 +591,6 @@ export default function App() {
 
   const closeChatDrawer = useCallback(() => {
     setChatOpen(false);
-    setTyping(false);
   }, []);
 
   return (
@@ -704,7 +701,7 @@ export default function App() {
               </div>
             )}
 
-            {!isCompact && !typing && (
+            {!isCompact && (
               <GameHeader
                 roomId={roomData.id!}
                 players={roomData.players ?? EMPTY_PLAYERS_LIST}
@@ -775,8 +772,8 @@ export default function App() {
                       overflow: "hidden",
                     }}
                   >
-                    {/* TOP BAR (hidden while typing in chat on a phone) */}
-                    <div style={{ flexShrink: 0, padding: "2px 8px 4px", marginBottom: "auto", display: typing && !isTablet ? "none" : undefined }}>
+                    {/* TOP BAR */}
+                    <div style={{ flexShrink: 0, padding: "2px 8px 4px", marginBottom: "auto" }}>
                       {roomData.status === "playing" ? (
                         <div
                           className="turn-indicator"
@@ -895,7 +892,7 @@ export default function App() {
                     </div>
 
                     {/* BOTTOM BAR */}
-                    <div className={typing && !isTablet ? "dice-compact" : undefined} style={{ flexShrink: 0, padding: "0 8px", marginBottom: "auto" }}>
+                    <div style={{ flexShrink: 0, padding: "0 8px", marginBottom: "auto" }}>
                       {roomData.status === "finished" &&
                         roomData.winnerId &&
                         diceComplete && (
@@ -939,18 +936,9 @@ export default function App() {
 
               {/* MOBILE CHAT: docked under the board so both stay usable */}
               {!isTablet && chatOpen && (
-                <div
-                  className="mobile-chat"
-                  onFocus={(e) => e.target.tagName === "TEXTAREA" && setTyping(true)}
-                  onBlur={(e) => e.target.tagName === "TEXTAREA" && setTyping(false)}
-                >
-                  <div className="mobile-chat-head">
-                    <span># chat</span>
-                    <button onClick={closeChatDrawer} aria-label="Close chat">
-                      ✕
-                    </button>
-                  </div>
+                <div className="mobile-chat">
                   <Chat
+                    onClose={closeChatDrawer}
                     messages={messages}
                     playerId={playerId}
                     playerName={playerName}

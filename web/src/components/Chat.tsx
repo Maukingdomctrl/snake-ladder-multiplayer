@@ -151,9 +151,11 @@ interface ChatProps {
   activeRoomId: string;
   roomData: Room | null;
   inDrawer?: boolean;
+  /** When set, a ✕ in the input row closes the chat (phone layout). */
+  onClose?: () => void;
 }
 
-export default function Chat({ messages, playerId, playerName, activeRoomId, roomData }: ChatProps) {
+export default function Chat({ messages, playerId, playerName, activeRoomId, roomData, onClose }: ChatProps) {
   const [input, setInput] = useState("");
   const [replyingTo, setReplyingTo] = useState<RoomMessage | null>(null);
   const [pending, setPending] = useState<RoomMessage[]>([]);
@@ -518,6 +520,11 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
               <path d="M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 3.6a.993.993 0 00-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.06-.87.49-.87.99l.01 4.61c0 .71.73 1.2 1.39.92z" />
             </svg>
           </button>
+          {onClose && (
+            <button type="button" className="chat-iconbtn chat-close" aria-label="Close chat" onClick={onClose}>
+              ✕
+            </button>
+          )}
         </form>
       </div>
 

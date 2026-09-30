@@ -507,10 +507,9 @@ img.emoji { width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin: 0 0.
 }
 .btn-secondary:hover { background: var(--bg-tertiary); }
 
-/* ── Mobile chat: docked under the board (board + dice stay visible) ── */
+/* ── Mobile chat: a slim strip under the board (board + dice stay large) ── */
 .mobile-chat {
-  flex: 0 0 40%;
-  min-height: 150px;
+  flex: none;
   display: flex;
   flex-direction: column;
   margin: 0 -12px;
@@ -519,17 +518,12 @@ img.emoji { width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin: 0 0.
   box-shadow: 0 -4px 16px rgb(0 0 0 / 0.06);
   padding-bottom: env(safe-area-inset-bottom);
 }
-.mobile-chat-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 4px 8px 0 14px; font-size: 13px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0;
-}
-.mobile-chat-head button {
-  width: 32px; height: 32px; background: none; border: 0; font-size: 16px; color: var(--text-muted); cursor: pointer;
-}
-.mobile-chat .chat-composer { padding-bottom: 6px; }
-/* While typing on a phone, shrink the dice row so the board keeps its space */
-.dice-compact { zoom: 0.62; }
-.dice-compact .dice-row-container { margin: 2px 0; }
+.mobile-chat .chat { flex: none; height: auto; }
+/* ~1–1.5 cm of messages; scroll for older ones */
+.mobile-chat .chat-list { flex: none; height: 96px; padding: 2px 0; }
+.mobile-chat .msg { padding-top: 3px; }
+.mobile-chat .chat-composer { padding: 4px 8px 6px; }
+.chat-close { font-size: 16px; color: var(--text-muted); }
 
 /* Board: scaled smoothly instead of re-rendered when its space changes */
 .board-stage {
