@@ -16,7 +16,7 @@ import {
   RoomMessage, // ★ STRICT TS: Imported RoomMessage
 } from "./firebase/rooms";
 
-import { usePlayerStorage, signInWithGoogle, signOut } from "./hooks/usePlayerStorage";
+import { usePlayerStorage } from "./hooks/usePlayerStorage";
 import { useGameSync } from "./hooks/useGameSync";
 import { useWindowDimensions } from "./hooks/useWindowDimensions";
 
@@ -54,7 +54,7 @@ const DICE_FALLBACK_TIMEOUT_MS = 6000;
 const EMPTY_PLAYER_MAP: Record<string, string> = Object.freeze({});
 const EMPTY_PLAYERS_LIST: string[] = Object.freeze([] as string[]) as string[];
 export default function App() {
-  const { user, authReady, playerId, playerName, setPlayerName, playerColor, setPlayerColor } =
+  const { authReady, authError, playerId, playerName, setPlayerName, playerColor, setPlayerColor } =
     usePlayerStorage();
   const { width, height } = useWindowDimensions();
 
@@ -634,15 +634,12 @@ export default function App() {
         {/* ── LOGIN SCREEN ── */}
         {!activeRoomId && (
           <LoginScreen
-            authReady={authReady}
-            userEmail={user?.email ?? null}
-            onSignIn={() => signInWithGoogle().catch((e) => setError(e.message || "Sign-in failed"))}
-            onSignOut={() => void signOut()}
+            ready={authReady && !!playerId}
             playerName={playerName}
             setPlayerName={setPlayerName}
             joinId={joinId}
             setJoinId={setJoinId}
-            error={error}
+            error={error || authError}
             loading={loading}
             onCreateRoom={onCreateRoom}
             onJoinRoom={onJoinRoom}
