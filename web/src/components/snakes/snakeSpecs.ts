@@ -70,3 +70,16 @@ export const GREEN_52: SnakeSpec = {
     recess: "#2a7a44", edge: "#0e3a1c", shadow: "#0a2a14", light: "#6cc88a", highlight: "#90dca8", rim: "#082410",
   },
 };
+
+// 46 -> 15: orange snake, head at 46/35 looking right, S-bend down through 35/26, tail ends by 15.
+export const ORANGE_46: SnakeSpec = {
+  control: [
+    [697, 692], [680, 695], [655, 710], [637, 735], [632, 770], [645, 805], [680, 830],
+    [705, 850], [717, 880], [720, 910], [722, 940],
+  ],
+  halfWidth: profile({ head: 12, neck: 9, body: 10, headLen: 0.08, taperFrom: 0.7 }),
+  palette: {
+    hue: 26, sat: 0.72,
+    recess: "#c0601e", edge: "#5a2408", shadow: "#4a1c06", light: "#f6a860", highlight: "#fcc080", rim: "#3e1604",
+  },
+};
