@@ -161,7 +161,8 @@ const SNAKE_WAYPOINTS: Record<number, { c: number; ox?: number; oy?: number }[]>
     { c: 43, ox: -0.5 }, { c: 38, ox: -0.4 }, { c: 22, oy: -0.4 },
   ],
   68: [
-    { c: 68, ox: 0.05, oy: 0.1 }, { c: 53, ox: -0.05, oy: 0.1 },
+    { c: 68, ox: 0.4, oy: 0.3 }, { c: 68, ox: 0.05, oy: 0.22 },
+    { c: 68, ox: -0.3, oy: 0.42 }, { c: 53, ox: -0.42, oy: 0.05 },
     { c: 47, ox: 0.15, oy: 0.1 }, { c: 46, ox: 0.2, oy: 0.45 },
     { c: 36, ox: 0.25, oy: 0.3 },
     { c: 25, ox: 0.1, oy: -0.3 }, { c: 26, ox: -0.1, oy: -0.01 },
