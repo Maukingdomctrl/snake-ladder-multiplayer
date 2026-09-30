@@ -1,4 +1,4 @@
-import type { Pt, SnakeSpec } from "./redSnakeGeometry";
+import { RED_SPEC, type Pt, type SnakeSpec } from "./redSnakeGeometry";
 
 const SAMPLES = 280;
 const smooth = (e0: number, e1: number, x: number) => {
@@ -33,4 +33,14 @@ export const BLUE_59: SnakeSpec = {
     hue: 214, sat: 0.62,
     recess: "#244f99", edge: "#0c1f48", shadow: "#0a1a40", light: "#6aa4e8", highlight: "#8fbef2", rim: "#081535",
   },
+};
+
+// 64 -> 24: red snake, head raised at 64/57, straight down past 44/37, hooks right into 24.
+export const RED_64: SnakeSpec = {
+  control: [
+    [515, 452], [495, 466], [467, 490], [445, 520], [435, 560], [432, 605], [436, 655], [440, 705],
+    [432, 755], [418, 805], [406, 850], [402, 878], [412, 898], [428, 905], [445, 895],
+  ],
+  halfWidth: profile({ head: 14, neck: 10.5, body: 12.5, headLen: 0.05, taperFrom: 0.75 }),
+  palette: RED_SPEC.palette,
 };
