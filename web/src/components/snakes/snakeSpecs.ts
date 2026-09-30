@@ -146,7 +146,7 @@ export const GREEN_98: SnakeSpec = {
     [548, 322], [558, 368], [562, 392], [550, 435], [542, 468], [548, 505], [562, 540], [600, 578], [660, 585], [715, 588], [752, 615], [765, 665],
     [760, 720], [750, 780], [748, 840], [765, 890], [800, 930], [850, 965], [885, 978],
   ],
-  halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.82 }),
+  halfWidth: profile({ head: 23.5, neck: 19, body: 23.5, headLen: 0.03, taperFrom: 0.82 }),
   palette: {
     hue: 275, hueEnd: 268, sat: 0.3, value: -0.1,
     recess: "#35243f", edge: "#120a18", shadow: "#0e0814", light: "#6e5a80", highlight: "#8a7498", rim: "#0a0610",

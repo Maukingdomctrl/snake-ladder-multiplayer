@@ -439,30 +439,25 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
         })()}
       </svg>
 
-      {/* Numbers overlay */}
+      {/* Numbers overlay: ivory numerals with a dark enamel outline and a soft drop shadow */}
       <svg
-        style={{
-          position: "absolute", top: 0, left: 0,
-          pointerEvents: "none", zIndex: 15,
-          mixBlendMode: "multiply",
-        }}
+        style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none", zIndex: 15 }}
         width={boardSize}
         height={boardSize}
       >
         <defs>
-          <filter id="stampEmboss" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="1" stdDeviation="0.6" floodColor="#ffffff" floodOpacity="0.5" />
-            <feDropShadow dx="0" dy="-1" stdDeviation="0.6" floodColor="#000000" floodOpacity="0.5" />
-          </filter>
-          <filter id="softWhiteBorder" x="-50%" y="-50%" width="200%" height="200%">
-            <feMorphology operator="dilate" radius="0.6" in="SourceAlpha" result="dilated" />
-            <feGaussianBlur in="dilated" stdDeviation="0.5" result="blurred" />
-            <feFlood floodColor="#ffffff" floodOpacity="0.85" result="white" />
-            <feComposite in="white" in2="blurred" operator="in" result="whiteBorder" />
-            <feMerge>
-              <feMergeNode in="whiteBorder" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
+          <linearGradient id="numFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#fffdf5" />
+            <stop offset="0.55" stopColor="#fbf3dc" />
+            <stop offset="1" stopColor="#e6d3a4" />
+          </linearGradient>
+          <linearGradient id="numGold" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#fff3b8" />
+            <stop offset="0.5" stopColor="#f2c94c" />
+            <stop offset="1" stopColor="#c7901c" />
+          </linearGradient>
+          <filter id="numShadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy={cellSize * 0.025} stdDeviation={cellSize * 0.02} floodColor="#000" floodOpacity="0.45" />
           </filter>
         </defs>
 
@@ -471,28 +466,33 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
           const { row, col } = cellToPos(num);
           const isHome = num === 100;
           const isStart = num === 1;
-          const fontSize = isHome ? cellSize * 0.16 : isStart ? cellSize * 0.22 : cellSize * 0.4;
+          const label = isHome || isStart;
+          const fontSize = isHome ? cellSize * 0.2 : isStart ? cellSize * 0.24 : cellSize * 0.38;
           let yOffset = 0;
           if (isHome) yOffset = cellSize * 0.35;
           if (num === 83 || num === 94 || num === 97 || num === 98) yOffset = -cellSize * 0.25;
 
           return (
-            <g key={num} filter="url(#softWhiteBorder)">
-              <text
-                x={col * cellSize + cellSize / 2}
-                y={row * cellSize + cellSize / 2 + yOffset}
-                textAnchor="middle"
-                dominantBaseline="central"
-                fontSize={fontSize}
-                fontWeight="900"
-                fontFamily="'Arial Black', Impact, sans-serif"
-                fill={isHome || isStart ? "rgba(255,255,255,0.78)" : "rgba(0,0,0,0.78)"}
-                filter="url(#stampEmboss)"
-                style={{ userSelect: "none" }}
-              >
-                {isStart ? "START" : isHome ? "HOME" : num}
-              </text>
-            </g>
+            <text
+              key={num}
+              x={col * cellSize + cellSize / 2}
+              y={row * cellSize + cellSize / 2 + yOffset}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={fontSize}
+              fontWeight="900"
+              fontFamily="'Arial Black', Impact, sans-serif"
+              letterSpacing={label ? cellSize * 0.01 : 0}
+              fill={label ? "url(#numGold)" : "url(#numFill)"}
+              stroke="#241407"
+              strokeWidth={Math.max(1.2, fontSize * 0.11)}
+              strokeLinejoin="round"
+              paintOrder="stroke"
+              filter="url(#numShadow)"
+              style={{ userSelect: "none" }}
+            >
+              {isStart ? "START" : isHome ? "HOME" : num}
+            </text>
           );
         })}
       </svg>
