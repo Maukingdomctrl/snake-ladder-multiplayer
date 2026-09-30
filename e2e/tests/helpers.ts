@@ -1,11 +1,18 @@
-import { expect, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 
 export const PHONE = { width: 412, height: 820 };
 export const SMALL_PHONE = { width: 360, height: 700 };
 
+const openContexts: BrowserContext[] = [];
+// Each player gets a browser context; close them all after every test.
+test.afterEach(async () => {
+  await Promise.all(openContexts.splice(0).map((c) => c.close()));
+});
+
 /** A fresh player (own browser context = own anonymous account) on the join screen. */
 export async function newPlayer(browser: Browser, name: string, viewport = PHONE): Promise<Page> {
   const context = await browser.newContext({ viewport, hasTouch: true, isMobile: viewport.width < 700 });
+  openContexts.push(context);
   const page = await context.newPage();
   await page.goto("/");
   await page.getByPlaceholder("Your name").fill(name);

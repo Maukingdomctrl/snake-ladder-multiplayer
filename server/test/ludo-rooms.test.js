@@ -124,6 +124,10 @@ test("lobby rules: ready, colour picking, player count and who may start", async
 
   await rejects(h.act("bob", roomId, "settings", { maxPlayers: 2 }), "NOT_HOST");
   await h.act("alice", roomId, "settings", { maxPlayers: 2 });
+  const version = h.room(roomId).version;
+  await h.act("alice", roomId, "settings", { maxPlayers: 2 });
+  await h.act("alice", roomId, "ready", { ready: true });
+  assert.equal(h.room(roomId).version, version, "no-op settings/ready don't bump the version");
   await rejects(h.act("alice", roomId, "start"), "NOT_READY");
   await h.act("bob", roomId, "ready", { ready: true });
   await rejects(h.act("bob", roomId, "start"), "NOT_HOST");

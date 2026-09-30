@@ -126,7 +126,8 @@ const handlers = {
     requireLobby(room);
     const seat = requireMember(room, uid);
     if (typeof action.ready !== "boolean") throw new LudoError("BAD_REQUEST", "ready must be true or false");
-    if (room.hostId !== uid) seat.ready = action.ready;
+    if (room.hostId === uid || seat.ready === action.ready) return NO_CHANGE; // the host is always ready
+    seat.ready = action.ready;
   },
 
   color(room, uid, action) {
@@ -151,6 +152,9 @@ const handlers = {
     if (next.maxPlayers < room.ludo.seats.length) {
       throw new LudoError("TOO_MANY_PLAYERS", `There are already ${room.ludo.seats.length} players in the room.`, 409);
     }
+    // (key by key: Firestore doesn't keep map key order)
+    const same = Object.keys(next).every((k) => JSON.stringify(next[k]) === JSON.stringify(room.ludo.settings[k]));
+    if (same) return NO_CHANGE;
     room.ludo.settings = next;
   },
 
@@ -260,4 +264,4 @@ function applyAction(room, uid, request, ctx) {
   return { room: next };
 }
 
-module.exports = { createRoom, applyAction, CHAT_COLORS, NAME_MAX };
+module.exports = { createRoom, applyAction };

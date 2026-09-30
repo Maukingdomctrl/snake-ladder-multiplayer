@@ -49,7 +49,6 @@ export type LudoEvent =
       color: LudoColor;
       dice: number;
       sixes: number;
-      auto: boolean;
       outcome: "move" | "no-moves" | "too-many-sixes";
       legal: number[];
       extraTurn?: "six" | null;

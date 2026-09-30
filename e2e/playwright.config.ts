@@ -28,6 +28,8 @@ export default defineConfig({
       url: "http://127.0.0.1:9099/",
       reuseExistingServer: true,
       timeout: 180_000,
+      // Let the Firebase CLI stop its emulators (the Firestore one is a Java child process)
+      gracefulShutdown: { signal: "SIGTERM", timeout: 10_000 },
     },
     {
       command: "node server.js",

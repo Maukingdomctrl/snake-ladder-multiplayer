@@ -29,7 +29,7 @@ const WIDE_MIN_WIDTH = 760;
 const PANEL_WIDTH = 280;
 
 /** Tracks an element's size (for choosing the side-panel layout). */
-function useElementWidth() {
+function useElementSize() {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
   useEffect(() => {
@@ -65,7 +65,7 @@ function statusLine(ui: UiPhase, nameOf: (color: LudoColor | null) => string, di
 
 export default function LudoGameView({ room, playerId, pending, act, onLeave, serverNow, sound, onToggleSound }: Props) {
   const game = room.ludo.game!;
-  const layout = useElementWidth();
+  const layout = useElementSize();
   const wide = layout.width >= WIDE_MIN_WIDTH && layout.width - PANEL_WIDTH >= Math.min(layout.height, 520);
   const stage = useBoardStage();
   const [focusToken, setFocusToken] = useState<number | null>(null);
@@ -119,7 +119,7 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
     <div className="ludo-banner" style={{ ["--seat" as string]: turnColor ? PALETTE[turnColor].base : "var(--border-strong)" }}>
       <span className="ludo-banner__dot" aria-hidden="true" />
       <span className="ludo-banner__text" aria-live="polite">
-        {game.status === "finished" ? (
+        {ui.kind === "finished" ? (
           winnerId ? (
             <>
               <b>{winnerColor ? COLOR_LABEL[winnerColor] : ""}</b> — {nameById(winnerId)} wins!
@@ -209,7 +209,7 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
       tokens={view.tokens}
       turnColor={turnColor}
       myId={playerId}
-      finished={game.status === "finished"}
+      finished={ui.kind === "finished"}
       vertical={wide}
     />
   );

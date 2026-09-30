@@ -5,6 +5,19 @@ Hosting and Vercel), `server/` is the Express server on Render (creates rooms,
 rolls dice, issues guest passes), Firestore holds game state and chat.
 See README.md for deploy steps.
 
+## Ludo (second game mode)
+- The server is the only authority: `server/ludo/engine.js` (pure rules, injected RNG/clock) and
+  `server/ludo/rooms.js` (lobby + actions, `version` bump per write, `recentActions` de-dup). Clients
+  send intents with `expectedVersion` + `actionId`; never let the web app compute legality or
+  write Ludo state. `firestore.rules` keeps Ludo rooms (`game: "ludo"`) server-write-only.
+- `web/src/games/ludo/board.ts` mirrors the engine's board constants for drawing;
+  `board.test.ts` fails if they drift. The UI replays the server's event log
+  (`usePresentation.ts`) and always settles on the authoritative token positions.
+- Ludo shares the room shell with Snakes & Ladders (header, chat strip, FAB, `.board-stage`
+  scaling via `useBoardStage`), so the mobile layout rules below apply to it too.
+- Tests: `server` → `npm test`; `web` → `npm test`, `npm run typecheck`; `e2e` → Playwright
+  against the Firebase emulators (see README).
+
 ## Mobile layout rules — tuned with the owner, do not change without asking
 
 These were adjusted step by step on a real phone. Treat them as requirements.

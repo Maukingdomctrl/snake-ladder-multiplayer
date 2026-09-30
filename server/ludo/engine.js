@@ -128,11 +128,6 @@ function isSafeIndex(index, settings) {
   return STAR_INDICES.includes(index) || Object.values(START_INDEX).includes(index);
 }
 
-/** Colours still taking turns, in clockwise order. */
-function activeColors(game) {
-  return game.players.filter((p) => p.status === "active").map((p) => p.color);
-}
-
 function playerByColor(game, color) {
   return game.players.find((p) => p.color === color) || null;
 }
@@ -358,14 +353,10 @@ function roll(game, playerId, { rng, now }) {
   const g = clone(game);
   const player = requireTurn(g, playerId, "roll");
   player.missed = 0;
-  return doRoll(g, player, { rng, now, auto: false });
-}
-
-function doRoll(g, player, { rng, now, auto }) {
   const dice = rng.int(1, 7);
   const sixes = dice === 6 ? g.turn.sixes + 1 : 0;
   g.turn.sixes = sixes;
-  const base = { type: "roll", player: player.id, color: player.color, dice, sixes, auto };
+  const base = { type: "roll", player: player.id, color: player.color, dice, sixes };
 
   if (dice === 6 && g.settings.maxConsecutiveSixes > 0 && sixes >= g.settings.maxConsecutiveSixes) {
     pushEvent(g, { ...base, outcome: "too-many-sixes", legal: [] }, now);
@@ -520,7 +511,6 @@ module.exports = {
   START_INDEX,
   STAR_INDICES,
   DEFAULT_SETTINGS,
-  TURN_SECONDS_CHOICES,
   ANIMATION_GRACE_MS,
   LudoError,
   normalizeSettings,
@@ -533,5 +523,4 @@ module.exports = {
   move,
   timeout,
   removePlayer,
-  activeColors,
 };

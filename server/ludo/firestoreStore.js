@@ -44,4 +44,4 @@ function createFirestoreStore(db, FieldValue) {
   };
 }
 
-module.exports = { createFirestoreStore, pickRoom };
+module.exports = { createFirestoreStore };

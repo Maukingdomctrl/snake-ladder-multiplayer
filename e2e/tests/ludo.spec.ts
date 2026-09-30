@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   PHONE,
   SMALL_PHONE,
@@ -11,6 +11,11 @@ import {
   seedLudo,
   tokenLabels,
 } from "./helpers";
+
+/** Notices currently shown on any of the clients. */
+async function anyNotice(pages: Page[]) {
+  return (await Promise.all(pages.map((p) => p.locator(".ludo-notice").allTextContents()))).flat().join(" | ");
+}
 
 test("two players: create, join, ready, start — everyone sees the same board", async ({ browser }) => {
   const { code, pages } = await ludoRoom(browser, ["Alice", "Bob"]);
@@ -73,8 +78,7 @@ test("capturing sends the opponent home, with notices on both screens", async ({
       .then(() => true, () => false);
   }
   expect(captured).toBe(true);
-  const notices = pages.map((p) => p.locator(".ludo-notice"));
-  await expect(notices[0].or(notices[1]).filter({ hasText: "captured" }).first()).toBeVisible();
+  await expect.poll(() => anyNotice(pages), { intervals: [100] }).toContain("captured");
   await expectInSync(pages);
 });
 
@@ -97,7 +101,7 @@ test("the turn timer skips a player who doesn't act", async ({ browser }) => {
     .poll(async () => (await readRoom(code)).ludo.game.events.some((e: { type: string }) => e.type === "skip"), { timeout: 60_000, intervals: [1000] })
     .toBe(true);
   expect((await readRoom(code)).ludo.game.turn.color).not.toBe(before);
-  await expect(pages[0].locator(".ludo-notice", { hasText: "ran out of time" }).or(pages[1].locator(".ludo-notice", { hasText: "ran out of time" })).first()).toBeVisible();
+  await expect.poll(() => anyNotice(pages), { intervals: [100] }).toContain("ran out of time");
 });
 
 test("winning, playing again, and forfeiting by leaving", async ({ browser }) => {
