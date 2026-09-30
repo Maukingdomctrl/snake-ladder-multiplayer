@@ -4,7 +4,7 @@ import React, { useMemo, useEffect, useRef, useState, useCallback, memo } from "
 import Snake from "./snakes/Snake";
 import RedSnake from "./snakes/RedSnake";
 import TracedSnake from "./snakes/TracedSnake";
-import { BLUE_48, BLUE_59, BLUE_89, GREEN_52, ORANGE_46, RED_64 } from "./snakes/snakeSpecs";
+import { BLUE_48, BLUE_59, BLUE_89, GREEN_52, ORANGE_46, PURPLE_69, RED_64 } from "./snakes/snakeSpecs";
 import type { SnakeColors } from "./snakes/shared/types";
 import {
   SNAKES,
@@ -317,6 +317,8 @@ const StaticBoardGraphics = memo(({ cellSize, boardSize }: StaticBoardProps) => 
         height={boardSize}
       >
         {/* Snakes */}
+        {/* drawn first: runs behind the other snakes */}
+        <TracedSnake cellSize={cellSize} spec={PURPLE_69} name="69" />
         <TracedSnake cellSize={cellSize} spec={BLUE_59} name="59" />
         <TracedSnake cellSize={cellSize} spec={RED_64} name="64" />
         <TracedSnake cellSize={cellSize} spec={BLUE_48} name="48" />
