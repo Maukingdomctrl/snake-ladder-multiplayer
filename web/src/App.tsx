@@ -1,5 +1,5 @@
 // web/src/App.tsx
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
 import "./App.css";
@@ -29,6 +29,12 @@ import CountdownCard from "./components/CountdownCard";
 import Scoreboard from "./components/Scoreboard";
 import WinnerOverlay from "./components/WinnerOverlay";
 import DiceRow from "./components/DiceRow";
+import { useLudoRoom } from "./games/ludo/useLudoRoom";
+import { createLudoRoom, peekRoomGame, sendLudoAction } from "./games/ludo/api";
+import { findResumableLudoRoom, forgetLudoRoom, rememberLudoRoom } from "./games/ludo/resume";
+
+// Ludo's screens only download when a Ludo room is opened.
+const LudoRoom = lazy(() => import("./games/ludo/components/LudoRoom"));
 
 type Face = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -54,8 +60,17 @@ const DICE_FALLBACK_TIMEOUT_MS = 6000;
 const EMPTY_PLAYER_MAP: Record<string, string> = Object.freeze({});
 const EMPTY_PLAYERS_LIST: string[] = Object.freeze([] as string[]) as string[];
 export default function App() {
-  const { authReady, authError, playerId, playerName, setPlayerName, playerColor, setPlayerColor } =
-    usePlayerStorage();
+  const {
+    authReady,
+    authError,
+    playerId,
+    playerName,
+    setPlayerName,
+    playerColor,
+    setPlayerColor,
+    selectedGame,
+    setSelectedGame,
+  } = usePlayerStorage();
   const { width, height } = useWindowDimensions();
 
   const isTablet = width >= 768;
@@ -65,6 +80,8 @@ export default function App() {
   const [error, setError] = useState<string>("");
   const [joinId, setJoinId] = useState<string>("");
   const [activeRoomId, setActiveRoomId] = useState<string>("");
+  // Which game the open room plays; the join screen's tab only picks what "Create" makes.
+  const [activeGame, setActiveGame] = useState<"snakes" | "ludo">("snakes");
   // Mirrors activeRoomId via a ref so callbacks created in an OLDER
   // effect closure (e.g. a Firestore snapshot listener from a room the
   // user has since left) can check the TRUE current value at the moment
@@ -90,6 +107,39 @@ export default function App() {
   const [jumpMessage, setJumpMessage] = useState<string>("");
   const [diceComplete, setDiceComplete] = useState<boolean>(true);
   const { countdown } = useGameSync(roomData, playerId);
+
+  // ── Ludo room (state and moves come from the game server) ──
+  const exitLudoRoom = useCallback((message?: string) => {
+    forgetLudoRoom();
+    setActiveRoomId("");
+    setJoinId("");
+    setError(message ?? "");
+  }, []);
+  const ludo = useLudoRoom({
+    roomId: activeGame === "ludo" ? activeRoomId : "",
+    playerId,
+    playerName: playerName.trim(),
+    onExit: exitLudoRoom,
+  });
+  const inLudo = activeGame === "ludo" && !!activeRoomId;
+  // Header and chat only need the member list, whichever game is open.
+  const chatRoom = inLudo ? ludo.room : roomData;
+
+  useEffect(() => {
+    if (inLudo) rememberLudoRoom(activeRoomId);
+  }, [inLudo, activeRoomId]);
+
+  // After a refresh, go straight back into an unfinished Ludo game.
+  const resumeCheckedRef = useRef(false);
+  useEffect(() => {
+    if (!authReady || !playerId || resumeCheckedRef.current) return;
+    resumeCheckedRef.current = true;
+    findResumableLudoRoom(playerId).then((roomId) => {
+      if (!roomId || activeRoomIdRef.current) return;
+      setActiveGame("ludo");
+      setActiveRoomId(roomId);
+    });
+  }, [authReady, playerId]);
 
   // ★ STRICT TS: Removed any[]
   const [messages, setMessages] = useState<RoomMessage[]>([]);
@@ -305,8 +355,15 @@ export default function App() {
     setLoading(true);
     setError("");
     try {
-      const id = await createRoom(playerName.trim(), playerColor);
-      setActiveRoomId(id);
+      if (selectedGame === "ludo") {
+        const { reply } = await createLudoRoom(playerName.trim(), 4);
+        setActiveGame("ludo");
+        setActiveRoomId(reply.roomId);
+      } else {
+        const id = await createRoom(playerName.trim(), playerColor);
+        setActiveGame("snakes");
+        setActiveRoomId(id);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to create room");
     } finally {
@@ -330,7 +387,16 @@ export default function App() {
 
     setLoading(true);
     try {
-      await joinRoom(trimmedId, playerId, playerName.trim(), playerColor);
+      // The code decides the game: join whatever that room is playing.
+      const game = await peekRoomGame(trimmedId);
+      if (!game) throw new Error("Room not found");
+      if (game === "ludo") {
+        await sendLudoAction(trimmedId, { type: "join", name: playerName.trim() });
+        setActiveGame("ludo");
+      } else {
+        await joinRoom(trimmedId, playerId, playerName.trim(), playerColor);
+        setActiveGame("snakes");
+      }
       setActiveRoomId(trimmedId);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to join room");
@@ -431,7 +497,9 @@ export default function App() {
     // value captured in this same closure) since this effect's own
     // local `activeRoomId` can never differ from itself.
     const subscribedRoomId = activeRoomId;
-    const unsub = subscribeRoom(activeRoomId, (room: Room | null) => {
+    // Ludo rooms are followed by useLudoRoom; only the chat is shared.
+    if (activeGame !== "snakes") setRoomData(null);
+    const unsub = activeGame !== "snakes" ? null : subscribeRoom(activeRoomId, (room: Room | null) => {
       if (subscribedRoomId !== activeRoomIdRef.current) return;
       if (room) {
         hasLoadedRoomDataRef.current = true;
@@ -459,7 +527,7 @@ export default function App() {
       // untouched in both cases.
       if (rollFallbackTimeoutRef.current) clearTimeout(rollFallbackTimeoutRef.current);
     };
-  }, [activeRoomId]);
+  }, [activeRoomId, activeGame]);
 
   useEffect(() => {
     if (!roomData) return;
@@ -634,11 +702,13 @@ export default function App() {
             loading={loading}
             onCreateRoom={onCreateRoom}
             onJoinRoom={onJoinRoom}
+            game={selectedGame}
+            setGame={setSelectedGame}
           />
         )}
 
         {/* ── LOADING ROOM ── */}
-        {activeRoomId && !roomData && (
+        {activeRoomId && !roomData && !inLudo && (
           <div
             style={{
               flex: 1,
@@ -654,7 +724,7 @@ export default function App() {
         )}
 
         {/* ── MAIN GAME VIEW ── */}
-        {roomData && (
+        {(roomData || inLudo) && (
           <div
             style={{
               display: "flex",
@@ -703,10 +773,10 @@ export default function App() {
 
             {!isCompact && (
               <GameHeader
-                roomId={roomData.id!}
-                players={roomData.players ?? EMPTY_PLAYERS_LIST}
-                playerColors={roomData.playerColors || EMPTY_PLAYER_MAP}
-                playerNames={roomData.playerNames || EMPTY_PLAYER_MAP}
+                roomId={activeRoomId}
+                players={chatRoom?.players ?? EMPTY_PLAYERS_LIST}
+                playerColors={chatRoom?.playerColors || EMPTY_PLAYER_MAP}
+                playerNames={chatRoom?.playerNames || EMPTY_PLAYER_MAP}
                 isTablet={isTablet}
               />
             )}
@@ -729,7 +799,7 @@ export default function App() {
                   minWidth: 0,
                   minHeight: 0,
                   height: isTablet ? "100%" : undefined,
-                  overflow: isPlayingOrFinished ? "hidden" : "auto",
+                  overflow: isPlayingOrFinished || inLudo ? "hidden" : "auto",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
@@ -738,7 +808,13 @@ export default function App() {
                   position: "relative",
                 }}
               >
-                {roomData.status === "waiting" && (
+                {inLudo && (
+                  <Suspense fallback={<div style={{ margin: "auto", color: "var(--text-muted)" }}>Loading Ludo…</div>}>
+                    <LudoRoom ludo={ludo} playerId={playerId} />
+                  </Suspense>
+                )}
+
+                {roomData?.status === "waiting" && (
                   <Lobby
                     roomData={roomData}
                     playerId={playerId}
@@ -753,15 +829,15 @@ export default function App() {
                   />
                 )}
 
-                {roomData.status === "countdown" && (
+                {roomData?.status === "countdown" && (
                   <CountdownCard
                     countdown={countdown}
                     hostName={getName(roomData.hostId)}
                   />
                 )}
 
-                {(roomData.status === "playing" ||
-                  roomData.status === "finished") && (
+                {(roomData?.status === "playing" ||
+                  roomData?.status === "finished") && (
                   <div
                     style={{
                       display: "flex",
@@ -943,7 +1019,7 @@ export default function App() {
                     playerId={playerId}
                     playerName={playerName}
                     activeRoomId={activeRoomId}
-                    roomData={roomData}
+                    roomData={chatRoom}
                     inDrawer={true}
                   />
                 </div>
@@ -996,7 +1072,7 @@ export default function App() {
                     playerId={playerId}
                     playerName={playerName}
                     activeRoomId={activeRoomId}
-                    roomData={roomData}
+                    roomData={chatRoom}
                     inDrawer={false}
                   />
                 </div>

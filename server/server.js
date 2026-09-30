@@ -2,6 +2,9 @@ const { randomInt, randomUUID } = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const admin = require("firebase-admin");
+const { createLudoRouter } = require("./ludo/router");
+const { createLudoService } = require("./ludo/service");
+const { createFirestoreStore } = require("./ludo/firestoreStore");
 
 // ── Environment Variable Check ──
 console.log("ENV CHECK:", {
@@ -11,14 +14,20 @@ console.log("ENV CHECK:", {
 });
 
 // ── Firebase Admin Setup ──
-admin.initializeApp({
-  credential: admin.credential.cert({
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    // Render environment variables often escape newlines, this converts them back
-    privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-  }),
-});
+// Local development / tests can run against the Firebase emulators
+// (FIRESTORE_EMULATOR_HOST + FIREBASE_AUTH_EMULATOR_HOST), which need no key.
+admin.initializeApp(
+  process.env.FIRESTORE_EMULATOR_HOST
+    ? { projectId: process.env.FIREBASE_PROJECT_ID || "demo-snake-ladder" }
+    : {
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          // Render environment variables often escape newlines, this converts them back
+          privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+        }),
+      }
+);
 
 const db = admin.firestore();
 const app = express();
@@ -148,6 +157,10 @@ app.post('/roll', requireUser, async (req, res) => {
 
       const roomData = roomDoc.data();
 
+      if (roomData.game === "ludo") {
+        throw new Error("This room is playing Ludo.");
+      }
+
       // Validate Game State
       if (roomData.status !== "playing") {
         throw new Error("Game is not in progress.");
@@ -201,6 +214,18 @@ app.post('/roll', requireUser, async (req, res) => {
     res.status(400).send({ error: error.message || "Failed to roll dice" });
   }
 });
+
+// 3. Ludo (authoritative rules engine, see ./ludo)
+app.use(
+  "/ludo",
+  createLudoRouter({
+    service: createLudoService({
+      store: createFirestoreStore(db, admin.firestore.FieldValue),
+      rng: { int: (min, max) => randomInt(min, max) },
+    }),
+    requireUser,
+  })
+);
 
 // ── Server Listen ──
 const PORT = process.env.PORT || 10000;

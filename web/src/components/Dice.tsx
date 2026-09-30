@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getAudioCtx } from "../audio";
 
 type Face = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -10,6 +11,10 @@ interface DiceProps {
   onRollComplete?: () => void;
   onImpact?: (strength: number) => void;
   feedback?: boolean;
+  /** Length of the roll animation in ms (Snakes & Ladders uses the default). */
+  rollMs?: number;
+  /** Scroll the dice into view when a roll starts. */
+  scrollIntoViewOnRoll?: boolean;
 }
 
 const ROLL_MS = 4500;
@@ -67,25 +72,7 @@ const reducedMotionQuery = () =>
 
 /* ---------- Audio Engine ---------- */
 
-let audioCtx: AudioContext | null = null;
 let noiseBufferCache: AudioBuffer | null = null;
-
-function getAudioCtx(): AudioContext | null {
-  if (typeof window === "undefined") return null;
-  try {
-    if (!audioCtx || audioCtx.state === "closed") {
-      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!Ctx) return null;
-      audioCtx = new Ctx();
-    }
-    if (audioCtx.state === "suspended") {
-      audioCtx.resume().catch(() => {});
-    }
-    return audioCtx;
-  } catch {
-    return null;
-  }
-}
 
 function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
   if (!noiseBufferCache) {
@@ -152,6 +139,8 @@ export default function Dice({
   onRollComplete,
   onImpact,
   feedback = true,
+  rollMs = ROLL_MS,
+  scrollIntoViewOnRoll = true,
 }: DiceProps): React.JSX.Element {
   const [rotations, setRotations] = useState({ x: 0, y: 0 });
   const [rollZ, setRollZ] = useState(0);
@@ -226,14 +215,16 @@ export default function Dice({
     const el = bounceRef.current;
     const shadow = shadowRef.current;
     
-    el?.scrollIntoView({ block: "center", behavior: "instant" });
+    if (scrollIntoViewOnRoll) el?.scrollIntoView({ block: "center", behavior: "instant" });
 
     if (el) {
+      el.style.animationDuration = `${rollMs}ms`;
       el.classList.remove("bouncing-dice");
       void el.offsetWidth; 
       el.classList.add("bouncing-dice");
     }
     if (shadow) {
+      shadow.style.animationDuration = `${rollMs}ms`;
       shadow.classList.remove("physics-shadow");
       void shadow.offsetWidth;
       shadow.classList.add("physics-shadow");
@@ -359,7 +350,7 @@ export default function Dice({
       setTimeout(() => {
         fireImpact(strength);
         applyDampedWobble(strength);
-      }, ROLL_MS * at)
+      }, rollMs * at)
     );
 
     // BUG FIX: `onRollComplete` no longer fires in the same tick the roll
@@ -378,7 +369,7 @@ export default function Dice({
       settleBufferTimeoutRef.current = setTimeout(() => {
         onRollCompleteRef.current?.();
       }, SETTLE_BUFFER_MS);
-    }, ROLL_MS);
+    }, rollMs);
   }, [rollKey, lastDice, reducedMotion]);
 
   useEffect(() => clearAllTimers, []);
@@ -509,7 +500,7 @@ export default function Dice({
                     transformStyle: "preserve-3d",
                     transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${rollZ}deg)`,
                     transition: isAnimating
-                      ? `transform ${ROLL_MS}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
+                      ? `transform ${rollMs}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
                       : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
                     willChange: "transform",
                   }}

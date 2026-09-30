@@ -1,0 +1,11 @@
+{
+  "name": "e2e",
+  "private": true,
+  "description": "End-to-end tests: real web app + game server against the Firebase emulators",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

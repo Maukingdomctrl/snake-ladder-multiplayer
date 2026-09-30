@@ -1,6 +1,7 @@
 import { initializeApp, FirebaseOptions, getApps, getApp } from "firebase/app";
-import { initializeFirestore, getFirestore, Firestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, Firestore, connectFirestoreEmulator } from "firebase/firestore";
 import {
+  connectAuthEmulator,
   getAuth,
   initializeAuth,
   indexedDBLocalPersistence,
@@ -19,6 +20,11 @@ const firebaseConfig: FirebaseOptions = {
   messagingSenderId: "259745491690",
   appId: "1:259745491690:web:85f90d7245c1b8ec3f0593",
 };
+
+// Local development against the Firebase emulators (see README). A demo-*
+// project id can never reach the real project.
+const useEmulators = Boolean(import.meta.env.VITE_FIREBASE_EMULATORS);
+if (useEmulators) firebaseConfig.projectId = "demo-snake-ladder";
 
 let db: Firestore;
 const isFirstInit = getApps().length === 0;
@@ -39,5 +45,10 @@ const auth = isFirstInit
       persistence: [indexedDBLocalPersistence, browserLocalPersistence, inMemoryPersistence],
     })
   : getAuth(app);
+
+if (isFirstInit && useEmulators) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+}
 
 export { app, db, auth };
