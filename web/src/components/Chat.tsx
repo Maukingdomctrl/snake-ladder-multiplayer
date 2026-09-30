@@ -209,6 +209,23 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
     if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
+  // Keep the keyboard open while chatting: once the message box has focus,
+  // tapping buttons elsewhere (Send, Roll Dice, Reply, the board…) must not
+  // steal focus and collapse the keyboard. Other text fields (e.g. emoji
+  // search) and the close button still work normally.
+  useEffect(() => {
+    const keepFocus = (e: MouseEvent) => {
+      const box = inputRef.current;
+      if (!box || document.activeElement !== box) return;
+      const target = e.target as HTMLElement | null;
+      if (!target || target === box) return;
+      if (target.closest("input, textarea, select, [contenteditable], .chat-close")) return;
+      e.preventDefault(); // stops the focus change; the click itself still happens
+    };
+    document.addEventListener("mousedown", keepFocus, true);
+    return () => document.removeEventListener("mousedown", keepFocus, true);
+  }, []);
+
   // Auto-grow the textarea up to ~5 lines
   useEffect(() => {
     const el = inputRef.current;
