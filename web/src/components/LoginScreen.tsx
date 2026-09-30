@@ -21,6 +21,8 @@ const inputStyle: React.CSSProperties = {
   minWidth: 0,
 };
 
+import { useState } from "react";
+
 export default function LoginScreen({
   ready,
   playerName,
@@ -32,8 +34,20 @@ export default function LoginScreen({
   onCreateRoom,
   onJoinRoom,
 }: LoginScreenProps) {
+  // Fixed top offset (measured once) so the card doesn't jump when the phone
+  // keyboard opens and the visible area shrinks.
+  const [topGap] = useState(() => Math.max(24, Math.round(window.innerHeight * 0.14)));
+  const [action, setAction] = useState<"create" | "join" | null>(null);
+  const create = () => {
+    setAction("create");
+    onCreateRoom();
+  };
+  const join = () => {
+    setAction("join");
+    onJoinRoom();
+  };
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, padding: 16 }}>
+    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", flex: 1, padding: `${topGap}px 16px 16px`, overflowY: "auto" }}>
       <div className="card" style={{ width: "100%", maxWidth: 360, display: "flex", flexDirection: "column", gap: 14, textAlign: "center" }}>
         <h1 style={{ fontSize: 26, margin: 0, color: "var(--text-primary)", fontWeight: 800, letterSpacing: -0.5 }}>
           Snakes &amp; Ladders
@@ -45,14 +59,14 @@ export default function LoginScreen({
           <>
             <input
               placeholder="Your name"
-              onKeyDown={(e) => e.key === "Enter" && onCreateRoom()}
+              onKeyDown={(e) => e.key === "Enter" && create()}
               maxLength={20}
               value={playerName}
               onChange={(e) => setPlayerName(e.target.value)}
               style={inputStyle}
             />
-            <button onClick={onCreateRoom} disabled={loading} className="btn-primary" style={{ padding: 12, fontSize: 15 }}>
-              {loading ? "Please wait…" : "Create room"}
+            <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: 12, fontSize: 15 }}>
+              {loading && action === "create" ? "Creating…" : "Create room"}
             </button>
 
             <div style={{ display: "flex", gap: 8 }}>
@@ -63,11 +77,11 @@ export default function LoginScreen({
                 placeholder="Room code"
                 value={joinId}
                 onChange={(e) => setJoinId(e.target.value.replace(/\D/g, ""))}
-                onKeyDown={(e) => e.key === "Enter" && onJoinRoom()}
+                onKeyDown={(e) => e.key === "Enter" && join()}
                 style={{ ...inputStyle, flex: 1 }}
               />
-              <button onClick={onJoinRoom} disabled={loading} className="btn-secondary" style={{ padding: "0 18px" }}>
-                Join
+              <button onClick={join} disabled={loading} className="btn-secondary" style={{ padding: "0 18px" }}>
+                {loading && action === "join" ? "Joining…" : "Join"}
               </button>
             </div>
 

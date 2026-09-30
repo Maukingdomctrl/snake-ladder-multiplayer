@@ -106,6 +106,25 @@ export default function App() {
   });
 
 
+  // The board is drawn at a stable "base" size and visually scaled (with a
+  // smooth transition) when its area shrinks — opening chat, the keyboard —
+  // so it glides instead of re-rendering at a new size every frame.
+  const [baseDims, setBaseDims] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
+  useEffect(() => {
+    const { width, height } = boardDims;
+    if (width <= 0 || height <= 0) return;
+    setBaseDims((base) => {
+      const side = Math.min(width, height);
+      if (Math.abs(base.width - width) > 2) return { width, height: side };
+      if (side > base.height + 1) return { width: base.width, height: side };
+      return base;
+    });
+  }, [boardDims]);
+  const boardScale =
+    baseDims.width > 0
+      ? Math.min(1, Math.min(boardDims.width, boardDims.height) / Math.min(baseDims.width, baseDims.height))
+      : 1;
+
   const prevRoomRef = useRef<Room | null>(null);
   const lastProcessedMoveRef = useRef<string>("");
   const prevMsgCountRef = useRef<number>(0);
@@ -744,7 +763,7 @@ export default function App() {
                     }}
                   >
                     {/* TOP BAR (hidden while typing in chat on a phone) */}
-                    <div style={{ flexShrink: 0, padding: "2px 8px 4px", display: typing && !isTablet ? "none" : undefined }}>
+                    <div style={{ flexShrink: 0, padding: "2px 8px 4px", marginBottom: "auto", display: typing && !isTablet ? "none" : undefined }}>
                       {roomData.status === "playing" ? (
                         <div
                           className="turn-indicator"
@@ -829,29 +848,41 @@ export default function App() {
                     <div
                       ref={boardContainerRef}
                       style={{
-                        flex: 1,
+                        flex: "1 1 auto",
                         minHeight: 0,
+                        // Never taller than it is wide, so board + dice stay together
+                        maxHeight: boardDims.width > 0 ? boardDims.width : undefined,
                         display: "flex",
                         justifyContent: "center",
                         alignItems: "center",
                         overflow: "hidden",
                       }}
                     >
-                      <Board
-                        key={activeRoomId}
-                        positions={displayPositions}
-                        playerNames={roomData?.playerNames || EMPTY_PLAYER_MAP}
-                        roomData={roomData}
-                        hideLegend={true}
-                        diceComplete={diceComplete}
-                        dimensions={
-                          boardDims.width > 0 ? boardDims : undefined
-                        }
-                      />
+                      {baseDims.width > 0 && (
+                        <div
+                          className="board-stage"
+                          style={{
+                            width: baseDims.width,
+                            height: baseDims.height,
+                            flexShrink: 0,
+                            transform: `scale(${boardScale})`,
+                          }}
+                        >
+                          <Board
+                            key={activeRoomId}
+                            positions={displayPositions}
+                            playerNames={roomData?.playerNames || EMPTY_PLAYER_MAP}
+                            roomData={roomData}
+                            hideLegend={true}
+                            diceComplete={diceComplete}
+                            dimensions={baseDims}
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* BOTTOM BAR */}
-                    <div className={typing && !isTablet ? "dice-compact" : undefined} style={{ flexShrink: 0, padding: "0 8px" }}>
+                    <div className={typing && !isTablet ? "dice-compact" : undefined} style={{ flexShrink: 0, padding: "0 8px", marginBottom: "auto" }}>
                       {roomData.status === "finished" &&
                         roomData.winnerId &&
                         diceComplete && (
