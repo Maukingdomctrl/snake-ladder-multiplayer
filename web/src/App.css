@@ -204,86 +204,109 @@ button, input, textarea {
   }
 }
 
-/* Chat Typography */
-.chat-sender { font-size: var(--fs-base); font-weight: 600; letter-spacing: -0.01em; }
-.chat-message { font-size: var(--fs-base); font-weight: 400; line-height: var(--lh-normal); color: inherit; text-wrap: pretty; }
-.chat-timestamp { font-size: var(--fs-xs); color: var(--text-muted); margin-inline-start: var(--space-2); }
-.chat-grouped { padding-inline-start: calc(var(--avatar-size) + var(--space-3)); }
+/* ── Chat ── */
+.chat { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; }
+.chat-list {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; padding: 4px 0 8px;
+  display: flex; flex-direction: column;
+}
+/* Few messages sit at the bottom next to the input, like Discord */
+.chat-list > :first-child { margin-top: auto; }
+.chat-empty { color: var(--text-muted); text-align: center; padding: 24px 12px; font-size: 14px; }
 
-/* Premium Chat Hover & Animation Overrides */
-.chat-row {
-  position: relative;
-  padding: var(--space-1) var(--space-4);
-  border-radius: var(--radius-sm);
-  transition: background var(--dur-fast) var(--ease-out);
-  
-  content-visibility: auto; 
-  contain-intrinsic-size: auto 44px;
+.msg { position: relative; padding: 6px 12px 2px; border-left: 2px solid transparent; }
+.msg-grouped { padding-top: 1px; }
+.msg-selected { background: var(--bg-message-hover); }
+.msg-mentioned { background: #fdf6e3; border-left-color: #e0a800; }
+.msg-flash { animation: msg-flash 1.2s ease-out; }
+@keyframes msg-flash { from { background: color-mix(in srgb, var(--accent) 22%, transparent); } }
+.msg-pending { opacity: 0.55; }
 
-  &::before {
-    content: '';
-    position: absolute;
-    inset-inline-start: 0;
-    inset-block: var(--space-1);
-    width: 3px;
-    background: var(--accent);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    opacity: 0;
-    transform: scaleY(0.5);
-    transition: transform var(--dur-fast) var(--ease-spring), opacity var(--dur-fast) var(--ease-out);
-  }
+.msg-head { display: flex; align-items: baseline; gap: 8px; }
+.msg-name { font-weight: 700; font-size: 14px; }
+.msg-time { font-size: 11px; color: var(--text-muted); }
+.msg-text {
+  font-size: 15px; line-height: 1.4; color: var(--text-primary);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg-big { font-size: 30px; line-height: 1.2; }
 
-  &:hover {
-    background: var(--bg-message-hover);
-    &::before { opacity: 1; transform: scaleY(1); }
-  }
+.msg-replyref {
+  display: flex; align-items: center; gap: 6px; max-width: 100%;
+  background: none; border: 0; padding: 0 0 2px; font: inherit; font-size: 12px;
+  color: var(--text-muted); cursor: pointer; text-align: left;
+}
+.msg-replyref-line {
+  width: 18px; height: 8px; margin-left: 4px; flex-shrink: 0;
+  border-left: 2px solid var(--border-strong); border-top: 2px solid var(--border-strong); border-top-left-radius: 5px;
+}
+.msg-replyref b { color: var(--text-secondary); flex-shrink: 0; }
+.msg-replyref-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg-replyref:hover .msg-replyref-text { color: var(--text-primary); }
 
-  /* 3D Dice Animation Overrides (Modern + Legacy Fallback) */
-  &:has(.bouncing-dice),
-  &.has-active-dice {
-    z-index: var(--z-modal);
-    isolation: isolate;
-    content-visibility: visible;
-    contain-intrinsic-size: auto 140px;
-  }
+.msg-action {
+  position: absolute; top: -10px; right: 10px; display: none;
+  background: var(--bg-primary); border: 1px solid var(--border-strong); border-radius: 6px;
+  padding: 2px 8px; font: inherit; font-size: 12px; color: var(--text-secondary);
+  box-shadow: var(--shadow-sm); cursor: pointer;
+}
+.msg-selected .msg-action { display: block; }
+/* Hover effects only on real pointers; phones tap a message to show Reply */
+@media (hover: hover) {
+  .msg:hover { background: var(--bg-message-hover); }
+  .msg-mentioned:hover { background: #faefd2; }
+  .msg:hover .msg-action { display: block; }
+  .msg-action:hover { color: var(--accent); }
+}
+@media (pointer: coarse) {
+  .msg-selected .msg-action { top: 4px; font-size: 13px; padding: 4px 10px; }
 }
 
-/* Input Bar */
-.chat-input {
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: var(--fs-base);
-  padding: var(--space-3) var(--space-4);
-  outline: none;
-  min-height: 44px; 
-  transition: border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out);
+.mention { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border-radius: 4px; padding: 0 2px; font-weight: 600; }
+.mention-me { background: #fbe6a6; color: #7a5a00; }
 
-  &:focus {
-    border-color: var(--accent);
-  }
-  
-  &:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1), 0 0 0 3px color-mix(in oklch, var(--accent) 35%, transparent);
-  }
+.chat-composer { position: relative; padding: 6px 10px 0; flex-shrink: 0; }
+.chat-inputrow {
+  display: flex; align-items: flex-end; gap: 4px;
+  background: var(--bg-input); border: 1px solid var(--border-strong); border-radius: 12px; padding: 4px;
 }
-
-/* Mentions */
-.mention {
-  background: var(--mention);
-  color: var(--text-link);
-  border-radius: 4px;
-  padding: 0 2px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
-
-  &:hover { background: var(--text-link); color: var(--bg-base); }
+.chat-inputrow:focus-within { border-color: var(--accent); }
+.chat-inputrow textarea {
+  flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: transparent;
+  font: inherit; font-size: 16px; line-height: 1.35; padding: 7px 4px; color: var(--text-primary);
+  max-height: 120px;
 }
+.chat-iconbtn, .chat-send {
+  width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center;
+  background: none; border: 0; border-radius: 8px; cursor: pointer; font-size: 20px;
+}
+.chat-iconbtn:hover { background: var(--bg-tertiary); }
+.chat-send { color: var(--accent); }
+.chat-send:disabled { color: var(--text-muted); opacity: 0.5; cursor: default; }
+
+.chat-replybar {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; color: var(--text-secondary);
+  background: var(--bg-tertiary); border-radius: 10px 10px 0 0; padding: 6px 10px; margin-bottom: -4px;
+}
+.chat-replybar button { background: none; border: 0; cursor: pointer; color: var(--text-muted); font-size: 14px; padding: 2px 6px; }
+.chat-error { color: var(--danger); font-size: 12px; padding: 4px 2px; }
+
+.chat-popup {
+  position: absolute; left: 10px; right: 10px; bottom: calc(100% + 4px); z-index: 20;
+  background: var(--bg-primary); border: 1px solid var(--border-strong); border-radius: 12px;
+  box-shadow: var(--shadow-md); padding: 6px;
+}
+.chat-emojis { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); max-height: 200px; overflow-y: auto; }
+.chat-emojis button { font-size: 22px; height: 38px; background: none; border: 0; border-radius: 8px; cursor: pointer; }
+.chat-emojis button:hover { background: var(--bg-tertiary); }
+.chat-mentions button {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: none; border: 0; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 14px; cursor: pointer; color: var(--text-primary);
+}
+.chat-mentions button.active, .chat-mentions button:hover { background: var(--bg-tertiary); }
+.chat-mentions .dot { width: 10px; height: 10px; border-radius: 50%; }
 
 /* Glassmorphic Headers & Panels */
 .channel-header, .elevated-panel {
