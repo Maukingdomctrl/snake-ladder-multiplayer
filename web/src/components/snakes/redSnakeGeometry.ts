@@ -117,7 +117,9 @@ export type RedSnakeGeometry = {
 export function buildRedSnake(): RedSnakeGeometry {
   const C = centreline();
   const N = SAMPLES;
-  const W = C.map((_, k) => halfWidth(k));
+  // body ~15% thicker than the traced outline; head (first ~40 samples) kept exact, blended in smoothly
+  const THICKEN = 1.15;
+  const W = C.map((_, k) => halfWidth(k) * (1 + (THICKEN - 1) * smoothstep(30, 60, k)));
   const tang = (i: number) => {
     const a = C[Math.max(i - 1, 0)], b = C[Math.min(i + 1, N)];
     const dx = b[0] - a[0], dy = b[1] - a[1], d = Math.hypot(dx, dy) || 1;
