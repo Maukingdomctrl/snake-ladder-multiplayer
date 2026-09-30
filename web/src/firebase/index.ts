@@ -8,16 +8,16 @@ import {
   inMemoryPersistence,
 } from "firebase/auth";
 
-// Firebase web config is public by design (it ships in the bundle); env vars
-// can override it, e.g. to point a preview build at another project.
-const env = import.meta.env;
+// Firebase web config is public by design (it ships in the bundle), so it lives
+// here rather than in env vars — old VITE_FIREBASE_* values left in .env.local
+// or on Vercel used a key that can't do sign-in.
 const firebaseConfig: FirebaseOptions = {
-  apiKey: env.VITE_FIREBASE_API_KEY || "AIzaSyAZXQjhsh0ohB7VFhoHgumIM2gvX2s-EZo",
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || "snake-ladder-maukingdom.firebaseapp.com",
-  projectId: env.VITE_FIREBASE_PROJECT_ID || "snake-ladder-maukingdom",
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || "snake-ladder-maukingdom.firebasestorage.app",
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || "259745491690",
-  appId: env.VITE_FIREBASE_APP_ID || "1:259745491690:web:85f90d7245c1b8ec3f0593",
+  apiKey: "AIzaSyAZXQjhsh0ohB7VFhoHgumIM2gvX2s-EZo",
+  authDomain: "snake-ladder-maukingdom.firebaseapp.com",
+  projectId: "snake-ladder-maukingdom",
+  storageBucket: "snake-ladder-maukingdom.firebasestorage.app",
+  messagingSenderId: "259745491690",
+  appId: "1:259745491690:web:85f90d7245c1b8ec3f0593",
 };
 
 let db: Firestore;

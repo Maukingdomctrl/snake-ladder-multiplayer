@@ -12,7 +12,7 @@
    (`snake-ladder-multiplayer-chi.vercel.app`). The `web.app`/`firebaseapp.com` domains are already there.
 
 ## Deploy
-**Firebase (rules + hosting)** — from the repo root (the public web config is built in; `web/.env.example` lists optional overrides):
+**Firebase (rules + hosting)** — from the repo root (the public web config is built into `web/src/firebase/index.ts`):
 ```bash
 npm i -g firebase-tools && firebase login
 firebase deploy --only firestore:rules,hosting
