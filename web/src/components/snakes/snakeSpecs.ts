@@ -116,7 +116,10 @@ export const RED_68: SnakeSpec = {
     [566, 1060], [456, 1037], [346, 1054], [253, 1122],
   ],
   halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.8 }),
-  palette: RED_SPEC.palette,
+  palette: {
+    hue: 355, sat: 0.42, value: -0.1,
+    recess: "#4a1a1c", edge: "#180606", shadow: "#140405", light: "#8a4a4a", highlight: "#a26060", rim: "#100304",
+  },
 };
 
 // 93 -> 37: thick charcoal-green snake (graded head to tail), head at 93/88 facing right, arcs left over 87 and down past 74 (behind the ladder),
