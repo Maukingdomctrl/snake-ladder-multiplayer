@@ -20,6 +20,21 @@ function TracedSnake({ cellSize, spec, name }: { cellSize: number; spec: SnakeSp
   const up = Math.cos(a) >= 0 ? -1 : 1; // local -y is screen-up when the snout points rightwards
   const k = h.width / 12;               // scale head details with the head size
 
+  // head-shaping stage: just the outline and mouth line, so the silhouette can be judged on its own
+  if (spec.silhouetteOnly) {
+    return (
+      <g transform={transform}>
+        {/* outline only the silhouette (both shapes stroked, then both filled), plus the upper jaw's edge,
+            so cheek, hinge and throat read as one continuous structure */}
+        {g.jaw && <polygon points={g.jaw} fill={P.edge} stroke={P.edge} strokeWidth={4} strokeLinejoin="round" />}
+        <polygon points={g.body} fill={P.edge} stroke={P.edge} strokeWidth={4} strokeLinejoin="round" />
+        {g.jaw && <polygon points={g.jaw} fill={P.light} />}
+        <polygon points={g.body} fill={P.light} />
+        {g.lip && <polyline points={g.lip} fill="none" stroke={P.edge} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />}
+      </g>
+    );
+  }
+
   return (
     <g transform={transform}>
       <defs>

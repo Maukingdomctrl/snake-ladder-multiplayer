@@ -131,7 +131,11 @@ export const BLUE_93: SnakeSpec = {
     [742, 370], [728, 420], [690, 458], [640, 478], [590, 492], [557, 525], [532, 570], [515, 625],
     [500, 680], [482, 725], [470, 755],
   ],
-  halfWidth: profile({ head: 21, neck: 17, body: 21, headLen: 0.03, taperFrom: 0.8 }),
+  // even width up to the head: the side-view head outline (snakeHeads.ts) shapes the skull and neck
+  halfWidth: profile({ head: 21, neck: 21, body: 21, headLen: 0.03, taperFrom: 0.8 }),
+  head: "side",
+  jawOpen: 18,
+  silhouetteOnly: true,
   palette: {
     hue: 145, hueEnd: 155, sat: 0.38, value: -0.1,
     recess: "#1e3a2a", edge: "#0a140e", shadow: "#08120c", light: "#4a7a5c", highlight: "#62906f", rim: "#060e09",

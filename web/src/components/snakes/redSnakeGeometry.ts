@@ -9,6 +9,8 @@
 // surface normal round the body is N(θ) = sinθ·n + cosθ·z, and brightness is max(0, N·L), so the
 // light follows every bend continuously.
 
+import { DEFAULT_SIDE_HEAD, sideHead, sideHeadOutline, type HeadPt, type SideHeadParams } from "./snakeHeads";
+
 export type Pt = [number, number];
 
 // Reference-board grid (cell 1 is bottom-left), used to map onto the live board.
@@ -123,6 +125,10 @@ export type SnakeSpec = {
   halfWidth: (k: number) => number;    // half-width at sample k (0..SAMPLES)
   palette: SnakePalette;
   thicken?: number;                    // body multiplier (head kept exact)
+  head?: "side";                       // anatomical side-view head outline (snakeHeads.ts) instead of the width profile
+  headParams?: Partial<SideHeadParams>; // side-view head proportions, over DEFAULT_SIDE_HEAD
+  jawOpen?: number;                    // side-view heads: lower-jaw opening about the hinge (deg, 0 = shut)
+  silhouetteOnly?: boolean;            // draw just the flat outline (no skin, light or head details) while shaping it
 };
 
 export const SAMPLES_COUNT = 280;
@@ -138,6 +144,9 @@ export type SnakeGeometry = {
   head: { x: number; y: number; angle: number; width: number }; // snout frame for generic heads
   body: string;          // full outline (head + body)
   shadowBody: string;    // outline behind the head, for the soft contact shadow
+  jaw?: string;          // lower jaw (side-view heads), drawn under the head so the cheek covers its base
+  lip?: string;          // edge of the upper jaw, snout tip -> mouth corner (side-view heads)
+  upperJaw?: string;     // upper jaw region (side-view heads)
   scales: ScaleInstance[];
   shading: Band[];       // soft form bands (blurred), clipped to the body
   scaleShapes: string[]; // 3 teardrop plate variants (unit space, pointing to the tail)
@@ -165,7 +174,55 @@ export function buildSnake(spec: SnakeSpec): SnakeGeometry {
   const ds = arcOf(C)[N] / N;
 
   const left = C.map((_, i) => at(1, i)), right = C.map((_, i) => at(-1, i));
-  const body = fmt([...left, ...[...right].reverse()]);
+  let body = fmt([...left, ...[...right].reverse()]);
+  let jaw: string | undefined, lip: string | undefined, upperJaw: string | undefined;
+  if (spec.head === "side") {
+    // map the head-frame Béziers onto the (possibly bending) neck, then hand over to the body edges
+    const H = sideHead({ ...DEFAULT_SIDE_HEAD, ...spec.headParams });
+    const A = arcOf(C);
+    const B = Math.max(...W.slice(0, 80));                  // body half-width behind the head = head-frame unit
+    // The skull is rigid, so it can't follow the centreline's bends. Rebuild the spine from the join back to the
+    // snout with the same total turn, but taken out of the skull and moved into the neck (the head keeps its
+    // direction, the neck does the bending, and the curvature still matches the body at the join).
+    const j0 = A.findIndex((a) => a >= H.join * B);
+    const dir = (i: number) => Math.atan2(C[i + 1][1] - C[i][1], C[i + 1][0] - C[i][0]);
+    const turn: number[] = [], keep: number[] = [], neck: number[] = [];
+    for (let i = 1; i <= j0; i++) {
+      let t = dir(i) - dir(i - 1);
+      while (t > Math.PI) t -= 2 * Math.PI;
+      while (t < -Math.PI) t += 2 * Math.PI;
+      turn[i] = t;
+      keep[i] = smoothstep(4 * B, 9 * B, A[i]);                                    // original bending, faded out toward the skull
+      neck[i] = Math.sin(Math.PI * Math.min(1, Math.max(0, (A[i] - 4.5 * B) / (5.5 * B)))) ** 2; // extra bend, centred on the neck
+    }
+    let lost = 0, spread = 0;
+    for (let i = 1; i <= j0; i++) { lost += turn[i] * (1 - keep[i]); spread += neck[i]; }
+    const th: number[] = [], S: Pt[] = [];
+    th[j0] = dir(j0); S[j0] = C[j0];
+    for (let i = j0 - 1; i >= 0; i--) {
+      th[i] = th[i + 1] - (turn[i + 1] * keep[i + 1] + (lost * neck[i + 1]) / (spread || 1));
+      const ds = A[i + 1] - A[i];
+      S[i] = [S[i + 1][0] - ds * Math.cos(th[i]), S[i + 1][1] - ds * Math.sin(th[i])];
+    }
+    const up = Math.cos(th[0]) < 0 ? 1 : -1; // dorsal = whichever side of the head faces screen-up
+    const toScreen = ([u, v]: HeadPt): Pt => {
+      const [k, f] = locate(A.slice(0, j0 + 1), Math.min(u * B, A[j0]));
+      const x = S[k - 1][0] + (S[k][0] - S[k - 1][0]) * f, y = S[k - 1][1] + (S[k][1] - S[k - 1][1]) * f;
+      const t = th[k - 1] + (th[k] - th[k - 1]) * f;
+      return [x - Math.sin(t) * v * B * up, y + Math.cos(t) * v * B * up];
+    };
+    const pose = sideHeadOutline(H, spec.jawOpen ?? 0);
+    // drop points closer than 0.4 reference px to the previous one: no micro- or zero-length segments
+    const far = (a: Pt, b: Pt) => Math.hypot(a[0] - b[0], a[1] - b[1]) > 0.5;
+    const clean = (P: Pt[]) => P.filter((q, i) => (i === 0 || far(q, P[i - 1])) && (i < P.length - 1 || far(q, P[0])));
+    const dorsal = pose.dorsal.map(toScreen);
+    const ventral = pose.ventral.map(toScreen);
+    const [plus, minus] = up > 0 ? [dorsal, ventral] : [ventral, dorsal];
+    body = fmt(clean([...plus, ...left.slice(j0 + 1), ...right.slice(j0 + 1).reverse(), ...[...minus].reverse()]));
+    jaw = fmt(clean(pose.jaw.map(toScreen)));
+    lip = fmt(clean(pose.lip.map(toScreen)));
+    upperJaw = fmt(clean(pose.upperJaw.map(toScreen)));
+  }
   const shadowBody = fmt([...left.slice(40), ...right.slice(40).reverse()]);
 
   // ---- lighting ----
@@ -280,5 +337,5 @@ export function buildSnake(spec: SnakeSpec): SnakeGeometry {
 
   const t0 = tang(3);
   const head = { x: C[0][0], y: C[0][1], angle: (t0.ang * 180) / Math.PI + 180, width: Math.max(...W.slice(0, 40)) };
-  return { head, body, shadowBody, scales, shading, scaleShapes };
+  return { head, body, shadowBody, jaw, lip, upperJaw, scales, shading, scaleShapes };
 }
