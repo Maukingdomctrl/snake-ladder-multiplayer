@@ -75,6 +75,9 @@ export default function App() {
 
   const isTablet = width >= 768;
   const isCompact = height < 700;
+  // Large screens get the desktop layout: game panel | board | chat, flush
+  // full-height panels. Phones and tablets keep the layouts above unchanged.
+  const isDesktop = width >= 1200;
 
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
@@ -678,16 +681,17 @@ export default function App() {
       }}
     >
       <div
+        className={isDesktop ? "app-shell is-desktop" : "app-shell"}
         style={{
-          maxWidth: isTablet ? "1400px" : "100%",
+          maxWidth: isDesktop ? "2560px" : isTablet ? "1400px" : "100%",
           width: "100%",
           margin: "0 auto",
           height: "100%",
           display: "flex",
           flexDirection: "column",
           paddingTop: "max(0px, env(safe-area-inset-top))",
-          paddingLeft: "max(12px, env(safe-area-inset-left))",
-          paddingRight: "max(12px, env(safe-area-inset-right))",
+          paddingLeft: isDesktop ? 0 : "max(12px, env(safe-area-inset-left))",
+          paddingRight: isDesktop ? 0 : "max(12px, env(safe-area-inset-right))",
         }}
       >
         {/* ── LOGIN SCREEN ── */}
@@ -771,13 +775,15 @@ export default function App() {
               </div>
             )}
 
-            {!isCompact && (
+            {(!isCompact || isDesktop) && (
               <GameHeader
                 roomId={activeRoomId}
                 players={chatRoom?.players ?? EMPTY_PLAYERS_LIST}
                 playerColors={chatRoom?.playerColors || EMPTY_PLAYER_MAP}
                 playerNames={chatRoom?.playerNames || EMPTY_PLAYER_MAP}
                 isTablet={isTablet}
+                isDesktop={isDesktop}
+                gameName={inLudo ? "Ludo" : "Snakes & Ladders"}
               />
             )}
 
@@ -787,7 +793,7 @@ export default function App() {
                 flexDirection: isTablet ? "row" : "column",
                 flex: 1,
                 minHeight: 0,
-                gap: isTablet ? 16 : 0,
+                gap: isTablet && !isDesktop ? 16 : 0,
                 alignItems: "stretch",
                 overflow: "hidden",
               }}
@@ -804,7 +810,7 @@ export default function App() {
                   flexDirection: "column",
                   alignItems: "center",
                   justifyContent: "flex-start",
-                  paddingTop: 8,
+                  paddingTop: isDesktop ? 0 : 8,
                   position: "relative",
                 }}
               >
@@ -825,7 +831,7 @@ export default function App() {
                     setCopied={setCopied}
                     onPickColor={onPickColor}
                     onStartGame={onStartGame}
-                    isCompact={isCompact}
+                    isCompact={isCompact && !isDesktop}
                   />
                 )}
 
@@ -839,8 +845,12 @@ export default function App() {
                 {(roomData?.status === "playing" ||
                   roomData?.status === "finished") && (
                   <div
+                    // Desktop: a CSS grid puts the top and bottom bars in a
+                    // side panel next to the board (same elements, so the
+                    // board area is never remounted when the window resizes).
+                    className={isDesktop ? "snl-game snl-game--desktop" : "snl-game"}
                     style={{
-                      display: "flex",
+                      display: isDesktop ? undefined : "flex",
                       flexDirection: "column",
                       width: "100%",
                       flex: 1,
@@ -849,14 +859,18 @@ export default function App() {
                     }}
                   >
                     {/* TOP BAR */}
-                    <div style={{ flexShrink: 0, padding: "2px 8px 4px", marginBottom: "auto" }}>
+                    <div
+                      className="snl-top"
+                      style={isDesktop ? undefined : { flexShrink: 0, padding: "2px 8px 4px", marginBottom: "auto" }}
+                    >
+                      {isDesktop && <p className="panel-label">Turn</p>}
                       {roomData.status === "playing" ? (
                         <div
                           className="turn-indicator"
                           style={{
-                            fontSize: 13,
+                            fontSize: isDesktop ? 17 : 13,
                             padding: "1px 0",
-                            marginBottom: 4,
+                            marginBottom: isDesktop ? 16 : 4,
                           }}
                         >
                           {currentTurnName}'s turn
@@ -891,8 +905,10 @@ export default function App() {
                         </div>
                       )}
 
+                      {isDesktop && roomData.positions && <p className="panel-label">Players</p>}
                       {roomData.positions && (
                         <Scoreboard
+                          vertical={isDesktop}
                           players={roomData.players ?? EMPTY_PLAYERS_LIST}
                           /*
                             BUG FIX: this previously read roomData.positions
@@ -933,11 +949,13 @@ export default function App() {
                     {/* BOARD AREA */}
                     <div
                       ref={boardContainerRef}
+                      className="snl-board-area"
                       style={{
                         flex: "1 1 auto",
                         minHeight: 0,
                         // Never taller than it is wide, so board + dice stay together
-                        maxHeight: boardDims.width > 0 ? boardDims.width : undefined,
+                        // (desktop: the dice live in the side panel, so fill the column)
+                        maxHeight: !isDesktop && boardDims.width > 0 ? boardDims.width : undefined,
                         display: "flex",
                         justifyContent: "center",
                         alignItems: "center",
@@ -968,7 +986,10 @@ export default function App() {
                     </div>
 
                     {/* BOTTOM BAR */}
-                    <div style={{ flexShrink: 0, padding: "0 8px", marginBottom: "auto" }}>
+                    <div
+                      className="snl-bottom"
+                      style={isDesktop ? undefined : { flexShrink: 0, padding: "0 8px", marginBottom: "auto" }}
+                    >
                       {roomData.status === "finished" &&
                         roomData.winnerId &&
                         diceComplete && (
@@ -989,6 +1010,7 @@ export default function App() {
                           />
                         )}
 
+                      {isDesktop && roomData.status === "playing" && <p className="panel-label">Dice</p>}
                       {roomData.status === "playing" && (
                         <DiceRow
                           onRoll={onRollDice}
@@ -1003,6 +1025,7 @@ export default function App() {
                           rollKey={String(roomData.moveCount ?? 0)}
                           jumpMessage={jumpMessage}
                           onRollComplete={handleRollComplete}
+                          stacked={isDesktop}
                         />
                       )}
                     </div>
@@ -1025,32 +1048,42 @@ export default function App() {
                 </div>
               )}
 
-              {/* RIGHT COLUMN: TABLET CHAT */}
+              {/* RIGHT COLUMN: TABLET / DESKTOP CHAT */}
               {isTablet && (
                 <div
-                  style={{
-                    width: 320,
-                    flexShrink: 0,
-                    backgroundColor: "var(--bg-primary)",
-                    borderRadius: 8,
-                    padding: "16px 8px 8px 8px",
-                    display: "flex",
-                    flexDirection: "column",
-                    height: "100%",
-                    maxHeight: "100%",
-                    overflow: "hidden",
-                    boxShadow: "var(--shadow-md)",
-                    border: "1px solid var(--border)",
-                  }}
+                  className={isDesktop ? "desktop-chat" : undefined}
+                  style={
+                    isDesktop
+                      ? undefined
+                      : {
+                          width: 320,
+                          flexShrink: 0,
+                          backgroundColor: "var(--bg-primary)",
+                          borderRadius: 8,
+                          padding: "16px 8px 8px 8px",
+                          display: "flex",
+                          flexDirection: "column",
+                          height: "100%",
+                          maxHeight: "100%",
+                          overflow: "hidden",
+                          boxShadow: "var(--shadow-md)",
+                          border: "1px solid var(--border)",
+                        }
+                  }
                 >
                   <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      marginBottom: 12,
-                      paddingLeft: 8,
-                    }}
+                    className={isDesktop ? "desktop-chat__header" : undefined}
+                    style={
+                      isDesktop
+                        ? undefined
+                        : {
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            marginBottom: 12,
+                            paddingLeft: 8,
+                          }
+                    }
                   >
                     <span
                       style={{ color: "var(--text-muted)", fontSize: 20 }}

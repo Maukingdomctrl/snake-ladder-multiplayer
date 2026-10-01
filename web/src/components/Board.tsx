@@ -986,7 +986,8 @@ export default function Board({
 
   const boardSize = cellSize * 10;
   const playerIds = useMemo(() => Object.keys(positions), [positions]);
-  const tokenSize = Math.max(10, Math.min(22, cellSize * 0.38));
+  // 38% of a square; the cap only matters on big (desktop) boards
+  const tokenSize = Math.max(10, Math.min(32, cellSize * 0.38));
   const hasMeasurement = metrics !== null;
 
   return (

@@ -222,6 +222,34 @@
 .ludo-panel .ludo-banner { flex-wrap: wrap; height: auto; row-gap: 8px; }
 .ludo-panel .ludo-banner__text { flex: 1 0 calc(100% - 24px); }
 .ludo-panel .ludo-timer { margin-right: auto; }
+/* Section labels belong to the desktop panel only */
+.ludo-panel > section { display: contents; }
+.ludo-panel .panel-label { display: none; }
+
+/* Desktop (App marks the shell .is-desktop at >= 1200px): the panel sits left
+   of the board as a flush, full-height surface, as in Snakes & Ladders. */
+.is-desktop .ludo-game.is-wide {
+  grid-template-columns: var(--panel-w) minmax(0, 1fr);
+  grid-template-areas: "panel board";
+  gap: 0;
+  padding-bottom: 0;
+}
+.is-desktop .ludo-game.is-wide > .ludo-stage-area { grid-area: board; padding: 24px; }
+.is-desktop .ludo-panel {
+  grid-area: panel;
+  gap: 22px;
+  padding: 20px;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+}
+.is-desktop .ludo-panel > section { display: block; }
+.is-desktop .ludo-panel .panel-label { display: block; }
+.is-desktop .ludo-panel .ludo-banner { row-gap: 12px; font-size: 16px; }
+.is-desktop .ludo-panel .ludo-actions { align-items: stretch; padding: 0; gap: 10px; }
+.is-desktop .ludo-panel .ludo-actions__status { justify-content: flex-start; text-align: left; font-size: 14px; }
+/* The dice sits flat and full-width, like the player rows */
+.is-desktop .ludo-panel .ludo-dice { align-self: stretch; display: flex; justify-content: center; border-radius: 10px; box-shadow: none; }
+.is-desktop .ludo-game.is-my-roll .ludo-panel .ludo-dice { animation-name: ludo-dice-glow-flat; }
 
 /* Players */
 .ludo-players { list-style: none; margin: 0; padding: 2px 0 4px; display: flex; gap: 6px; flex-shrink: 0; }
@@ -289,6 +317,14 @@
   cursor: pointer;
 }
 .ludo-leave.is-confirm { background: var(--danger); border-color: var(--danger); color: #fff; }
+.ludo-icon-btn, .ludo-small-btn { transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); }
+.ludo-icon-btn:active, .ludo-small-btn:active, .ludo-segmented button:active:not(:disabled) { transform: translateY(1px); }
+@media (hover: hover) {
+  .ludo-icon-btn:hover, .ludo-small-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+  .ludo-leave.is-confirm:hover { background: color-mix(in srgb, var(--danger) 88%, black); color: #fff; }
+  .ludo-segmented button:not(.is-active):not(:disabled):hover { color: var(--text-primary); background: rgb(0 0 0 / 0.04); }
+  .ludo-swatch:not(:disabled):not(.is-selected):hover { transform: scale(1.06); }
+}
 .ludo-timer { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .ludo-timer__bar { width: 40px; height: 5px; border-radius: 3px; background: var(--bg-tertiary); overflow: hidden; box-shadow: inset 0 0 0 1px var(--border); }
 .ludo-timer__bar span { display: block; height: 100%; background: var(--accent); transform-origin: left; transition: transform 0.25s linear; }
@@ -465,5 +501,9 @@
 @keyframes ludo-dice-glow {
   0%, 100% { box-shadow: var(--shadow-md), 0 0 0 0 color-mix(in srgb, var(--seat) 0%, transparent); }
   50% { box-shadow: var(--shadow-md), 0 0 0 5px color-mix(in srgb, var(--seat) 40%, transparent); }
+}
+@keyframes ludo-dice-glow-flat {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--seat) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--seat) 40%, transparent); }
 }
 @keyframes ludo-pulse { 50% { opacity: 0.45; } }

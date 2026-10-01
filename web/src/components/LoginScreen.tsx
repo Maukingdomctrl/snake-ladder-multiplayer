@@ -57,8 +57,10 @@ export default function LoginScreen({
     const keyboardTop = h * 0.48 - 24;
     const top = Math.max(20, Math.min(h * 0.15, keyboardTop - 300));
     const minHeight = Math.max(300, Math.min(440, keyboardTop - top));
+    // Desktop (mouse, wide window) has no on-screen keyboard: just centre the card.
+    const desktop = window.innerWidth >= 1024 && (window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false);
     // Small phones get slightly smaller controls so the card still fits
-    return { top: Math.round(top), minHeight: Math.round(minHeight), large: h >= 860 };
+    return { top: Math.round(top), minHeight: Math.round(minHeight), large: h >= 860, desktop };
   });
   const [action, setAction] = useState<"create" | "join" | null>(null);
   const create = () => {
@@ -70,8 +72,15 @@ export default function LoginScreen({
     onJoinRoom();
   };
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "center", flex: 1, padding: `${layout.top}px 12px 16px`, overflowY: "auto" }}>
-      <div className="card" style={{ width: "100%", maxWidth: 460, minHeight: layout.minHeight, padding: layout.large ? "32px 22px" : "24px 18px", display: "flex", flexDirection: "column", justifyContent: "space-evenly", gap: 16, textAlign: "center" }}>
+    <div style={{ display: "flex", alignItems: layout.desktop ? "center" : "flex-start", justifyContent: "center", flex: 1, padding: layout.desktop ? "24px 12px" : `${layout.top}px 12px 16px`, overflowY: "auto" }}>
+      <div
+        className="card"
+        style={
+          layout.desktop
+            ? { width: "100%", maxWidth: 440, padding: "32px 28px", display: "flex", flexDirection: "column", gap: 16, textAlign: "center" }
+            : { width: "100%", maxWidth: 460, minHeight: layout.minHeight, padding: layout.large ? "32px 22px" : "24px 18px", display: "flex", flexDirection: "column", justifyContent: "space-evenly", gap: 16, textAlign: "center" }
+        }
+      >
         <h1 className="sr-only">{game === "ludo" ? "Ludo" : "Snakes & Ladders"}</h1>
         {/* The game switch doubles as the title */}
         <div className={`game-switch${layout.large ? " game-switch--large" : ""}`} role="radiogroup" aria-label="Game">
@@ -88,6 +97,9 @@ export default function LoginScreen({
             </button>
           ))}
         </div>
+        {layout.desktop && (
+          <p className="join-hint">Create a room and share its 4-digit code, or enter a friend's code to join.</p>
+        )}
 
         {!ready && !error ? (
           <p style={{ color: "var(--text-muted)", margin: 0 }}>Connecting…</p>

@@ -18,6 +18,13 @@ See README.md for deploy steps.
 - Tests: `server` → `npm test`; `web` → `npm test`, `npm run typecheck`; `e2e` → Playwright
   against the Firebase emulators (see README).
 
+## Desktop layout (>= 1200px wide)
+- `isDesktop` in `web/src/App.tsx` switches the room to a three-column app: game panel (turn,
+  players, dice) | board | chat, under a slim header. Styles live in section 7 of `App.css`
+  (`--panel-w`, `--chat-w`, `.snl-game--desktop`, `.desktop-chat`) and, for Ludo, under
+  `.is-desktop` in `ludo.css`. Below 1200px the phone/tablet layout is unchanged; keep desktop
+  changes scoped so they never move anything on phones or tablets.
+
 ## Mobile layout rules — tuned with the owner, do not change without asking
 
 These were adjusted step by step on a real phone. Treat them as requirements.
