@@ -568,3 +568,106 @@ img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0
   will-change: transform;
 }
 @keyframes board-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* =========================================
+   7. DESKTOP LAYOUT (≥1200px, see isDesktop in App.tsx)
+   Game panel | board | chat as flush, full-height panels separated by
+   hairlines. Phones and tablets never get these classes.
+   ========================================= */
+:root {
+  --panel-w: clamp(280px, 19vw, 340px);
+  --chat-w: clamp(320px, 22vw, 400px);
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0 24px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: var(--z-sticky);
+}
+.app-header__title { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.app-header__hash { color: var(--text-muted); font-size: 20px; font-weight: 300; line-height: 1; }
+.app-header h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em; color: var(--text-primary); white-space: nowrap; }
+.app-header__game {
+  font-size: 12px; font-weight: 600; color: var(--text-secondary); white-space: nowrap;
+  background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-full); padding: 3px 10px;
+}
+.app-header__players { display: flex; margin: 0 0 0 auto; padding: 0; list-style: none; }
+.app-header__players li {
+  width: 30px; height: 30px; margin-left: -6px; display: grid; place-items: center;
+  border-radius: 50%; border: 2px solid var(--bg-primary); background: var(--avatar);
+  color: #fff; font-size: 13px; font-weight: 700; text-shadow: 0 1px 1px rgb(0 0 0 / 0.25);
+}
+.app-header__players li:first-child { margin-left: 0; }
+.app-header__count { font-size: 13px; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
+
+/* Chat: a flush column on the right */
+.desktop-chat {
+  width: var(--chat-w);
+  flex-shrink: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-primary);
+  border-left: 1px solid var(--border);
+}
+.desktop-chat__header {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  height: 48px; padding: 0 16px; border-bottom: 1px solid var(--border);
+}
+.desktop-chat .chat-list { padding: 8px 4px 12px; }
+.desktop-chat .chat-composer { padding: 10px 12px 12px; border-top: 1px solid var(--border); }
+
+/* Snakes & Ladders: players and dice in a panel beside the board */
+.snl-game--desktop {
+  display: grid;
+  grid-template-columns: var(--panel-w) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas: "top board" "bottom board";
+}
+.snl-game--desktop > .snl-top,
+.snl-game--desktop > .snl-bottom {
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+.snl-game--desktop > .snl-top { grid-area: top; padding: 20px 20px 16px; }
+.snl-game--desktop > .snl-bottom { grid-area: bottom; padding: 16px 20px 20px; border-top: 1px solid var(--border); overflow-y: auto; }
+.snl-game--desktop > .snl-board-area { grid-area: board; padding: 24px; }
+.scoreboard--vertical { display: flex; flex-direction: column; gap: 6px; }
+.dice-row--stacked .jump-message-pill { max-width: 100%; }
+
+.panel-label {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* =========================================
+   8. CONTROL STATES (all sizes; hover only on real pointers)
+   ========================================= */
+.btn-secondary {
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.btn-secondary:hover:not(:disabled) { border-color: color-mix(in srgb, var(--text-primary) 28%, transparent); }
+.btn-secondary:active:not(:disabled) { transform: translateY(1px); background: color-mix(in srgb, var(--bg-tertiary) 80%, black 4%); }
+.btn-secondary:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn-primary:focus-visible, .btn-secondary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+.game-switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.game-switch button:active:not(.is-active) { transform: scale(0.98); }
+@media (hover: hover) {
+  .game-switch button:not(.is-active):hover { color: var(--text-secondary); background: rgb(0 0 0 / 0.035); }
+}
+.chat-iconbtn:active, .chat-send:active:not(:disabled) { transform: scale(0.94); }
+.join-hint { margin: -4px 0 4px; font-size: 13.5px; line-height: 1.45; color: var(--text-muted); }

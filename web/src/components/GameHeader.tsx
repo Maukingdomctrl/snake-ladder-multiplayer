@@ -4,9 +4,38 @@ interface GameHeaderProps {
   playerColors: Record<string, string>;
   playerNames: Record<string, string>;
   isTablet: boolean;
+  /** Large screens: a full-width app bar with avatars instead of dots. */
+  isDesktop?: boolean;
+  gameName?: string;
 }
 
-export default function GameHeader({ roomId, players, playerColors, playerNames, isTablet }: GameHeaderProps) {
+export default function GameHeader({ roomId, players, playerColors, playerNames, isTablet, isDesktop, gameName }: GameHeaderProps) {
+  if (isDesktop) {
+    return (
+      <header className="app-header">
+        <div className="app-header__title">
+          <span className="app-header__hash" aria-hidden="true">#</span>
+          <h2>game-room-{roomId}</h2>
+          {gameName && <span className="app-header__game">{gameName}</span>}
+        </div>
+        <ul className="app-header__players" aria-label="Players in this room">
+          {players.map((pid) => (
+            <li
+              key={pid}
+              title={playerNames[pid] || pid}
+              style={{ ["--avatar" as string]: playerColors[pid] || "#9ca3af" }}
+            >
+              {(playerNames[pid] || "?").charAt(0).toUpperCase()}
+            </li>
+          ))}
+        </ul>
+        <span className="app-header__count">
+          {players.length} {players.length === 1 ? "player" : "players"}
+        </span>
+      </header>
+    );
+  }
+
   return (
     <div
       className="channel-header"

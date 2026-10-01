@@ -12,6 +12,8 @@ interface DiceRowProps {
   onRollComplete?: () => void;
   onImpact?: (strength: number) => void;
   feedback?: boolean;
+  /** Desktop side panel: dice card with the snake/ladder message under it. */
+  stacked?: boolean;
 }
 
 export default function DiceRow({
@@ -23,6 +25,7 @@ export default function DiceRow({
   onRollComplete,
   onImpact,
   feedback = true,
+  stacked = false,
 }: DiceRowProps) {
   const [isRolling, setIsRolling] = useState(false);
 
@@ -40,13 +43,14 @@ export default function DiceRow({
 
   return (
     <div
-      className={`dice-row-container ${isRolling ? "has-active-dice" : ""}`}
+      className={`dice-row-container ${isRolling ? "has-active-dice" : ""}${stacked ? " dice-row--stacked" : ""}`}
       style={{
         display: "flex",
+        flexDirection: stacked ? "column" : undefined,
         alignItems: "center",
         width: "100%",
-        marginTop: 6,
-        marginBottom: 8,
+        marginTop: stacked ? 0 : 6,
+        marginBottom: stacked ? 0 : 8,
         minHeight: 68,
         // NOTE on z-index: a previous pass tried to fix the
         // pill-vs-floating-chat-button overlap purely via z-index, which
@@ -79,15 +83,20 @@ export default function DiceRow({
         pointerEvents: "none",
       }}
     >
-      <div style={{ flex: 1 }} />
+      {!stacked && <div style={{ flex: 1 }} />}
       <div
         style={{
           background: "var(--bg-tertiary)",
-          borderRadius: 14,
+          borderRadius: stacked ? 10 : 14,
           padding: "10px 20px",
-          boxShadow: "var(--shadow-md)",
+          // Stacked (desktop side panel): fills the panel and sits flat in
+          // it like the player rows above, instead of a floating card
+          boxShadow: stacked ? "none" : "var(--shadow-md)",
           border: "1px solid var(--border)",
           flexShrink: 0,
+          alignSelf: stacked ? "stretch" : undefined,
+          display: stacked ? "flex" : undefined,
+          justifyContent: stacked ? "center" : undefined,
           pointerEvents: "auto",
         }}
       >
@@ -104,10 +113,14 @@ export default function DiceRow({
 
       <div
         style={{
-          flex: 1,
+          flex: stacked ? "none" : 1,
           display: "flex",
-          justifyContent: "flex-start",
-          paddingLeft: 20,
+          justifyContent: stacked ? "center" : "flex-start",
+          paddingLeft: stacked ? 0 : 20,
+          // Stacked: reserve the message's line so the panel never jumps
+          minHeight: stacked ? 52 : undefined,
+          alignItems: stacked ? "center" : undefined,
+          width: stacked ? "100%" : undefined,
           minWidth: 0,
           // Stays non-interactive even when empty — only the pill inside
           // it (when present) would need pointer events, and the pill is

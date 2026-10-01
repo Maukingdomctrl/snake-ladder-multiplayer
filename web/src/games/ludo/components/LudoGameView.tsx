@@ -254,9 +254,18 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
 
       {wide ? (
         <aside className="ludo-panel">
-          {banner}
-          {players}
-          {actions}
+          <section>
+            <p className="panel-label">Turn</p>
+            {banner}
+          </section>
+          <section>
+            <p className="panel-label">Players</p>
+            {players}
+          </section>
+          <section>
+            <p className="panel-label">Dice</p>
+            {actions}
+          </section>
         </aside>
       ) : (
         actions
