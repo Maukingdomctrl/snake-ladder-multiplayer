@@ -38,65 +38,97 @@ export default function Scoreboard({
   diceComplete = true,
   vertical = false,
 }: ScoreboardProps) {
-  return (
-    <div
-      className={vertical ? "scoreboard scoreboard--vertical" : "scoreboard"}
-      style={vertical ? undefined : { width: "100%", marginBottom: 4, display: "flex", gap: 5, overflowX: "auto", paddingBottom: 2 }}
-    >
-      {[...players]
-        .sort((a, b) => (positions[b] ?? 1) - (positions[a] ?? 1))
-        .map((pid, rank) => {
-          const isActive = currentTurn === pid && status === "playing";
-          // A player only reads as "currently rolling/moving" while it's
-          // their active turn AND the board hasn't finished animating
-          // their move yet. Once diceComplete is true again, the label
-          // clears — matching exactly when the token actually stops.
-          const isCurrentlyMoving = isActive && !diceComplete;
+  const sorted = [...players].sort((a, b) => (positions[b] ?? 1) - (positions[a] ?? 1));
+  // The server moves currentTurn on as soon as a roll lands, while the dice is
+  // still rolling on screen: until it settles, the highlighted player is the
+  // one who rolled (same as the "X's turn" line in App).
+  const shownTurn = diceComplete ? currentTurn : (lastRolledBy ?? currentTurn);
+  const label = (pid: string) => {
+    const isActive = shownTurn === pid && status === "playing";
+    // "rolling..." while their dice and token are still moving; then what they rolled
+    return (
+      <>
+        Sq. {positions[pid] ?? 1}
+        {isActive && !diceComplete && <span style={{ color: "#c9a84c" }}> · rolling...</span>}
+        {pid === lastRolledBy && lastDice && diceComplete ? <span> · rolled {lastDice}</span> : null}
+      </>
+    );
+  };
+
+  // Phones and tablets: one slim row above the board (the board is the hero).
+  // The highlighted chip is whose turn it is; there's no separate turn line.
+  if (!vertical) {
+    return (
+      <div className="scoreboard scoreboard--row" role="list" aria-label="Players">
+        {sorted.map((pid) => {
+          const isActive = shownTurn === pid && status === "playing";
           return (
             <div
               key={pid}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: vertical ? 10 : 5,
-                flexShrink: 0,
-                background: isActive ? "rgba(35,165,89,0.12)" : "var(--bg-tertiary)",
-                border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
-                borderRadius: vertical ? 8 : 6,
-                padding: vertical ? "9px 12px" : "4px 8px",
-                boxShadow: isActive ? "0 0 0 2px rgba(35,165,89,0.25)" : "none",
-                transition: "all 0.3s ease",
-              }}
+              role="listitem"
+              className={`score-chip${isActive ? " is-turn" : ""}`}
+              aria-current={isActive ? "true" : undefined}
             >
-              <span style={{ fontSize: vertical ? 11 : 9, fontWeight: 700, color: "var(--text-muted)", minWidth: vertical ? 18 : 10 }}>
-                #{rank + 1}
+              <span className="score-chip__dot" style={{ background: playerColors[pid] || "#ccc" }} />
+              <span className="score-chip__name">
+                {pid === playerId ? "You" : playerNames[pid] || pid}
+                {pid === winnerId ? " 🏆" : ""}
               </span>
-
-              <div
-                style={{
-                  width: vertical ? 28 : 22,
-                  height: vertical ? 28 : 22,
-                  borderRadius: "50%",
-                  background: playerColors[pid] || "#ccc",
-                  flexShrink: 0,
-                  boxShadow: isActive ? "0 0 0 2px var(--accent)" : "none",
-                  transition: "box-shadow 0.3s ease",
-                }}
-              />
-
-              <div style={vertical ? { minWidth: 0 } : undefined}>
-                <p style={{ margin: 0, fontSize: vertical ? 14 : 11.5, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.15, whiteSpace: "nowrap" }}>
-                  {playerNames[pid] || pid}{pid === playerId ? " (You)" : ""}{pid === winnerId ? " 🏆" : ""}
-                </p>
-                <p style={{ margin: vertical ? "2px 0 0" : 0, fontSize: vertical ? 12.5 : 10, color: "var(--text-muted)", lineHeight: 1.15, whiteSpace: "nowrap" }}>
-                  Sq. {positions[pid] ?? 1}
-                  {isCurrentlyMoving && <span style={{ color: "#c9a84c" }}> · rolling...</span>}
-                  {pid === lastRolledBy && lastDice && diceComplete ? <span> · rolled {lastDice}</span> : null}
-                </p>
-              </div>
+              <p className="score-chip__sq">{label(pid)}</p>
             </div>
           );
         })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="scoreboard scoreboard--vertical">
+      {sorted.map((pid, rank) => {
+        const isActive = shownTurn === pid && status === "playing";
+        return (
+          <div
+            key={pid}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexShrink: 0,
+              background: isActive ? "rgba(35,165,89,0.12)" : "var(--bg-tertiary)",
+              border: isActive ? "1px solid var(--accent)" : "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "9px 12px",
+              boxShadow: isActive ? "0 0 0 2px rgba(35,165,89,0.25)" : "none",
+              transition: "all 0.3s ease",
+            }}
+          >
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", minWidth: 18 }}>
+              #{rank + 1}
+            </span>
+
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: "50%",
+                background: playerColors[pid] || "#ccc",
+                flexShrink: 0,
+                boxShadow: isActive ? "0 0 0 2px var(--accent)" : "none",
+                transition: "box-shadow 0.3s ease",
+              }}
+            />
+
+            <div style={{ minWidth: 0 }}>
+              <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.15, whiteSpace: "nowrap" }}>
+                {playerNames[pid] || pid}{pid === playerId ? " (You)" : ""}{pid === winnerId ? " 🏆" : ""}
+              </p>
+              <p style={{ margin: "2px 0 0", fontSize: 12.5, color: "var(--text-muted)", lineHeight: 1.15, whiteSpace: "nowrap" }}>
+                {label(pid)}
+              </p>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

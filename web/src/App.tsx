@@ -1,5 +1,5 @@
 // web/src/App.tsx
-import { useEffect, useRef, useState, useCallback, lazy, Suspense } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback, lazy, Suspense } from "react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "./firebase/index";
 import "./App.css";
@@ -19,6 +19,7 @@ import {
 import { usePlayerStorage } from "./hooks/usePlayerStorage";
 import { useGameSync } from "./hooks/useGameSync";
 import { useWindowDimensions } from "./hooks/useWindowDimensions";
+import { useBoardStage } from "./hooks/useBoardStage";
 
 import Board from "./components/Board";
 import LoginScreen from "./components/LoginScreen";
@@ -29,6 +30,7 @@ import CountdownCard from "./components/CountdownCard";
 import Scoreboard from "./components/Scoreboard";
 import WinnerOverlay from "./components/WinnerOverlay";
 import DiceRow from "./components/DiceRow";
+import Dice from "./components/Dice";
 import { useLudoRoom } from "./games/ludo/useLudoRoom";
 import { createLudoRoom, peekRoomGame, sendLudoAction } from "./games/ludo/api";
 import { findResumableLudoRoom, forgetLudoRoom, rememberLudoRoom } from "./games/ludo/resume";
@@ -59,6 +61,23 @@ const DICE_FALLBACK_TIMEOUT_MS = 6000;
 // reference never changes across renders.
 const EMPTY_PLAYER_MAP: Record<string, string> = Object.freeze({});
 const EMPTY_PLAYERS_LIST: string[] = Object.freeze([] as string[]) as string[];
+
+// The phone chat strip slides open and shut (its height animates), so the
+// board above it shrinks and grows with it instead of jumping.
+function slideChatStrip(strip: HTMLElement, direction: "in" | "out"): Promise<void> {
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (reduced || typeof strip.animate !== "function") return Promise.resolve();
+  const height = `${strip.offsetHeight}px`;
+  strip.style.overflow = "hidden";
+  const animation = strip.animate(
+    direction === "in" ? [{ height: "0px" }, { height }] : [{ height }, { height: "0px" }],
+    { duration: 220, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: direction === "out" ? "forwards" : "none" }
+  );
+  const done = () => {
+    strip.style.removeProperty("overflow");
+  };
+  return animation.finished.then(done, done);
+}
 export default function App() {
   const {
     authReady,
@@ -149,32 +168,13 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState<boolean>(isTablet);
   const [unreadCount, setUnreadCount] = useState<number>(0);
 
-  // ★ Board container measurement
-  const boardContainerRef = useRef<HTMLDivElement>(null);
-  const [boardDims, setBoardDims] = useState<{ width: number; height: number }>({
-    width: 0,
-    height: 0,
-  });
-
-
-  // The board is drawn at a stable "base" size and visually scaled (with a
-  // smooth transition) when its area shrinks — opening chat, the keyboard —
-  // so it glides instead of re-rendering at a new size every frame.
-  const [baseDims, setBaseDims] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
-  useEffect(() => {
-    const { width, height } = boardDims;
-    if (width <= 0 || height <= 0) return;
-    setBaseDims((base) => {
-      const side = Math.min(width, height);
-      if (Math.abs(base.width - width) > 2) return { width, height: side };
-      if (side > base.height + 1) return { width: base.width, height: side };
-      return base;
-    });
-  }, [boardDims]);
-  const boardScale =
-    baseDims.width > 0
-      ? Math.min(1, Math.min(boardDims.width, boardDims.height) / Math.min(baseDims.width, baseDims.height))
-      : 1;
+  // Board area (see hooks/useBoardStage): drawn at a stable size, scaled to
+  // fit frame by frame while the keyboard or the chat strip slides.
+  const boardStage = useBoardStage();
+  const boardSize = useMemo(
+    () => ({ width: boardStage.width, height: boardStage.side }),
+    [boardStage.width, boardStage.side]
+  );
 
   const prevRoomRef = useRef<Room | null>(null);
   const lastProcessedMoveRef = useRef<string>("");
@@ -202,43 +202,15 @@ export default function App() {
   const pendingJumpMessageRef = useRef<string>("");
   const pendingPositionsRef = useRef<Record<string, number>>({});
 
-  // ★ ResizeObserver for board container
-  useEffect(() => {
-    const el = boardContainerRef.current;
-    if (!el) return;
-
-    let timeoutId: ReturnType<typeof setTimeout>;
-    const ro = new ResizeObserver((entries) => {
-      clearTimeout(timeoutId);
-      timeoutId = setTimeout(() => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect;
-          if (width > 0 && height > 0) {
-            setBoardDims({ width: Math.floor(width), height: Math.floor(height) });
-          }
-        }
-      }, 50);
-    });
-
-    ro.observe(el);
-
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) {
-      setBoardDims({ width: Math.floor(rect.width), height: Math.floor(rect.height) });
-    }
-
-    return () => {
-      ro.disconnect();
-      clearTimeout(timeoutId);
-    };
-  }, [roomData?.status]);
-
   // Keyboard behaviour differs by screen:
   // - Join screen: like a banking app, the keyboard slides OVER the page and
   //   nothing moves (interactive-widget=overlays-content, fixed full height).
   // - In a room: the app shrinks to the space above the keyboard so the
-  //   board, dice and docked chat all stay visible while typing.
+  //   board, dice and docked chat all stay visible while typing. Phones and
+  //   tablets glide to the new height (.app-frame.is-gliding) and the board
+  //   scales along with it frame by frame (hooks/useBoardStage).
   const inRoom = !!activeRoomId;
+  const frameRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
     if (meta) {
@@ -258,19 +230,17 @@ export default function App() {
       themeColor.content = getComputedStyle(document.documentElement).getPropertyValue("--home-bg").trim() || "#101318";
     }
 
-    const root = document.documentElement;
+    // Only the frame element is sized: a CSS variable on <html> would restyle
+    // every node of the board (~25k with the snakes) on each keyboard step.
+    const frame = frameRef.current;
     const vv = window.visualViewport;
-    if (!inRoom || !vv) {
-      root.style.removeProperty("--app-h");
-      root.style.removeProperty("--app-top");
-      return;
-    }
+    if (!inRoom || !vv || !frame) return;
     let rafId = 0;
     const update = () => {
       cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        root.style.setProperty("--app-h", `${Math.round(vv.height)}px`);
-        root.style.setProperty("--app-top", `${Math.round(vv.offsetTop)}px`);
+        frame.style.height = `${Math.round(vv.height)}px`;
+        frame.style.top = `${Math.round(vv.offsetTop)}px`;
       });
     };
     update();
@@ -280,6 +250,8 @@ export default function App() {
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
       cancelAnimationFrame(rafId);
+      frame.style.removeProperty("height");
+      frame.style.removeProperty("top");
     };
   }, [inRoom]);
 
@@ -333,6 +305,10 @@ export default function App() {
 
   const isMyTurn =
     roomData?.status === "playing" && roomData?.currentTurn === playerId && diceComplete;
+  const lastFace =
+    roomData?.lastDice != null && roomData.lastDice >= 1 && roomData.lastDice <= 6
+      ? (roomData.lastDice as Face)
+      : null;
   const getName = (pid: string) => roomData?.playerNames?.[pid] || pid;
   const displayTurnId = diceComplete ? roomData?.currentTurn : roomData?.lastRolledBy;
   const currentTurnName = displayTurnId ? getName(displayTurnId) : "";
@@ -672,20 +648,24 @@ export default function App() {
   const isPlayingOrFinished =
     roomData?.status === "playing" || roomData?.status === "finished";
 
+  const chatStripRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (chatOpen && !isTablet && chatStripRef.current) void slideChatStrip(chatStripRef.current, "in");
+  }, [chatOpen, isTablet]);
+
   const closeChatDrawer = useCallback(() => {
-    setChatOpen(false);
+    const strip = chatStripRef.current;
+    if (!strip) return setChatOpen(false);
+    void slideChatStrip(strip, "out").then(() => setChatOpen(false));
   }, []);
 
   return (
     <div
+      ref={frameRef}
+      className={inRoom && !isDesktop ? "app-frame is-gliding" : "app-frame"}
       style={{
         // The home page is dark on every screen size; rooms are light.
         background: inRoom ? "var(--bg-secondary)" : "var(--home-bg)",
-        position: "fixed",
-        left: 0,
-        right: 0,
-        top: "var(--app-top, 0px)",
-        height: "var(--app-h, 100svh)",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
@@ -875,20 +855,20 @@ export default function App() {
                     {/* TOP BAR */}
                     <div
                       className="snl-top"
-                      style={isDesktop ? undefined : { flexShrink: 0, padding: "2px 8px 4px", marginBottom: "auto" }}
+                      style={isDesktop ? undefined : { flexShrink: 0, padding: "2px 8px 6px" }}
                     >
                       {isDesktop && <p className="panel-label">Turn</p>}
                       {roomData.status === "playing" ? (
+                        // Phones/tablets: the highlighted player chip shows whose
+                        // turn it is, so the board keeps the space (screen readers
+                        // still hear it)
                         <div
-                          className="turn-indicator"
-                          style={{
-                            fontSize: isDesktop ? 17 : 13,
-                            padding: "1px 0",
-                            marginBottom: isDesktop ? 16 : 4,
-                          }}
+                          className={isDesktop ? "turn-indicator" : "sr-only"}
+                          aria-live="polite"
+                          style={isDesktop ? { fontSize: 17, padding: "1px 0", marginBottom: 16 } : undefined}
                         >
                           {currentTurnName}'s turn
-                          {roomData.currentTurn === playerId ? " (You)" : ""}
+                          {displayTurnId === playerId ? " (You)" : ""}
                         </div>
                       ) : (
                         <div
@@ -962,28 +942,31 @@ export default function App() {
 
                     {/* BOARD AREA */}
                     <div
-                      ref={boardContainerRef}
+                      ref={boardStage.ref}
                       className="snl-board-area"
                       style={{
                         flex: "1 1 auto",
                         minHeight: 0,
-                        // Never taller than it is wide, so board + dice stay together
-                        // (desktop: the dice live in the side panel, so fill the column)
-                        maxHeight: !isDesktop && boardDims.width > 0 ? boardDims.width : undefined,
+                        // Phones/tablets: the board is the hero, as big as the
+                        // width allows, right under the players row; the free
+                        // space (chat button, chat strip) is below it.
+                        // Desktop fills the column (dice in the side panel).
+                        maxHeight: !isDesktop && boardStage.width > 0 ? boardStage.width : undefined,
+                        position: "relative",
                         display: "flex",
                         justifyContent: "center",
                         alignItems: "center",
                         overflow: "hidden",
                       }}
                     >
-                      {baseDims.width > 0 && (
+                      {boardStage.width > 0 && (
                         <div
+                          ref={boardStage.stageRef}
                           className="board-stage"
                           style={{
-                            width: baseDims.width,
-                            height: baseDims.height,
+                            width: boardSize.width,
+                            height: boardSize.height,
                             flexShrink: 0,
-                            transform: `scale(${boardScale})`,
                           }}
                         >
                           <Board
@@ -993,8 +976,29 @@ export default function App() {
                             roomData={roomData}
                             hideLegend={true}
                             diceComplete={diceComplete}
-                            dimensions={baseDims}
+                            dimensions={boardSize}
                           />
+                        </div>
+                      )}
+                      {/* Phones/tablets: the die floats on the board's corner
+                          (tap it to roll) and snake/ladder news pops up over it */}
+                      {!isDesktop && roomData.status === "playing" && (
+                        <div ref={boardStage.overlayRef} className="board-overlay">
+                          {jumpMessage && (
+                            <div role="status" aria-live="polite" className="board-toast">
+                              {jumpMessage}
+                            </div>
+                          )}
+                          <div className="board-dice board-dice--corner">
+                            <Dice
+                              floating
+                              onRoll={onRollDice}
+                              disabled={!isMyTurn || loading}
+                              lastDice={lastFace}
+                              rollKey={String(roomData.moveCount ?? 0)}
+                              onRollComplete={handleRollComplete}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1002,7 +1006,7 @@ export default function App() {
                     {/* BOTTOM BAR */}
                     <div
                       className="snl-bottom"
-                      style={isDesktop ? undefined : { flexShrink: 0, padding: "0 8px", marginBottom: "auto" }}
+                      style={isDesktop ? undefined : { flexShrink: 0, marginBottom: "auto" }}
                     >
                       {roomData.status === "finished" &&
                         roomData.winnerId &&
@@ -1025,21 +1029,14 @@ export default function App() {
                         )}
 
                       {isDesktop && roomData.status === "playing" && <p className="panel-label">Dice</p>}
-                      {roomData.status === "playing" && (
+                      {isDesktop && roomData.status === "playing" && (
                         <DiceRow
                           onRoll={onRollDice}
                           disabled={!isMyTurn || loading}
-                          lastDice={
-                            roomData.lastDice != null &&
-                            roomData.lastDice >= 1 &&
-                            roomData.lastDice <= 6
-                              ? (roomData.lastDice as Face)
-                              : null
-                          }
+                          lastDice={lastFace}
                           rollKey={String(roomData.moveCount ?? 0)}
                           jumpMessage={jumpMessage}
                           onRollComplete={handleRollComplete}
-                          stacked={isDesktop}
                         />
                       )}
                     </div>
@@ -1049,7 +1046,7 @@ export default function App() {
 
               {/* MOBILE CHAT: docked under the board so both stay usable */}
               {!isTablet && chatOpen && (
-                <div className="mobile-chat">
+                <div className="mobile-chat" ref={chatStripRef}>
                   <Chat
                     onClose={closeChatDrawer}
                     messages={messages}
@@ -1132,34 +1129,21 @@ export default function App() {
         {!isTablet && activeRoomId && !chatOpen && (
           <button
             onClick={() => setChatOpen(true)}
+            className="chat-fab"
+            aria-label={unreadCount > 0 ? `Open chat, ${unreadCount} unread` : "Open chat"}
             style={{
               position: "fixed",
-              // BUG FIX (chat button hidden behind / hiding the snake-
-              // ladder jump-message pill): the FAB and DiceRow's jump
-              // message pill both occupy the bottom-right corner of the
-              // screen on mobile, and neither knew about the other —
-              // raising one's z-index just made it cover the other
-              // instead of the reverse. Real fix: when a jump message is
-              // showing, shrink the FAB and slide it up-and-right into a
-              // small icon that tucks above the pill, instead of the two
-              // competing for the exact same spot. They now coexist
-              // instead of stacking.
-              // Requested: shift the FAB up a bit from the bottom edge on
-              // mobile so it doesn't sit flush at the same baseline as
-              // the dice card below it. This only adjusts the FAB's own
-              // resting position — the board, the dice row, and desktop/
-              // tablet layout (this whole block only renders when
-              // !isTablet) are untouched.
-              bottom: jumpMessage
-                ? "calc(max(24px, env(safe-area-inset-bottom)) + 64px)"
-                : "calc(max(24px, env(safe-area-inset-bottom)) + 16px)",
-              right: jumpMessage ? 16 : 24,
-              minHeight: jumpMessage ? 40 : 56,
-              minWidth: jumpMessage ? 40 : 56,
+              // Sits in the free space under the board (the board is
+              // anchored at the top, and snake/ladder news pops up on the
+              // board itself), so it never has to move out of the way.
+              bottom: "calc(max(24px, env(safe-area-inset-bottom)) + 16px)",
+              right: 24,
+              minHeight: 56,
+              minWidth: 56,
               borderRadius: "50%",
               backgroundColor: "var(--accent)",
               color: "white",
-              fontSize: jumpMessage ? 18 : 24,
+              fontSize: 24,
               zIndex: "var(--z-drawer)", // ★ DESIGN TOKEN
               boxShadow: "var(--shadow-lg)",
               display: "flex",
@@ -1167,14 +1151,14 @@ export default function App() {
               justifyContent: "center",
               padding: 0,
               border: "1px solid rgba(255,255,255,0.2)",
-              transition: "transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), bottom 0.25s ease, right 0.25s ease, min-height 0.25s ease, min-width 0.25s ease, font-size 0.25s ease",
             }}
           >
             <svg
-              width={jumpMessage ? 18 : 24}
-              height={jumpMessage ? 18 : 24}
+              width={24}
+              height={24}
               viewBox="0 0 24 24"
               fill="currentColor"
+              aria-hidden="true"
             >
               <path d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z" />
             </svg>

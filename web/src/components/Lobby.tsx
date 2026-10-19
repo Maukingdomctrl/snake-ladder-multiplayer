@@ -57,24 +57,24 @@ export default function DiscordLobby({
           </span>
         </div>
 
-        {!isCompact && (
-          <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 24px", marginBottom: 24, display: "flex", alignItems: "center", gap: 16, width: "100%" }}>
-            <div>
-              <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", fontWeight: 600, letterSpacing: 1, textTransform: "uppercase" }}>Room Code</p>
-              <p style={{ margin: 0, fontSize: 40, fontWeight: 800, letterSpacing: 8, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{activeRoomId}</p>
-            </div>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(activeRoomId);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 1500);
-              }}
-              style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-            >
-              {copied ? "✓ Copied!" : "Copy"}
-            </button>
+        {/* The code is what friends need to join, so short phones get a
+            slimmer card rather than none */}
+        <div style={{ background: "var(--bg-input)", border: "1px solid var(--border)", borderRadius: 12, padding: isCompact ? "8px 14px" : "16px 24px", marginBottom: isCompact ? 12 : 24, display: "flex", alignItems: "center", gap: 16, width: "100%" }}>
+          <div>
+            <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)", fontWeight: 600, letterSpacing: 1, textTransform: "uppercase" }}>Room Code</p>
+            <p style={{ margin: 0, fontSize: isCompact ? 28 : 40, fontWeight: 800, letterSpacing: isCompact ? 6 : 8, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{activeRoomId}</p>
           </div>
-        )}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(activeRoomId);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+            style={{ background: "var(--bg-tertiary)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 14px", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+          >
+            {copied ? "✓ Copied!" : "Copy"}
+          </button>
+        </div>
 
         <div style={{ width: "100%", marginBottom: isCompact ? 8 : 16 }}>
           <p style={{ margin: isCompact ? "0 0 6px 0" : "0 0 10px 0", fontSize: 12, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>

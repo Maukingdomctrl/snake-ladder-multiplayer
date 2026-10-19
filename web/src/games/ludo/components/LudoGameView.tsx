@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Dice from "../../../components/Dice";
+import { useBoardStage } from "../../../hooks/useBoardStage";
 import WinnerOverlay from "../../../components/WinnerOverlay";
 import { describeProgress } from "../board";
 import { playLudoSound } from "../sound";
 import { COLOR_LABEL, deriveUiPhase, type UiPhase } from "../state";
 import { PALETTE } from "../theme";
 import type { LudoAction, LudoColor, LudoRoom } from "../types";
-import { useBoardStage } from "../useBoardStage";
 import { LUDO_ROLL_MS, usePresentation } from "../usePresentation";
 import LudoBoard from "./LudoBoard";
 import LudoPlayers from "./LudoPlayers";
@@ -28,20 +28,26 @@ type Props = {
 const WIDE_MIN_WIDTH = 760;
 const PANEL_WIDTH = 280;
 
-/** Tracks an element's size (for choosing the side-panel layout). */
-function useElementSize() {
+/** Whether the game area has room for the side panel. Re-renders only when
+ *  that answer changes, and judges by the tallest height seen at this width,
+ *  so the phone keyboard never switches layouts. */
+function useWideLayout() {
   const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [wide, setWide] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) =>
-      setSize({ width: Math.floor(entry.contentRect.width), height: Math.floor(entry.contentRect.height) })
-    );
+    let seen = { width: 0, height: 0 };
+    const ro = new ResizeObserver(([entry]) => {
+      const width = Math.floor(entry.contentRect.width);
+      const height = Math.floor(entry.contentRect.height);
+      seen = width !== seen.width ? { width, height } : { width, height: Math.max(seen.height, height) };
+      setWide(width >= WIDE_MIN_WIDTH && width - PANEL_WIDTH >= Math.min(seen.height, 520));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  return { ref, ...size };
+  return { ref, wide };
 }
 
 function statusLine(ui: UiPhase, nameOf: (color: LudoColor | null) => string, dice: number | null): string {
@@ -65,8 +71,7 @@ function statusLine(ui: UiPhase, nameOf: (color: LudoColor | null) => string, di
 
 export default function LudoGameView({ room, playerId, pending, act, onLeave, serverNow, sound, onToggleSound }: Props) {
   const game = room.ludo.game!;
-  const layout = useElementSize();
-  const wide = layout.width >= WIDE_MIN_WIDTH && layout.width - PANEL_WIDTH >= Math.min(layout.height, 520);
+  const { ref: layoutRef, wide } = useWideLayout();
   const stage = useBoardStage();
   const [focusToken, setFocusToken] = useState<number | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -196,7 +201,6 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
           onRollComplete={onDiceSettled}
           feedback={sound}
           rollMs={LUDO_ROLL_MS}
-          scrollIntoViewOnRoll={false}
         />
       </div>
     </div>
@@ -215,12 +219,12 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
   );
 
   return (
-    <div ref={layout.ref} className={`ludo-game${wide ? " is-wide" : ""}${ui.kind === "my-roll" ? " is-my-roll" : ""}`}>
+    <div ref={layoutRef} className={`ludo-game${wide ? " is-wide" : ""}${ui.kind === "my-roll" ? " is-my-roll" : ""}`}>
       {!wide && players}
       {!wide && banner}
 
       {/* Never taller than wide, so the board and the dice stay together */}
-      <div className="ludo-stage-area" ref={stage.ref} style={wide || !stage.areaWidth ? undefined : { maxHeight: stage.areaWidth }}>
+      <div className="ludo-stage-area" ref={stage.ref} style={wide || !stage.width ? undefined : { maxHeight: stage.width }}>
         <div className="ludo-notice-slot" role="status" aria-live="polite">
           {notice && (
             <div key={notice.id} className={`ludo-notice ludo-notice--${notice.tone}`}>
@@ -230,8 +234,9 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
         </div>
         {stage.side > 0 && (
           <div
+            ref={stage.stageRef}
             className="board-stage"
-            style={{ width: stage.side, height: stage.side, flexShrink: 0, transform: `scale(${stage.scale})` }}
+            style={{ width: stage.side, height: stage.side, flexShrink: 0 }}
           >
             <LudoBoard
               size={stage.side}
