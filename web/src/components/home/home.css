@@ -1,10 +1,13 @@
 /* =========================================================
-   GOODGAME — HOMEPAGE (desktop only; see DesktopHome.tsx)
-   Scoped independently from the in-game interface.
+   GOODGAME — HOME PAGE (DesktopHome.tsx, MobileHome.tsx; shared
+   pieces in parts.tsx). Dark arcade theme on every screen size,
+   scoped under .gaming-home so it never reaches the rooms.
+   Desktop-only rules use .gaming-home--desktop; phone/tablet-only
+   rules use .gaming-home--mobile (section near the end).
    ========================================================= */
 
 .gaming-home {
-  --gh-bg: #101318;
+  --gh-bg: var(--home-bg);
   --gh-panel: #1a1f26;
   --gh-text: #f7f7f2;
   --gh-muted: #a1a7b2;
@@ -179,7 +182,7 @@
   box-shadow: 0 0 0 5px rgb(211 247 139 / 0.08);
 }
 
-.gh-intro h1 {
+.gh-headline {
   margin: 0;
   font-size: clamp(40px, 4.5vw, 62px);
   line-height: 1.06;
@@ -187,7 +190,7 @@
   letter-spacing: -3px;
 }
 
-.gh-intro h1 > span {
+.gh-headline > span {
   color: var(--gh-lime);
 }
 
@@ -943,62 +946,344 @@
   }
 }
 
-/* Narrow desktop windows (1024–1050px) */
+/* Narrow desktop windows (1024–1050px). Scoped to DesktopHome so it never
+   reaches the phone layout, which is narrower still. */
 
 @media (max-width: 1050px) {
-  .gh-shell {
+  .gaming-home--desktop .gh-shell {
     padding-inline: 28px;
   }
 
-  .gh-header-note {
+  .gaming-home--desktop .gh-header-note {
     display: none;
   }
 
-  .gh-hero {
+  .gaming-home--desktop .gh-hero {
     grid-template-columns: minmax(0, 1fr) minmax(330px, 0.95fr);
     gap: 30px;
     padding-top: 45px;
   }
 
-  .gh-intro h1 {
+  .gaming-home--desktop .gh-headline {
     font-size: 45px;
     letter-spacing: -2px;
   }
 
-  .gh-play-card {
+  .gaming-home--desktop .gh-play-card {
     padding: 24px;
   }
 
-  .gh-art-label--top {
+  .gaming-home--desktop .gh-art-label--top {
     right: -5px;
   }
 
-  .gh-art-label--bottom {
+  .gaming-home--desktop .gh-art-label--bottom {
     left: -5px;
     font-size: 9px;
   }
 
-  .gh-dice--floating {
+  .gaming-home--desktop .gh-dice--floating {
     right: 0;
   }
 
-  .gh-section-aside {
+  .gaming-home--desktop .gh-section-aside {
     display: none;
   }
 
-  .gh-game-tile {
+  .gaming-home--desktop .gh-game-tile {
     gap: 13px;
     padding: 15px;
   }
 
-  .gh-game-tile__art {
+  .gaming-home--desktop .gh-game-tile__art {
     width: 68px;
     height: 75px;
   }
 
-  .gh-game-tile__copy h3 {
+  .gaming-home--desktop .gh-game-tile__copy h3 {
     font-size: 16px;
   }
+}
+
+/* =========================================================
+   PHONES & TABLETS (MobileHome.tsx)
+   One column. The room card comes first: LoginScreen measures its top
+   offset and minimum height once on mount, so it never moves when the
+   keyboard opens (CLAUDE.md → Join screen). The artwork and the rest sit
+   below it, where the keyboard goes, and scroll.
+   ========================================================= */
+
+/* Keep the browser's own background dark too while the home page is up
+   (iOS shows it around the fixed app frame when the keyboard opens). */
+body:has(.gaming-home) {
+  background: var(--home-bg);
+}
+
+.gaming-home--mobile {
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+  scroll-padding-top: 0;
+}
+
+.gh-m-shell {
+  width: 100%;
+  max-width: 492px;
+  margin-inline: auto;
+  padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right));
+}
+
+/* Room card */
+
+.gh-m-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  gap: 8px;
+  padding: 14px 14px 16px;
+  border-radius: 20px;
+}
+
+.gh-m-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 22px;
+}
+
+.gh-m-brand {
+  display: inline-flex;
+  align-items: center;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  line-height: 1;
+}
+
+.gh-m-brand .gh-brand__icon {
+  margin-right: 7px;
+}
+
+.gh-m-brand .gh-brand__icon .gh-dice {
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  gap: 2px;
+  border-radius: 6px;
+}
+
+.gh-m-card .gh-connection {
+  font-size: 11px;
+}
+
+/* Game switch: one row, the selected game outlined in lime */
+.gh-m-games {
+  display: flex;
+  gap: 8px;
+}
+
+.gh-m-game {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 46px;
+  padding: 6px 10px;
+  border: 1px solid #ffffff12;
+  border-radius: 12px;
+  background: #15191f;
+  color: var(--gh-muted);
+  transition: border-color 180ms ease, background 180ms ease, color 180ms ease, transform 120ms ease;
+}
+
+.gh-m-game.is-selected {
+  border-color: #d3f78b99;
+  background: #d3f78b09;
+  color: var(--gh-text);
+}
+
+.gh-m-game:disabled {
+  opacity: 0.65;
+}
+
+.gh-m-game .gh-game-option__icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 17px;
+}
+
+.gh-m-game__name {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gh-m-card .gh-create-button {
+  margin-top: 0;
+}
+
+.gh-m-card .gh-divider {
+  margin: 0;
+  font-size: 11px;
+}
+
+.gh-m-card .gh-join-button {
+  font-size: 13px !important;
+}
+
+.gh-m-card .gh-error {
+  margin-top: 0;
+}
+
+/* Below the card */
+
+.gh-m-intro {
+  padding-top: 40px;
+}
+
+.gh-m-intro .gh-eyebrow {
+  margin-bottom: 16px;
+}
+
+.gh-m-intro .gh-headline {
+  font-size: clamp(30px, 9vw, 44px);
+  letter-spacing: -1.6px;
+}
+
+.gh-m-intro .gh-intro__description {
+  margin-top: 14px;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.gh-m-intro .gh-perks {
+  margin-top: 18px;
+  gap: 10px 18px;
+}
+
+.gh-m-intro .gh-perks > span {
+  font-size: 12px;
+}
+
+/* The artwork keeps its desktop composition, scaled to fit a phone */
+.gaming-home--mobile .gh-art {
+  height: 260px;
+  margin-top: 18px;
+}
+
+.gaming-home--mobile .gh-board {
+  top: 0;
+  transform: translateX(-50%) rotate(-13deg) scale(0.82);
+}
+
+.gaming-home--mobile .gh-art-label--top {
+  top: 6px;
+}
+
+.gaming-home--mobile .gh-art-label--bottom {
+  bottom: 14px;
+}
+
+.gaming-home--mobile .gh-dice--floating {
+  right: 4px;
+  bottom: 36px;
+  width: 58px;
+  height: 58px;
+  padding: 11px;
+  gap: 5px;
+  border-radius: 15px;
+}
+
+.gaming-home--mobile .gh-games {
+  margin-top: 8px;
+  padding: 28px 0;
+}
+
+.gaming-home--mobile .gh-section-heading {
+  margin-bottom: 16px;
+}
+
+.gaming-home--mobile .gh-section-heading h2 {
+  font-size: 21px;
+}
+
+.gaming-home--mobile .gh-section-aside {
+  display: none;
+}
+
+.gaming-home--mobile .gh-game-tiles {
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.gaming-home--mobile .gh-game-tile {
+  gap: 14px;
+  padding: 14px;
+}
+
+.gaming-home--mobile .gh-game-tile__art {
+  width: 70px;
+  height: 70px;
+}
+
+.gaming-home--mobile .gh-game-tile__copy h3 {
+  font-size: 17px;
+}
+
+.gaming-home--mobile .gh-game-tile__copy p {
+  font-size: 12px;
+}
+
+.gaming-home--mobile .gh-how {
+  grid-template-columns: 1fr;
+  gap: 18px;
+  padding: 8px 0 32px;
+}
+
+.gaming-home--mobile .gh-step h3 {
+  font-size: 14px;
+}
+
+.gaming-home--mobile .gh-step p {
+  font-size: 12.5px;
+}
+
+.gaming-home--mobile .gh-footer {
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.gaming-home--mobile .gh-footer > p {
+  order: 3;
+  flex-basis: 100%;
+}
+
+/* Touch: the desktop hover lifts become press feedback */
+
+.gaming-home--mobile .gh-m-game:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.gaming-home--mobile .gh-create-button:active:not(:disabled) {
+  background: #e0ffa8;
+}
+
+.gaming-home--mobile .gh-join-button:active:not(:disabled) {
+  background: #ffffff10;
+}
+
+.gaming-home--mobile .gh-game-tile:active {
+  transform: scale(0.985);
+  border-color: #d3f78b40;
 }
 
 @media (prefers-reduced-motion: reduce) {
