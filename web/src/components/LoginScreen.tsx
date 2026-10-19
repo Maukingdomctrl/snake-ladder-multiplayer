@@ -1,5 +1,6 @@
 import { useState } from "react";
-import DesktopHome from "./DesktopHome";
+import DesktopHome from "./home/DesktopHome";
+import MobileHome from "./home/MobileHome";
 
 export interface LoginScreenProps {
   ready: boolean;
@@ -16,153 +17,22 @@ export interface LoginScreenProps {
   setGame: (game: "snakes" | "ludo") => void;
 }
 
-const GAMES = [
-  { id: "snakes", label: "Snakes & Ladders" },
-  { id: "ludo", label: "Ludo" },
-] as const;
-
-const inputStyle: React.CSSProperties = {
-  fontSize: 16, // 16px+ stops iOS from zooming into the field
-  padding: "13px 16px",
-  background: "var(--bg-input)",
-  color: "var(--text-primary)",
-  border: "1px solid var(--border)",
-  borderRadius: 10,
-  outline: "none",
-  minWidth: 0,
-};
-
-
-const bigInput: React.CSSProperties = { ...inputStyle, fontSize: 17, padding: "16px 18px" };
-
-export default function LoginScreen({
-  ready,
-  playerName,
-  setPlayerName,
-  joinId,
-  setJoinId,
-  error,
-  loading,
-  onCreateRoom,
-  onJoinRoom,
-  game,
-  setGame,
-}: LoginScreenProps) {
-  // Fixed top offset (measured once) so the card doesn't jump when the phone
-  // keyboard opens and the visible area shrinks.
+export default function LoginScreen(props: LoginScreenProps) {
   // Measured once, so nothing moves when the keyboard opens. The keyboard
-  // covers roughly the lower half of a phone screen: the card sits in the
-  // upper half and stretches down to just above where the keyboard starts.
+  // covers roughly the lower half of a phone screen: the room card sits in
+  // the upper half and stretches down to just above where the keyboard starts.
   const [layout] = useState(() => {
     const h = window.innerHeight;
     const keyboardTop = h * 0.48 - 24;
     const top = Math.max(20, Math.min(h * 0.15, keyboardTop - 300));
     const minHeight = Math.max(300, Math.min(440, keyboardTop - top));
-    // Desktop (mouse, wide window) has no on-screen keyboard: just centre the card.
+    // Desktop (mouse, wide window) has no on-screen keyboard.
     const desktop = window.innerWidth >= 1024 && (window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ?? false);
-    // Small phones get slightly smaller controls so the card still fits
-    return { top: Math.round(top), minHeight: Math.round(minHeight), large: h >= 860, desktop };
+    return { top: Math.round(top), minHeight: Math.round(minHeight), desktop };
   });
-  const [action, setAction] = useState<"create" | "join" | null>(null);
-  const create = () => {
-    setAction("create");
-    onCreateRoom();
-  };
-  const join = () => {
-    setAction("join");
-    onJoinRoom();
-  };
-  // Desktop gets the arcade home page. Phones and tablets keep the join card
-  // below, which the CLAUDE.md mobile rules depend on.
-  if (layout.desktop) {
-    return (
-      <DesktopHome
-        ready={ready}
-        playerName={playerName}
-        setPlayerName={setPlayerName}
-        joinId={joinId}
-        setJoinId={setJoinId}
-        error={error}
-        loading={loading}
-        onCreateRoom={onCreateRoom}
-        onJoinRoom={onJoinRoom}
-        game={game}
-        setGame={setGame}
-      />
-    );
-  }
 
-  return (
-    <div style={{ display: "flex", alignItems: layout.desktop ? "center" : "flex-start", justifyContent: "center", flex: 1, padding: layout.desktop ? "24px 12px" : `${layout.top}px 12px 16px`, overflowY: "auto" }}>
-      <div
-        className="card"
-        style={
-          layout.desktop
-            ? { width: "100%", maxWidth: 440, padding: "32px 28px", display: "flex", flexDirection: "column", gap: 16, textAlign: "center" }
-            : { width: "100%", maxWidth: 460, minHeight: layout.minHeight, padding: layout.large ? "32px 22px" : "24px 18px", display: "flex", flexDirection: "column", justifyContent: "space-evenly", gap: 16, textAlign: "center" }
-        }
-      >
-        <h1 className="sr-only">{game === "ludo" ? "Ludo" : "Snakes & Ladders"}</h1>
-        {/* The game switch doubles as the title */}
-        <div className={`game-switch${layout.large ? " game-switch--large" : ""}`} role="radiogroup" aria-label="Game">
-          {GAMES.map((g) => (
-            <button
-              key={g.id}
-              type="button"
-              role="radio"
-              aria-checked={game === g.id}
-              className={game === g.id ? "is-active" : ""}
-              onClick={() => setGame(g.id)}
-            >
-              {g.label}
-            </button>
-          ))}
-        </div>
-        {layout.desktop && (
-          <p className="join-hint">Create a room and share its 4-digit code, or enter a friend's code to join.</p>
-        )}
-
-        {!ready && !error ? (
-          <p style={{ color: "var(--text-muted)", margin: 0 }}>Connecting…</p>
-        ) : (
-          <>
-            <input
-              placeholder="Your name"
-              onKeyDown={(e) => e.key === "Enter" && create()}
-              maxLength={20}
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              style={layout.large ? bigInput : inputStyle}
-            />
-            <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: layout.large ? 16 : 13, fontSize: layout.large ? 17 : 16 }}>
-              {loading && action === "create" ? "Creating…" : game === "ludo" ? "Create Ludo room" : "Create room"}
-            </button>
-
-            <div className="or-divider" role="separator">
-              <span>or join a friend</span>
-            </div>
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                type="text"
-                inputMode="numeric"
-                maxLength={4}
-                placeholder="Room code"
-                value={joinId}
-                onChange={(e) => setJoinId(e.target.value.replace(/\D/g, ""))}
-                onKeyDown={(e) => e.key === "Enter" && join()}
-                style={{ ...(layout.large ? bigInput : inputStyle), flex: 1 }}
-              />
-              <button onClick={join} disabled={loading} className="btn-secondary" style={{ padding: "0 24px", fontSize: layout.large ? 17 : 16 }}>
-                {loading && action === "join" ? "Joining…" : "Join"}
-              </button>
-            </div>
-
-          </>
-        )}
-
-        {error && <p style={{ color: "var(--danger)", margin: 0, fontSize: 14 }}>{error}</p>}
-      </div>
-    </div>
-  );
+  // Both are the arcade home page (components/home). Phones and tablets get
+  // the one-column version with the keyboard-stable room card.
+  if (layout.desktop) return <DesktopHome {...props} />;
+  return <MobileHome {...props} cardTop={layout.top} cardMinHeight={layout.minHeight} />;
 }

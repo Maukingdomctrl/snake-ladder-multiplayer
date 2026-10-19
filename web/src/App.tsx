@@ -245,6 +245,18 @@ export default function App() {
       const mode = inRoom ? "resizes-content" : "overlays-content";
       meta.content = meta.content.replace(/interactive-widget=[a-z-]+/, `interactive-widget=${mode}`);
     }
+    // Browser bars match the dark home page; rooms keep the browser default.
+    let themeColor = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (inRoom) {
+      themeColor?.remove();
+    } else {
+      if (!themeColor) {
+        themeColor = document.createElement("meta");
+        themeColor.name = "theme-color";
+        document.head.appendChild(themeColor);
+      }
+      themeColor.content = getComputedStyle(document.documentElement).getPropertyValue("--home-bg").trim() || "#101318";
+    }
 
     const root = document.documentElement;
     const vv = window.visualViewport;
@@ -667,7 +679,8 @@ export default function App() {
   return (
     <div
       style={{
-        background: "var(--bg-secondary)",
+        // The home page is dark on every screen size; rooms are light.
+        background: inRoom ? "var(--bg-secondary)" : "var(--home-bg)",
         position: "fixed",
         left: 0,
         right: 0,
@@ -690,8 +703,9 @@ export default function App() {
           display: "flex",
           flexDirection: "column",
           paddingTop: "max(0px, env(safe-area-inset-top))",
-          paddingLeft: isDesktop ? 0 : "max(12px, env(safe-area-inset-left))",
-          paddingRight: isDesktop ? 0 : "max(12px, env(safe-area-inset-right))",
+          // The home page runs edge to edge and keeps clear of the notch itself.
+          paddingLeft: isDesktop || !inRoom ? 0 : "max(12px, env(safe-area-inset-left))",
+          paddingRight: isDesktop || !inRoom ? 0 : "max(12px, env(safe-area-inset-right))",
         }}
       >
         {/* ── LOGIN SCREEN ── */}
