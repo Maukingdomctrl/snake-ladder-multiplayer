@@ -4,8 +4,8 @@
      ========================================= */
   
   /* Color System - Slightly boosted contrast for AAA readability */
-  --bg-base: #f6f4ef;
-  --bg-secondary: #efece5;
+  --bg-base: #f8f4ea;
+  --bg-secondary: #f0e8d6;
   --bg-primary: #ffffff;
   --bg-primary-glass: rgb(255 255 255 / 0.88);
   --bg-tertiary: #f1efe9;
@@ -17,7 +17,7 @@
   --text-muted: #6b7280;   
   --text-link: #0b7a53;
 
-  --accent: #1f8a5b; 
+  --accent: #17704a;
   
   --online: #3b82f6;
   --mention: rgba(56, 189, 248, 0.12);
