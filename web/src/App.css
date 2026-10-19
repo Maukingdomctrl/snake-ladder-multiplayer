@@ -525,7 +525,9 @@ img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-/* ── Mobile chat: a slim strip under the board (board + dice stay large) ── */
+/* ── Phone chat (App.tsx .mobile-chat): docked under the lobby as a slim
+   strip (~96px of messages + the input row); in a game it floats instead
+   (.mobile-chat--float, below), so the board keeps its size ── */
 .mobile-chat {
   flex: none;
   display: flex;
