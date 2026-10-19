@@ -671,3 +671,7 @@ img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0
 }
 .chat-iconbtn:active, .chat-send:active:not(:disabled) { transform: scale(0.94); }
 .join-hint { margin: -4px 0 4px; font-size: 13.5px; line-height: 1.45; color: var(--text-muted); }
+
+/* "or join a friend" divider between create and join on the home screen */
+.or-divider { display: flex; align-items: center; gap: 10px; font-size: var(--fs-xs); color: var(--text-muted); }
+.or-divider::before, .or-divider::after { content: ""; flex: 1; height: 1px; background: var(--border-strong); }

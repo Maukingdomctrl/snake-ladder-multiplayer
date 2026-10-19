@@ -117,6 +117,10 @@ export default function LoginScreen({
               {loading && action === "create" ? "Creating…" : game === "ludo" ? "Create Ludo room" : "Create room"}
             </button>
 
+            <div className="or-divider" role="separator">
+              <span>or join a friend</span>
+            </div>
+
             <div style={{ display: "flex", gap: 8 }}>
               <input
                 type="text"
