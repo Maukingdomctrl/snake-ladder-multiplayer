@@ -1,5 +1,5 @@
 import { useState } from "react";
-import DesktopHome from "./DesktopHome";
+import DesktopHome from "./home/DesktopHome";
 
 export interface LoginScreenProps {
   ready: boolean;

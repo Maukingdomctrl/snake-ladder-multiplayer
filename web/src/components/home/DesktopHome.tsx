@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
-import type { LoginScreenProps } from "./LoginScreen";
+import type { LoginScreenProps } from "../LoginScreen";
+import "./home.css";
 
 const GAMES = [
   {
