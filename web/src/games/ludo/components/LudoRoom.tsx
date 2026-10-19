@@ -8,10 +8,12 @@ import LudoLobby from "./LudoLobby";
 type Props = {
   ludo: ReturnType<typeof useLudoRoom>;
   playerId: string;
+  /** Phones: the room header's slot for the players during a game. */
+  headerSlot?: HTMLElement | null;
 };
 
 /** The Ludo room screen: lobby before the game, board during and after it. */
-export default function LudoRoom({ ludo, playerId }: Props) {
+export default function LudoRoom({ ludo, playerId, headerSlot = null }: Props) {
   const { room, offline, pending, error, clearError, act, leave, serverNow } = ludo;
   const [sound, setSound] = useState(loadSoundPreference);
 
@@ -58,6 +60,7 @@ export default function LudoRoom({ ludo, playerId }: Props) {
           serverNow={serverNow}
           sound={sound}
           onToggleSound={toggleSound}
+          headerSlot={headerSlot}
         />
       )}
     </div>

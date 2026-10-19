@@ -525,7 +525,9 @@ img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-/* ── Mobile chat: a slim strip under the board (board + dice stay large) ── */
+/* ── Phone chat (App.tsx .mobile-chat): docked under the lobby as a slim
+   strip (~96px of messages + the input row); in a game it floats instead
+   (.mobile-chat--float, below), so the board keeps its size ── */
 .mobile-chat {
   flex: none;
   display: flex;
@@ -542,14 +544,218 @@ img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0
 .mobile-chat .chat-composer { padding: 4px 8px 6px; }
 .chat-close { font-size: 16px; color: var(--text-muted); }
 
-/* Board: scaled smoothly instead of re-rendered when its space changes */
+/* The fixed app frame. In a room it is sized to the space above the phone
+   keyboard: App.tsx writes top/height on this element (not as variables on
+   <html>, which would restyle every node of the board). Phones and tablets
+   glide to the new height, so the chat strip rides up with the keyboard. */
+.app-frame {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 100svh;
+}
+.app-frame.is-gliding { transition: height 0.24s cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* Board: drawn at a stable size and scaled to fit its area. The scale is
+   written every frame by hooks/useBoardStage while the area changes (keyboard,
+   chat strip), so it needs no transition of its own. */
 .board-stage {
   transform-origin: center center;
-  transition: transform 0.22s ease-out;
   animation: board-in 0.3s ease-out 0.12s both;
   will-change: transform;
 }
 @keyframes board-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── Phones/tablets: the board is the hero ──
+   Things that float on the board live in .board-overlay, which matches the
+   board as drawn whatever its scale (hooks/useBoardStage writes --board-side
+   and --die-scale on it). */
+.board-overlay {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: var(--board-side, 0px);
+  height: var(--board-side, 0px);
+  pointer-events: none;
+  z-index: 2;
+}
+.board-dice {
+  position: absolute;
+  width: 80px;
+  height: 80px;
+  pointer-events: auto;
+  transform: scale(var(--die-scale, 0.8));
+}
+/* Snakes & Ladders: the bottom-right corner, clear of the start square */
+.board-dice--corner { right: 1.5%; bottom: 1.5%; transform-origin: bottom right; }
+/* Ludo: the middle of the board, like a real throw */
+.board-dice--center { left: 50%; top: 50%; margin: -40px 0 0 -40px; }
+
+/* The die itself is the roll button (<Dice floating>) */
+.dice-float {
+  position: relative;
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.dice-float:disabled { cursor: default; }
+.dice-float:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+/* Your turn: a warm glow under the die and a gentle hop until you tap it */
+.dice-float::before {
+  content: "";
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  /* A halo that shows around the die (which covers the middle) */
+  background: radial-gradient(circle, rgb(255 190 50 / 0.95) 36%, rgb(255 190 50 / 0.45) 52%, rgb(255 190 50 / 0) 72%);
+  opacity: 0;
+  transition: opacity var(--dur-slow) ease;
+  pointer-events: none;
+}
+.dice-float.is-ready { animation: dice-hop 1.6s ease-in-out infinite; }
+.dice-float.is-ready::before { opacity: 1; animation: dice-glow 1.6s ease-in-out infinite; }
+@keyframes dice-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes dice-glow { 0%, 100% { transform: scale(0.85); opacity: 0.55; } 50% { transform: scale(1.15); opacity: 1; } }
+
+/* Snake/ladder news pops up on the board instead of taking a row */
+.board-toast {
+  position: absolute;
+  left: 50%;
+  top: 40%;
+  max-width: 88%;
+  padding: 8px 16px;
+  border: 1px solid rgb(255 255 255 / 0.25);
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  box-shadow: var(--shadow-lg);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  animation: board-toast-in 0.34s var(--ease-spring) both;
+}
+@keyframes board-toast-in { from { opacity: 0; transform: translate(-50%, -50%) scale(0.85); } }
+.jump-message-pill { animation: jump-pill-in 0.34s var(--ease-spring) both; }
+@keyframes jump-pill-in { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+
+/* Phones in a game: the players live in the room header (GameHeader's
+   children), right after the room number */
+.header-game {
+  flex: 1;
+  min-width: 0;
+  margin-left: 10px;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.header-game::-webkit-scrollbar { display: none; }
+.header-slot { min-width: 0; }
+.header-game .scoreboard--row { width: auto; }
+
+/* Phone chat floats: only the input bar takes a row under the game; the
+   messages float above it, filling the free space under the board when there
+   is some and otherwise over the board's lower left (keyboard open), so the
+   board keeps its size. App.tsx sets --chat-float-h, and .is-over-board
+   when they cover the board: then they keep clear of the die's corner. */
+.mobile-chat--float { position: relative; }
+.mobile-chat--float .chat { position: static; }
+.mobile-chat--float .chat-list {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  width: 100%;
+  height: var(--chat-float-h, 96px);
+  padding: 8px 0 6px;
+  background: rgb(255 255 255 / 0.8);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -6px 18px rgb(0 0 0 / 0.08);
+  transition: width var(--dur-base) var(--ease-out);
+  animation: chat-float-in 0.22s var(--ease-out) both;
+}
+.mobile-chat--float.is-over-board .chat-list {
+  width: calc(100% - 92px);
+  background: rgb(255 255 255 / 0.66);
+  border-radius: 0 18px 0 0;
+}
+.mobile-chat--float.is-over-board .bubble { box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+@keyframes chat-float-in { from { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-chat--float .chat-list { background: var(--bg-primary); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+/* Snakes & Ladders players on phones/tablets: one slim row above the board.
+   The highlighted chip is whose turn it is (no separate turn line). */
+.scoreboard--row {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.scoreboard--row::-webkit-scrollbar { display: none; }
+.score-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 10px 0 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  transition: background var(--dur-slow) ease, border-color var(--dur-slow) ease, box-shadow var(--dur-slow) ease;
+}
+.score-chip.is-turn {
+  background: rgb(35 165 89 / 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgb(35 165 89 / 0.2);
+}
+.score-chip__dot {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+}
+.score-chip.is-turn .score-chip__dot { box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 3.5px var(--accent); }
+.score-chip__name {
+  max-width: 9em;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.score-chip__sq {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Snakes & Ladders dice: a soft glow while it's your turn, so the dice
+   calls you even while you're chatting (same cue as Ludo's dice) */
+.dice-card.is-ready { animation: dice-ready-glow 1.4s ease-in-out infinite; }
+.dice-row--stacked .dice-card.is-ready { animation-name: dice-ready-glow-flat; }
+@keyframes dice-ready-glow {
+  0%, 100% { box-shadow: var(--shadow-md), 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50% { box-shadow: var(--shadow-md), 0 0 0 5px color-mix(in srgb, var(--accent) 35%, transparent); }
+}
+@keyframes dice-ready-glow-flat {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent); }
+}
 
 /* =========================================
    7. DESKTOP LAYOUT (≥1200px, see isDesktop in App.tsx)

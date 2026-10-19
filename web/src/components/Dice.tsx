@@ -13,8 +13,9 @@ interface DiceProps {
   feedback?: boolean;
   /** Length of the roll animation in ms (Snakes & Ladders uses the default). */
   rollMs?: number;
-  /** Scroll the dice into view when a roll starts. */
-  scrollIntoViewOnRoll?: boolean;
+  /** Phones and tablets: the die floats on the board and is itself the roll
+   *  button (tap the die), with no "Roll Dice" button beside it. */
+  floating?: boolean;
 }
 
 const ROLL_MS = 4500;
@@ -140,7 +141,7 @@ export default function Dice({
   onImpact,
   feedback = true,
   rollMs = ROLL_MS,
-  scrollIntoViewOnRoll = true,
+  floating = false,
 }: DiceProps): React.JSX.Element {
   const [rotations, setRotations] = useState({ x: 0, y: 0 });
   const [rollZ, setRollZ] = useState(0);
@@ -214,9 +215,8 @@ export default function Dice({
   const restartBounce = () => {
     const el = bounceRef.current;
     const shadow = shadowRef.current;
-    
-    if (scrollIntoViewOnRoll) el?.scrollIntoView({ block: "center", behavior: "instant" });
-
+    // No scrollIntoView here: the dice is always on screen, and scrolling it
+    // into view could pan the page while the chat keyboard is open.
     if (el) {
       el.style.animationDuration = `${rollMs}ms`;
       el.classList.remove("bouncing-dice");
@@ -405,6 +405,104 @@ export default function Dice({
     }
   };
 
+  // The 3D die and its shadow
+  const die = (
+    <div
+      style={{
+        position: "relative",
+        width: 80,
+        height: 80,
+        perspective: "400px",
+        perspectiveOrigin: "50% 20%",
+        transformStyle: "preserve-3d",
+        transform: "rotateX(15deg)",
+        opacity: disabled && !rolling && !settled ? 0.5 : 1,
+        transition: "opacity 0.4s ease-out",
+      }}
+    >
+      <div
+        className={settled && !reducedMotion ? "settled-dice" : ""}
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          width: 56,
+          height: 56,
+          top: 12,
+          left: 12,
+          transformStyle: "preserve-3d",
+        }}
+      >
+        {/* ★ PERFORMANCE FIX: will-change applied here */}
+        <div 
+          ref={bounceRef} 
+          style={{ 
+            width: "100%", 
+            height: "100%", 
+            transformStyle: "preserve-3d",
+            willChange: "transform" 
+          }}
+        >
+          <div
+            ref={wobbleRef}
+            style={{
+              width: "100%",
+              height: "100%",
+              transformStyle: "preserve-3d",
+              willChange: "transform" /* Ensures the wobble layer gets accelerated */
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                position: "relative",
+                transformStyle: "preserve-3d",
+                transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${rollZ}deg)`,
+                transition: isAnimating
+                  ? `transform ${rollMs}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
+                  : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
+                willChange: "transform",
+              }}
+            >
+              {FACE_TRANSFORMS.map(({ face, transform }) => (
+                <div key={face} style={{ ...faceStyle, transform }}>
+                  {PIPS[face].map(([col, row], i) => (
+                    <div key={i} style={{ gridColumn: col, gridRow: row, display: "flex" }}>
+                      <div style={{
+                        width: 9, height: 9, borderRadius: "50%", margin: "auto",
+                        backgroundColor: face === 1 ? "#e74c3c" : "#2b1d10",
+                        boxShadow: "inset 0 1px 2px rgba(0,0,0,0.6)"
+                      }} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ★ PERFORMANCE FIX: Baked-in radial gradient replaces expensive blur() filter */}
+      <div
+        ref={shadowRef}
+        style={{
+          position: "absolute",
+          bottom: 0,
+          left: "50%",
+          width: 56,
+          height: 16,
+          marginLeft: -28,
+          background: "radial-gradient(ellipse at center, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 70%)",
+          borderRadius: "50%",
+          transform: "scale(1) translateY(0)",
+          opacity: 0.6,
+          zIndex: -1,
+          willChange: "transform, opacity"
+        }}
+      />
+    </div>
+  );
+
   return (
     <>
       <style>{`
@@ -447,113 +545,32 @@ export default function Dice({
         {!rolling && lastDice != null ? `Rolled a ${lastDice}` : ""}
       </span>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-        <div
-          style={{
-            position: "relative",
-            width: 80,
-            height: 80,
-            perspective: "400px",
-            perspectiveOrigin: "50% 20%",
-            transformStyle: "preserve-3d",
-            transform: "rotateX(15deg)",
-            opacity: disabled && !rolling && !settled ? 0.5 : 1,
-            transition: "opacity 0.4s ease-out",
-          }}
-        >
-          <div
-            className={settled && !reducedMotion ? "settled-dice" : ""}
-            aria-hidden="true"
-            style={{
-              position: "absolute",
-              width: 56,
-              height: 56,
-              top: 12,
-              left: 12,
-              transformStyle: "preserve-3d",
-            }}
-          >
-            {/* ★ PERFORMANCE FIX: will-change applied here */}
-            <div 
-              ref={bounceRef} 
-              style={{ 
-                width: "100%", 
-                height: "100%", 
-                transformStyle: "preserve-3d",
-                willChange: "transform" 
-              }}
-            >
-              <div
-                ref={wobbleRef}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  transformStyle: "preserve-3d",
-                  willChange: "transform" /* Ensures the wobble layer gets accelerated */
-                }}
-              >
-                <div
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    position: "relative",
-                    transformStyle: "preserve-3d",
-                    transform: `translateZ(-28px) rotateX(${rotations.x}deg) rotateY(${rotations.y}deg) rotateZ(${rollZ}deg)`,
-                    transition: isAnimating
-                      ? `transform ${rollMs}ms cubic-bezier(0.05, 0.7, 0.2, 1.0)`
-                      : "transform 0.8s cubic-bezier(0.22, 1.0, 0.36, 1)",
-                    willChange: "transform",
-                  }}
-                >
-                  {FACE_TRANSFORMS.map(({ face, transform }) => (
-                    <div key={face} style={{ ...faceStyle, transform }}>
-                      {PIPS[face].map(([col, row], i) => (
-                        <div key={i} style={{ gridColumn: col, gridRow: row, display: "flex" }}>
-                          <div style={{
-                            width: 9, height: 9, borderRadius: "50%", margin: "auto",
-                            backgroundColor: face === 1 ? "#e74c3c" : "#2b1d10",
-                            boxShadow: "inset 0 1px 2px rgba(0,0,0,0.6)"
-                          }} />
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* ★ PERFORMANCE FIX: Baked-in radial gradient replaces expensive blur() filter */}
-          <div
-            ref={shadowRef}
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: "50%",
-              width: 56,
-              height: 16,
-              marginLeft: -28,
-              background: "radial-gradient(ellipse at center, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 70%)",
-              borderRadius: "50%",
-              transform: "scale(1) translateY(0)",
-              opacity: 0.6,
-              zIndex: -1,
-              willChange: "transform, opacity"
-            }}
-          />
-        </div>
-
+      {floating ? (
         <button
-          className="btn-primary"
+          type="button"
+          className={`dice-float${!isBusy ? " is-ready" : ""}`}
           onClick={handleClick}
           disabled={isBusy}
           aria-label="Roll the dice"
           aria-busy={rolling || pending}
-          style={{ minHeight: 44, minWidth: 100 }}
         >
-          {rolling ? "Rolling..." : "Roll Dice"}
+          {die}
         </button>
-      </div>
+      ) : (
+        <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+          {die}
+          <button
+            className="btn-primary"
+            onClick={handleClick}
+            disabled={isBusy}
+            aria-label="Roll the dice"
+            aria-busy={rolling || pending}
+            style={{ minHeight: 44, minWidth: 100 }}
+          >
+            {rolling ? "Rolling..." : "Roll Dice"}
+          </button>
+        </div>
+      )}
     </>
   );
 }

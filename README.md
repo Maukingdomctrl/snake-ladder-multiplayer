@@ -75,6 +75,9 @@ cd e2e && npm ci && npx playwright install chromium && npm test
 ```
 The end-to-end suite starts the emulators, the server and the web app itself, then plays real
 games in several browsers (both games, phones to desktop). It needs Java for the Firestore emulator.
+`tests/layout.spec.ts` checks the phone layout rules from CLAUDE.md (board first, steady header,
+floating chat, keyboard-stable join card); `SHOTS=1 npx playwright test tests/layout.spec.ts` also
+saves screenshots to `e2e/screenshots/`. UI changes: see the guide in `.claude/skills/game-ui/SKILL.md`.
 
 ## Dependency overrides
 `npm audit` is clean in `web/`, `server/` and `e2e/`. Two `overrides` in `package.json` make that so

@@ -206,6 +206,18 @@ export default function Chat({ messages, playerId, playerName, activeRoomId, roo
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [all.length]);
 
+  // ...also when the list itself gets shorter (the phone chat floats over the
+  // board in less room once the keyboard is open)
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottom.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const onScroll = () => {
     const el = listRef.current;
     if (el) stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;

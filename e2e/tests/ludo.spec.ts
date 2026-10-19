@@ -192,6 +192,8 @@ test("chat works in a Ludo room", async ({ browser }) => {
   await bob.locator("button:has(svg path[d^='M20 2H4'])").click();
   const strip = bob.locator(".mobile-chat");
   await bob.locator(".chat-inputrow textarea").fill("good luck!");
+  // The strip slides open; measure it once it has settled
+  await expect.poll(() => strip.evaluate((el) => el.getAnimations().length)).toBe(0);
   const before = await strip.boundingBox();
   await bob.locator(".chat-send").click();
   await alice.locator("button:has(svg path[d^='M20 2H4'])").click();

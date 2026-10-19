@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Dice from "../../../components/Dice";
+import { useBoardStage } from "../../../hooks/useBoardStage";
 import WinnerOverlay from "../../../components/WinnerOverlay";
 import { describeProgress } from "../board";
 import { playLudoSound } from "../sound";
 import { COLOR_LABEL, deriveUiPhase, type UiPhase } from "../state";
 import { PALETTE } from "../theme";
 import type { LudoAction, LudoColor, LudoRoom } from "../types";
-import { useBoardStage } from "../useBoardStage";
 import { LUDO_ROLL_MS, usePresentation } from "../usePresentation";
 import LudoBoard from "./LudoBoard";
 import LudoPlayers from "./LudoPlayers";
@@ -23,25 +24,33 @@ type Props = {
   serverNow: () => number;
   sound: boolean;
   onToggleSound: () => void;
+  /** Phones: the room header's slot; the players are shown there. */
+  headerSlot?: HTMLElement | null;
 };
 
 const WIDE_MIN_WIDTH = 760;
 const PANEL_WIDTH = 280;
 
-/** Tracks an element's size (for choosing the side-panel layout). */
-function useElementSize() {
+/** Whether the game area has room for the side panel. Re-renders only when
+ *  that answer changes, and judges by the tallest height seen at this width,
+ *  so the phone keyboard never switches layouts. */
+function useWideLayout() {
   const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [wide, setWide] = useState(false);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const ro = new ResizeObserver(([entry]) =>
-      setSize({ width: Math.floor(entry.contentRect.width), height: Math.floor(entry.contentRect.height) })
-    );
+    let seen = { width: 0, height: 0 };
+    const ro = new ResizeObserver(([entry]) => {
+      const width = Math.floor(entry.contentRect.width);
+      const height = Math.floor(entry.contentRect.height);
+      seen = width !== seen.width ? { width, height } : { width, height: Math.max(seen.height, height) };
+      setWide(width >= WIDE_MIN_WIDTH && width - PANEL_WIDTH >= Math.min(seen.height, 520));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  return { ref, ...size };
+  return { ref, wide };
 }
 
 function statusLine(ui: UiPhase, nameOf: (color: LudoColor | null) => string, dice: number | null): string {
@@ -63,10 +72,9 @@ function statusLine(ui: UiPhase, nameOf: (color: LudoColor | null) => string, di
   }
 }
 
-export default function LudoGameView({ room, playerId, pending, act, onLeave, serverNow, sound, onToggleSound }: Props) {
+export default function LudoGameView({ room, playerId, pending, act, onLeave, serverNow, sound, onToggleSound, headerSlot = null }: Props) {
   const game = room.ludo.game!;
-  const layout = useElementSize();
-  const wide = layout.width >= WIDE_MIN_WIDTH && layout.width - PANEL_WIDTH >= Math.min(layout.height, 520);
+  const { ref: layoutRef, wide } = useWideLayout();
   const stage = useBoardStage();
   const [focusToken, setFocusToken] = useState<number | null>(null);
   const [confirmLeave, setConfirmLeave] = useState(false);
@@ -161,44 +169,58 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
     </div>
   );
 
+  // Phones/tablets: the die floats in the middle of the board (tap it to roll);
+  // the wide layout keeps it in a card in the side panel.
+  const dice = (
+    <Dice
+      onRoll={roll}
+      disabled={ui.kind !== "my-roll" || pending !== null}
+      lastDice={view.dice ? (view.dice.value as Face) : null}
+      rollKey={view.dice?.key ?? ""}
+      onRollComplete={onDiceSettled}
+      feedback={sound}
+      rollMs={LUDO_ROLL_MS}
+      floating={!wide}
+    />
+  );
+
+  const status = statusLine(ui, nameOfColor, game.turn.dice);
+  const picks = ui.kind === "my-move" && (
+    <span className="ludo-picks">
+      {ui.legal.map((token) => (
+        <button
+          key={token}
+          type="button"
+          className="ludo-pick"
+          style={{ ["--token" as string]: PALETTE[myColor ?? "red"].base }}
+          disabled={moving}
+          aria-label={`Move token ${token + 1}, ${describeProgress(game.tokens[myColor!]?.[token] ?? -1)}`}
+          onMouseEnter={() => setFocusToken(token)}
+          onMouseLeave={() => setFocusToken(null)}
+          onFocus={() => setFocusToken(token)}
+          onBlur={() => setFocusToken(null)}
+          onClick={() => pick(token)}
+        >
+          {token + 1}
+        </button>
+      ))}
+    </span>
+  );
+
+  // Phones/tablets: the banner says whose turn it is and the die and the
+  // token picks float on the board, so the status line only stays for a
+  // spectator (the text is still read out either way).
   const actions = (
     <div className="ludo-actions">
       <div className="ludo-actions__status">
-        <span className="ludo-actions__text">{statusLine(ui, nameOfColor, game.turn.dice)}</span>
-        {ui.kind === "my-move" && (
-          <span className="ludo-picks">
-            {ui.legal.map((token) => (
-              <button
-                key={token}
-                type="button"
-                className="ludo-pick"
-                style={{ ["--token" as string]: PALETTE[myColor ?? "red"].base }}
-                disabled={moving}
-                aria-label={`Move token ${token + 1}, ${describeProgress(game.tokens[myColor!]?.[token] ?? -1)}`}
-                onMouseEnter={() => setFocusToken(token)}
-                onMouseLeave={() => setFocusToken(null)}
-                onFocus={() => setFocusToken(token)}
-                onBlur={() => setFocusToken(null)}
-                onClick={() => pick(token)}
-              >
-                {token + 1}
-              </button>
-            ))}
-          </span>
-        )}
+        <span className="ludo-actions__text">{status}</span>
+        {picks}
       </div>
-      <div className="ludo-dice" style={{ ["--seat" as string]: turnColor ? PALETTE[turnColor].base : "var(--border)" }}>
-        <Dice
-          onRoll={roll}
-          disabled={ui.kind !== "my-roll" || pending !== null}
-          lastDice={view.dice ? (view.dice.value as Face) : null}
-          rollKey={view.dice?.key ?? ""}
-          onRollComplete={onDiceSettled}
-          feedback={sound}
-          rollMs={LUDO_ROLL_MS}
-          scrollIntoViewOnRoll={false}
-        />
-      </div>
+      {wide && (
+        <div className="ludo-dice" style={{ ["--seat" as string]: turnColor ? PALETTE[turnColor].base : "var(--border)" }}>
+          {dice}
+        </div>
+      )}
     </div>
   );
 
@@ -215,12 +237,12 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
   );
 
   return (
-    <div ref={layout.ref} className={`ludo-game${wide ? " is-wide" : ""}${ui.kind === "my-roll" ? " is-my-roll" : ""}`}>
-      {!wide && players}
+    <div ref={layoutRef} className={`ludo-game${wide ? " is-wide" : ""}${ui.kind === "my-roll" ? " is-my-roll" : ""}`}>
+      {!wide && (headerSlot ? createPortal(<div className="ludo-header-players">{players}</div>, headerSlot) : players)}
       {!wide && banner}
 
       {/* Never taller than wide, so the board and the dice stay together */}
-      <div className="ludo-stage-area" ref={stage.ref} style={wide || !stage.areaWidth ? undefined : { maxHeight: stage.areaWidth }}>
+      <div className="ludo-stage-area" ref={stage.ref} data-content-end style={wide || !stage.width ? undefined : { maxHeight: stage.width }}>
         <div className="ludo-notice-slot" role="status" aria-live="polite">
           {notice && (
             <div key={notice.id} className={`ludo-notice ludo-notice--${notice.tone}`}>
@@ -230,8 +252,9 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
         </div>
         {stage.side > 0 && (
           <div
+            ref={stage.stageRef}
             className="board-stage"
-            style={{ width: stage.side, height: stage.side, flexShrink: 0, transform: `scale(${stage.scale})` }}
+            style={{ width: stage.side, height: stage.side, flexShrink: 0 }}
           >
             <LudoBoard
               size={stage.side}
@@ -248,6 +271,13 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
               safeSquares={game.settings.safeSquares}
               onPick={pick}
             />
+          </div>
+        )}
+        {!wide && stage.side > 0 && (
+          <div ref={stage.overlayRef} className="board-overlay">
+            <span className="sr-only" aria-live="polite">{status}</span>
+            <div className="board-dice board-dice--center">{dice}</div>
+            {picks && <div className="board-picks">{picks}</div>}
           </div>
         )}
       </div>
@@ -268,7 +298,7 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
           </section>
         </aside>
       ) : (
-        actions
+        ui.kind === "spectating" && actions
       )}
 
       {ui.kind === "finished" && (
