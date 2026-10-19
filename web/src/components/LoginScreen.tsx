@@ -1,6 +1,7 @@
 import { useState } from "react";
+import DesktopHome from "./DesktopHome";
 
-interface LoginScreenProps {
+export interface LoginScreenProps {
   ready: boolean;
   playerName: string;
   setPlayerName: (name: string) => void;
@@ -71,6 +72,26 @@ export default function LoginScreen({
     setAction("join");
     onJoinRoom();
   };
+  // Desktop gets the arcade home page. Phones and tablets keep the join card
+  // below, which the CLAUDE.md mobile rules depend on.
+  if (layout.desktop) {
+    return (
+      <DesktopHome
+        ready={ready}
+        playerName={playerName}
+        setPlayerName={setPlayerName}
+        joinId={joinId}
+        setJoinId={setJoinId}
+        error={error}
+        loading={loading}
+        onCreateRoom={onCreateRoom}
+        onJoinRoom={onJoinRoom}
+        game={game}
+        setGame={setGame}
+      />
+    );
+  }
+
   return (
     <div style={{ display: "flex", alignItems: layout.desktop ? "center" : "flex-start", justifyContent: "center", flex: 1, padding: layout.desktop ? "24px 12px" : `${layout.top}px 12px 16px`, overflowY: "auto" }}>
       <div
@@ -116,6 +137,10 @@ export default function LoginScreen({
             <button onClick={create} disabled={loading} className="btn-primary" style={{ padding: layout.large ? 16 : 13, fontSize: layout.large ? 17 : 16 }}>
               {loading && action === "create" ? "Creating…" : game === "ludo" ? "Create Ludo room" : "Create room"}
             </button>
+
+            <div className="or-divider" role="separator">
+              <span>or join a friend</span>
+            </div>
 
             <div style={{ display: "flex", gap: 8 }}>
               <input
