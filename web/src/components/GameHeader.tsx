@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 interface GameHeaderProps {
   roomId: string;
   players: string[];
@@ -7,9 +9,12 @@ interface GameHeaderProps {
   /** Large screens: a full-width app bar with avatars instead of dots. */
   isDesktop?: boolean;
   gameName?: string;
+  /** Phones during a game: the players (and whose turn it is) live in the
+   *  header itself, so the board gets the room below it. */
+  children?: ReactNode;
 }
 
-export default function GameHeader({ roomId, players, playerColors, playerNames, isTablet, isDesktop, gameName }: GameHeaderProps) {
+export default function GameHeader({ roomId, players, playerColors, playerNames, isTablet, isDesktop, gameName, children }: GameHeaderProps) {
   if (isDesktop) {
     return (
       <header className="app-header">
@@ -47,13 +52,16 @@ export default function GameHeader({ roomId, players, playerColors, playerNames,
         padding: "0 12px",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <span style={{ color: "var(--text-muted)", fontSize: 18, fontWeight: 300 }}>#</span>
-        <h2 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>
-          game-room-{roomId}
+      <div style={{ display: "flex", alignItems: "center", gap: children ? 3 : 6, flexShrink: 0 }}>
+        <span style={{ color: "var(--text-muted)", fontSize: children ? 15 : 18, fontWeight: 300 }}>#</span>
+        <h2 style={{ margin: 0, fontSize: children ? 13 : 14, fontWeight: 700, color: children ? "var(--text-secondary)" : "var(--text-primary)" }}>
+          {children ? roomId : `game-room-${roomId}`}
         </h2>
       </div>
 
+      {children ? (
+        <div className="header-game">{children}</div>
+      ) : (
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
         <div style={{ display: "flex", alignItems: "center" }}>
           {players.map((pid, idx) => (
@@ -84,6 +92,7 @@ export default function GameHeader({ roomId, players, playerColors, playerNames,
           <span>{players.length}</span>
         </div>
       </div>
+      )}
     </div>
   );
 }

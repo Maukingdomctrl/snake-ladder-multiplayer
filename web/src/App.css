@@ -642,6 +642,54 @@ img.emoji { width: 1.375em; height: 1.375em; vertical-align: -0.3em; margin: 0 0
 .jump-message-pill { animation: jump-pill-in 0.34s var(--ease-spring) both; }
 @keyframes jump-pill-in { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
 
+/* Phones in a game: the players live in the room header (GameHeader's
+   children), right after the room number */
+.header-game {
+  flex: 1;
+  min-width: 0;
+  margin-left: 10px;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.header-game::-webkit-scrollbar { display: none; }
+.header-slot { min-width: 0; }
+.header-game .scoreboard--row { width: auto; }
+
+/* Phone chat floats: only the input bar takes a row under the game; the
+   messages float above it, filling the free space under the board when there
+   is some and otherwise over the board's lower left (keyboard open), so the
+   board keeps its size. App.tsx sets --chat-float-h, and .is-over-board
+   when they cover the board: then they keep clear of the die's corner. */
+.mobile-chat--float { position: relative; }
+.mobile-chat--float .chat { position: static; }
+.mobile-chat--float .chat-list {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  width: 100%;
+  height: var(--chat-float-h, 96px);
+  padding: 8px 0 6px;
+  background: rgb(255 255 255 / 0.8);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -6px 18px rgb(0 0 0 / 0.08);
+  transition: width var(--dur-base) var(--ease-out);
+  animation: chat-float-in 0.22s var(--ease-out) both;
+}
+.mobile-chat--float.is-over-board .chat-list {
+  width: calc(100% - 92px);
+  background: rgb(255 255 255 / 0.66);
+  border-radius: 0 18px 0 0;
+}
+.mobile-chat--float.is-over-board .bubble { box-shadow: 0 1px 3px rgb(0 0 0 / 0.12); }
+@keyframes chat-float-in { from { opacity: 0; transform: translateY(12px); } }
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-chat--float .chat-list { background: var(--bg-primary); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
 /* Snakes & Ladders players on phones/tablets: one slim row above the board.
    The highlighted chip is whose turn it is (no separate turn line). */
 .scoreboard--row {

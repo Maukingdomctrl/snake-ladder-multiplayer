@@ -68,7 +68,7 @@ function slideChatStrip(strip: HTMLElement, direction: "in" | "out"): Promise<vo
   const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
   if (reduced || typeof strip.animate !== "function") return Promise.resolve();
   const height = `${strip.offsetHeight}px`;
-  strip.style.overflow = "hidden";
+  if (!strip.classList.contains("mobile-chat--float")) strip.style.overflow = "hidden";
   const animation = strip.animate(
     direction === "in" ? [{ height: "0px" }, { height }] : [{ height }, { height: "0px" }],
     { duration: 220, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: direction === "out" ? "forwards" : "none" }
@@ -647,11 +647,85 @@ export default function App() {
 
   const isPlayingOrFinished =
     roomData?.status === "playing" || roomData?.status === "finished";
+  // S&L players: in the header on phones, above the board on tablets, in the
+  // side panel on desktop
+  const scoreboard = roomData?.positions ? (
+    <Scoreboard
+      vertical={isDesktop}
+      players={roomData.players ?? EMPTY_PLAYERS_LIST}
+      /*
+        BUG FIX: this previously read roomData.positions
+        directly — the raw, immediate Firestore value —
+        while Board reads displayPositions (buffered,
+        only updates once the dice animation actually
+        finishes). That mismatch meant the scoreboard's
+        "Sq. N" number and "rolling..." label could
+        visually update to the FINAL position the
+        instant Firestore pushed the roll, while the
+        token on the board was still mid-walk toward
+        that square — making it look like "the piece
+        already moved" even though the board itself was
+        animating correctly. Using the same
+        displayPositions the board uses keeps both
+        views in lockstep.
+      */
+      positions={displayPositions}
+      playerColors={roomData.playerColors || EMPTY_PLAYER_MAP}
+      playerNames={roomData.playerNames || EMPTY_PLAYER_MAP}
+      currentTurn={roomData.currentTurn}
+      status={roomData.status}
+      winnerId={roomData.winnerId ?? null}
+      playerId={playerId}
+      lastDice={roomData.lastDice ?? null}
+      lastRolledBy={roomData.lastRolledBy ?? null}
+      // The "rolling..." label should track the same
+      // diceComplete gate the board uses, not just
+      // currentTurn/status, so the label can't say
+      // "rolling..." after the token has actually
+      // finished walking, or stop saying it before the
+      // token has finished.
+      diceComplete={diceComplete}
+    />
+  ) : null;
+  // Phones in a game: the players move into the header (Ludo portals its own
+  // into this slot), so the board gets the room below it
+  const ludoInGame = inLudo && !!ludo.room?.ludo.game && ludo.room.status !== "waiting";
+  const [ludoHeaderSlot, setLudoHeaderSlot] = useState<HTMLDivElement | null>(null);
+  const headerGame = isTablet
+    ? undefined
+    : isPlayingOrFinished && !inLudo
+      ? scoreboard
+      : ludoInGame
+        ? <div ref={setLudoHeaderSlot} className="header-slot" />
+        : undefined;
 
   const chatStripRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (chatOpen && !isTablet && chatStripRef.current) void slideChatStrip(chatStripRef.current, "in");
   }, [chatOpen, isTablet]);
+
+  // In a game on a phone the chat floats (see .mobile-chat--float): only its
+  // input bar takes a row, and the messages fill the free space under the
+  // game, or float over the board's lower part when there's none (keyboard).
+  const gameColumnRef = useRef<HTMLDivElement>(null);
+  const floatChat = !isTablet && (isPlayingOrFinished || ludoInGame);
+  useLayoutEffect(() => {
+    const column = gameColumnRef.current;
+    const strip = chatStripRef.current;
+    if (!floatChat || !chatOpen || !column || !strip) return;
+    const update = () => {
+      const col = column.getBoundingClientRect();
+      const end = column.querySelector("[data-content-end]")?.getBoundingClientRect();
+      const free = end ? col.bottom - end.bottom - 8 : 0;
+      strip.style.setProperty("--chat-float-h", `${Math.round(Math.max(96, Math.min(free, col.height * 0.5)))}px`);
+      // Over the board, the messages keep clear of the die's corner
+      strip.classList.toggle("is-over-board", free < 96);
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(column);
+    update();
+    return () => ro.disconnect();
+  }, [floatChat, chatOpen]);
 
   const closeChatDrawer = useCallback(() => {
     const strip = chatStripRef.current;
@@ -769,17 +843,18 @@ export default function App() {
               </div>
             )}
 
-            {(!isCompact || isDesktop) && (
-              <GameHeader
-                roomId={activeRoomId}
-                players={chatRoom?.players ?? EMPTY_PLAYERS_LIST}
-                playerColors={chatRoom?.playerColors || EMPTY_PLAYER_MAP}
-                playerNames={chatRoom?.playerNames || EMPTY_PLAYER_MAP}
-                isTablet={isTablet}
-                isDesktop={isDesktop}
-                gameName={inLudo ? "Ludo" : "Snakes & Ladders"}
-              />
-            )}
+            {/* Always shown: on phones it carries the players during a game */}
+            <GameHeader
+              roomId={activeRoomId}
+              players={chatRoom?.players ?? EMPTY_PLAYERS_LIST}
+              playerColors={chatRoom?.playerColors || EMPTY_PLAYER_MAP}
+              playerNames={chatRoom?.playerNames || EMPTY_PLAYER_MAP}
+              isTablet={isTablet}
+              isDesktop={isDesktop}
+              gameName={inLudo ? "Ludo" : "Snakes & Ladders"}
+            >
+              {headerGame}
+            </GameHeader>
 
             <div
               style={{
@@ -794,6 +869,7 @@ export default function App() {
             >
               {/* LEFT COLUMN */}
               <div
+                ref={gameColumnRef}
                 style={{
                   flex: 1,
                   minWidth: 0,
@@ -810,7 +886,7 @@ export default function App() {
               >
                 {inLudo && (
                   <Suspense fallback={<div style={{ margin: "auto", color: "var(--text-muted)" }}>Loading Ludo…</div>}>
-                    <LudoRoom ludo={ludo} playerId={playerId} />
+                    <LudoRoom ludo={ludo} playerId={playerId} headerSlot={isTablet ? null : ludoHeaderSlot} />
                   </Suspense>
                 )}
 
@@ -855,7 +931,7 @@ export default function App() {
                     {/* TOP BAR */}
                     <div
                       className="snl-top"
-                      style={isDesktop ? undefined : { flexShrink: 0, padding: "2px 8px 6px" }}
+                      style={isDesktop ? undefined : { flexShrink: 0, padding: isTablet ? "2px 8px 6px" : 0 }}
                     >
                       {isDesktop && <p className="panel-label">Turn</p>}
                       {roomData.status === "playing" ? (
@@ -900,51 +976,17 @@ export default function App() {
                       )}
 
                       {isDesktop && roomData.positions && <p className="panel-label">Players</p>}
-                      {roomData.positions && (
-                        <Scoreboard
-                          vertical={isDesktop}
-                          players={roomData.players ?? EMPTY_PLAYERS_LIST}
-                          /*
-                            BUG FIX: this previously read roomData.positions
-                            directly — the raw, immediate Firestore value —
-                            while Board reads displayPositions (buffered,
-                            only updates once the dice animation actually
-                            finishes). That mismatch meant the scoreboard's
-                            "Sq. N" number and "rolling..." label could
-                            visually update to the FINAL position the
-                            instant Firestore pushed the roll, while the
-                            token on the board was still mid-walk toward
-                            that square — making it look like "the piece
-                            already moved" even though the board itself was
-                            animating correctly. Using the same
-                            displayPositions the board uses keeps both
-                            views in lockstep.
-                          */
-                          positions={displayPositions}
-                          playerColors={roomData.playerColors || EMPTY_PLAYER_MAP}
-                          playerNames={roomData.playerNames || EMPTY_PLAYER_MAP}
-                          currentTurn={roomData.currentTurn}
-                          status={roomData.status}
-                          winnerId={roomData.winnerId ?? null}
-                          playerId={playerId}
-                          lastDice={roomData.lastDice ?? null}
-                          lastRolledBy={roomData.lastRolledBy ?? null}
-                          // The "rolling..." label should track the same
-                          // diceComplete gate the board uses, not just
-                          // currentTurn/status, so the label can't say
-                          // "rolling..." after the token has actually
-                          // finished walking, or stop saying it before the
-                          // token has finished.
-                          diceComplete={diceComplete}
-                        />
-                      )}
+                      {isTablet && scoreboard}
                     </div>
 
                     {/* BOARD AREA */}
                     <div
                       ref={boardStage.ref}
                       className="snl-board-area"
+                      data-content-end
                       style={{
+                        // Phones: nearly edge to edge
+                        margin: isTablet ? undefined : "0 -8px",
                         flex: "1 1 auto",
                         minHeight: 0,
                         // Phones/tablets: the board is the hero, as big as the
@@ -1046,7 +1088,7 @@ export default function App() {
 
               {/* MOBILE CHAT: docked under the board so both stay usable */}
               {!isTablet && chatOpen && (
-                <div className="mobile-chat" ref={chatStripRef}>
+                <div className={floatChat ? "mobile-chat mobile-chat--float" : "mobile-chat"} ref={chatStripRef}>
                   <Chat
                     onClose={closeChatDrawer}
                     messages={messages}

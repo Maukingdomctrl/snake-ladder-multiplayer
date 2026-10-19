@@ -215,9 +215,12 @@
   align-items: center;
   overflow: hidden;
 }
-/* Phones/tablets: players on top, board + dice centred together below */
-.ludo-game:not(.is-wide) > .ludo-stage-area { margin-top: auto; }
+/* Phones/tablets: the board is the hero, right under the turn banner (the
+   players are in the room header on phones), the die floating on it */
 .ludo-game:not(.is-wide) > .ludo-actions { margin-bottom: auto; }
+@media (max-width: 767px) {
+  .ludo-game:not(.is-wide) > .ludo-stage-area { margin: 0 -8px; }
+}
 .ludo-panel { display: flex; flex-direction: column; gap: 12px; min-height: 0; overflow-y: auto; padding-top: 4px; }
 .ludo-panel .ludo-banner { flex-wrap: wrap; height: auto; row-gap: 8px; }
 .ludo-panel .ludo-banner__text { flex: 1 0 calc(100% - 24px); }
@@ -284,6 +287,12 @@
 .ludo-player__name, .ludo-player__status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ludo-player__name { font-size: 12px; font-weight: 600; color: var(--text-primary); line-height: 1.2; }
 .ludo-player__status { font-size: 10.5px; color: var(--text-muted); line-height: 1.2; }
+/* Phones: the players sit in the room header as slim one-line chips */
+.ludo-header-players .ludo-players { padding: 0; gap: 4px; }
+.ludo-header-players .ludo-player { flex: 0 1 auto; height: 30px; padding: 0 9px 0 5px; border-radius: var(--radius-full); }
+.ludo-header-players .ludo-player__dot { width: 14px; height: 14px; border-width: 1.5px; }
+.ludo-header-players .ludo-player__text { flex-direction: row; align-items: baseline; gap: 4px; }
+.ludo-header-players .ludo-player__status::before { content: "· "; }
 .ludo-players.is-vertical { flex-direction: column; gap: 8px; }
 .ludo-players.is-vertical .ludo-player { flex: none; padding: 8px 10px; gap: 10px; }
 .ludo-players.is-vertical .ludo-player__dot { width: 24px; height: 24px; }
@@ -373,6 +382,23 @@
   color: var(--text-secondary);
   text-align: center;
 }
+/* Phones/tablets: the token picks float on the board, just under the die
+   in the middle (the board overlay is App.css .board-overlay) */
+.board-picks {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 40px * var(--die-scale, 0.8) + 8px);
+  display: flex;
+  padding: 5px 7px;
+  border-radius: var(--radius-full);
+  background: rgb(255 255 255 / 0.88);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  transform: translateX(-50%);
+  animation: board-picks-in 0.3s var(--ease-spring) both;
+}
+@keyframes board-picks-in { from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.9); } }
+
 /* One line, so a long name never makes the row (and the board) jump */
 .ludo-actions__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ludo-picks { display: inline-flex; gap: 6px; flex-shrink: 0; }
@@ -401,10 +427,6 @@
   transition: border-color var(--dur-slow) ease;
 }
 .ludo-game.is-my-roll .ludo-dice { animation: ludo-dice-glow 1.4s ease-in-out infinite; }
-/* Phones: keep the dice clear of the floating chat button (bottom-right) */
-@media (max-width: 767px) {
-  .ludo-game:not(.is-wide) .ludo-dice { margin-right: 60px; }
-}
 
 /* ── Board ── */
 .ludo-frame {

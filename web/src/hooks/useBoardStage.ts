@@ -4,8 +4,8 @@
 //
 // The scale is written straight onto the stage element from a ResizeObserver,
 // so it follows the area frame by frame while the keyboard or the chat strip
-// slides: the board never sticks out of its area or covers the dice, and no
-// React render happens while it shrinks. The board is only re-drawn when the
+// slides: the board never sticks out of its area, and no React render
+// happens while it shrinks. The board is only re-drawn when the
 // area gets wider or narrower (rotation) or taller than it has been so far.
 //
 // Used by Snakes & Ladders (App.tsx) and Ludo (LudoGameView.tsx): put `ref`
@@ -31,8 +31,9 @@ export function useBoardStage() {
     if (overlay.current) {
       const side = Math.round(baseSide.current * scale);
       overlay.current.style.setProperty("--board-side", `${side}px`);
-      // The floating die (80px) covers about a sixth of the board
-      overlay.current.style.setProperty("--die-scale", String(Math.max(0.5, Math.min(0.9, (side * 0.17) / 80))));
+      // The floating die (80px) covers about a sixth of the board, and stays
+      // at least a 45px tap target
+      overlay.current.style.setProperty("--die-scale", String(Math.max(0.56, Math.min(0.9, (side * 0.17) / 80))));
     }
   }, []);
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Dice from "../../../components/Dice";
 import { useBoardStage } from "../../../hooks/useBoardStage";
 import WinnerOverlay from "../../../components/WinnerOverlay";
@@ -23,6 +24,8 @@ type Props = {
   serverNow: () => number;
   sound: boolean;
   onToggleSound: () => void;
+  /** Phones: the room header's slot; the players are shown there. */
+  headerSlot?: HTMLElement | null;
 };
 
 const WIDE_MIN_WIDTH = 760;
@@ -69,7 +72,7 @@ function statusLine(ui: UiPhase, nameOf: (color: LudoColor | null) => string, di
   }
 }
 
-export default function LudoGameView({ room, playerId, pending, act, onLeave, serverNow, sound, onToggleSound }: Props) {
+export default function LudoGameView({ room, playerId, pending, act, onLeave, serverNow, sound, onToggleSound, headerSlot = null }: Props) {
   const game = room.ludo.game!;
   const { ref: layoutRef, wide } = useWideLayout();
   const stage = useBoardStage();
@@ -166,43 +169,58 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
     </div>
   );
 
+  // Phones/tablets: the die floats in the middle of the board (tap it to roll);
+  // the wide layout keeps it in a card in the side panel.
+  const dice = (
+    <Dice
+      onRoll={roll}
+      disabled={ui.kind !== "my-roll" || pending !== null}
+      lastDice={view.dice ? (view.dice.value as Face) : null}
+      rollKey={view.dice?.key ?? ""}
+      onRollComplete={onDiceSettled}
+      feedback={sound}
+      rollMs={LUDO_ROLL_MS}
+      floating={!wide}
+    />
+  );
+
+  const status = statusLine(ui, nameOfColor, game.turn.dice);
+  const picks = ui.kind === "my-move" && (
+    <span className="ludo-picks">
+      {ui.legal.map((token) => (
+        <button
+          key={token}
+          type="button"
+          className="ludo-pick"
+          style={{ ["--token" as string]: PALETTE[myColor ?? "red"].base }}
+          disabled={moving}
+          aria-label={`Move token ${token + 1}, ${describeProgress(game.tokens[myColor!]?.[token] ?? -1)}`}
+          onMouseEnter={() => setFocusToken(token)}
+          onMouseLeave={() => setFocusToken(null)}
+          onFocus={() => setFocusToken(token)}
+          onBlur={() => setFocusToken(null)}
+          onClick={() => pick(token)}
+        >
+          {token + 1}
+        </button>
+      ))}
+    </span>
+  );
+
+  // Phones/tablets: the banner says whose turn it is and the die and the
+  // token picks float on the board, so the status line only stays for a
+  // spectator (the text is still read out either way).
   const actions = (
     <div className="ludo-actions">
       <div className="ludo-actions__status">
-        <span className="ludo-actions__text">{statusLine(ui, nameOfColor, game.turn.dice)}</span>
-        {ui.kind === "my-move" && (
-          <span className="ludo-picks">
-            {ui.legal.map((token) => (
-              <button
-                key={token}
-                type="button"
-                className="ludo-pick"
-                style={{ ["--token" as string]: PALETTE[myColor ?? "red"].base }}
-                disabled={moving}
-                aria-label={`Move token ${token + 1}, ${describeProgress(game.tokens[myColor!]?.[token] ?? -1)}`}
-                onMouseEnter={() => setFocusToken(token)}
-                onMouseLeave={() => setFocusToken(null)}
-                onFocus={() => setFocusToken(token)}
-                onBlur={() => setFocusToken(null)}
-                onClick={() => pick(token)}
-              >
-                {token + 1}
-              </button>
-            ))}
-          </span>
-        )}
+        <span className="ludo-actions__text">{status}</span>
+        {picks}
       </div>
-      <div className="ludo-dice" style={{ ["--seat" as string]: turnColor ? PALETTE[turnColor].base : "var(--border)" }}>
-        <Dice
-          onRoll={roll}
-          disabled={ui.kind !== "my-roll" || pending !== null}
-          lastDice={view.dice ? (view.dice.value as Face) : null}
-          rollKey={view.dice?.key ?? ""}
-          onRollComplete={onDiceSettled}
-          feedback={sound}
-          rollMs={LUDO_ROLL_MS}
-        />
-      </div>
+      {wide && (
+        <div className="ludo-dice" style={{ ["--seat" as string]: turnColor ? PALETTE[turnColor].base : "var(--border)" }}>
+          {dice}
+        </div>
+      )}
     </div>
   );
 
@@ -220,11 +238,11 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
 
   return (
     <div ref={layoutRef} className={`ludo-game${wide ? " is-wide" : ""}${ui.kind === "my-roll" ? " is-my-roll" : ""}`}>
-      {!wide && players}
+      {!wide && (headerSlot ? createPortal(<div className="ludo-header-players">{players}</div>, headerSlot) : players)}
       {!wide && banner}
 
       {/* Never taller than wide, so the board and the dice stay together */}
-      <div className="ludo-stage-area" ref={stage.ref} style={wide || !stage.width ? undefined : { maxHeight: stage.width }}>
+      <div className="ludo-stage-area" ref={stage.ref} data-content-end style={wide || !stage.width ? undefined : { maxHeight: stage.width }}>
         <div className="ludo-notice-slot" role="status" aria-live="polite">
           {notice && (
             <div key={notice.id} className={`ludo-notice ludo-notice--${notice.tone}`}>
@@ -255,6 +273,13 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
             />
           </div>
         )}
+        {!wide && stage.side > 0 && (
+          <div ref={stage.overlayRef} className="board-overlay">
+            <span className="sr-only" aria-live="polite">{status}</span>
+            <div className="board-dice board-dice--center">{dice}</div>
+            {picks && <div className="board-picks">{picks}</div>}
+          </div>
+        )}
       </div>
 
       {wide ? (
@@ -273,7 +298,7 @@ export default function LudoGameView({ room, playerId, pending, act, onLeave, se
           </section>
         </aside>
       ) : (
-        actions
+        ui.kind === "spectating" && actions
       )}
 
       {ui.kind === "finished" && (
